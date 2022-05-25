@@ -1,6 +1,6 @@
 import {BoundingBox, ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
 import {GlobalNames} from './FieldsCollector';
-import {XPathChain, XPathChainResult} from './inject/main';
+import {getElementBySelectorChain, SelectorChain} from 'leak-detect-inject';
 import TypedArray = NodeJS.TypedArray;
 
 // Regexes are taken from:
@@ -170,11 +170,11 @@ export async function findLoginLinks(frame: Frame, exactMatch = false): Promise<
 	return unwrapHandle(listHandle);
 }
 
-/** Does not search in Shadow DOM, but {@link import('./inject/main').getNodeByXPathChain} is broken for that anyway... */
+/** Does not search in Shadow DOM */
 export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>):
 	  Promise<ElementInfo<LinkElementAttrs>[]> {
 	const links: ElementInfo<LinkElementAttrs>[] = [];
-	const seenXPathChains                        = new Set<string>();
+	const seenSelectors                          = new Set<string>();
 
 	async function addNew(elems: ElementHandle[], matchType: LinkMatchType) {
 		const infos = filterUniqBy(await Promise.all(elems.map(async handle => ({
@@ -182,7 +182,7 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 				...await getElementAttrs(handle),
 				linkMatchType: matchType,
 			},
-		}))), seenXPathChains, ({attrs: {xpathChain}}) => xpathChain.join(' '));
+		}))), seenSelectors, ({attrs: {selectorChain}}) => selectorChain.join('>>>'));
 
 		function isButtonOrLink(tagName: string) {
 			return ['BUTTON', 'A'].includes(tagName);
@@ -205,13 +205,13 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 }
 
 export async function getElementInfoFromAttrs(attrs: ElementAttrs, frame: Frame): Promise<ElementInfo | null> {
-	const handle = (await getNodeByXPathChain(attrs.xpathChain, frame))?.node;
+	const handle = (await getNodeBySelectorChain(attrs.selectorChain, frame))?.elem;
 	return (handle ?? null) && {handle: handle as ElementHandle, attrs};
 }
 
-export async function getNodeByXPathChain(xpathChain: XPathChain, frame: Frame): Promise<{ node: JSHandle<Node>, unique: boolean } | null> {
-	return await unwrapHandle(await frame.evaluateHandle<JSHandle<XPathChainResult | null>>(
-		  (xpathChain: XPathChain) => window[GlobalNames.INJECTED]!.getNodeByXPathChain(xpathChain), xpathChain));
+export async function getNodeBySelectorChain(selector: SelectorChain, frame: Frame): Promise<{ elem: ElementHandle, unique: boolean } | null> {
+	return await unwrapHandle(await frame.evaluateHandle<JSHandle<ReturnType<typeof getElementBySelectorChain>>>(
+		  (selector: SelectorChain) => window[GlobalNames.INJECTED]!.getElementBySelectorChain(selector), selector));
 }
 
 /** @return Stack starting with this frame, going up */
@@ -242,7 +242,7 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 
 		onTop: window[GlobalNames.INJECTED]!.isOnTop(el),
 
-		xpathChain: window[GlobalNames.INJECTED]!.formXPathChain(el),
+		selectorChain: window[GlobalNames.INJECTED]!.formSelectorChain(el),
 	}));
 	return {
 		...elAttrsPartial,
@@ -276,7 +276,7 @@ export interface ElementAttrs {
 	inView: boolean;
 	boundingBox: BoundingBox | null;
 
-	xpathChain: XPathChain;
+	selectorChain: SelectorChain;
 }
 
 export interface FathomElementAttrs extends ElementAttrs {

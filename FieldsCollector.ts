@@ -25,9 +25,17 @@ import {
 } from './utils';
 import {performance} from 'perf_hooks';
 import {UnreachableCaseError} from 'ts-essentials';
-import {FathomResult, XPathChain} from './inject/main';
+import {FathomResult, SelectorChain} from 'leak-detect-inject';
+import ErrnoException = NodeJS.ErrnoException;
 
-const injectSrc = fs.readFileSync('./inject/dist/bundle.js', 'utf8');
+let injectSrc: string;
+try {
+	injectSrc = fs.readFileSync('./inject/dist/bundle.js', 'utf8');
+} catch (err) {
+	if ((err as ErrnoException).code === 'ENOENT')
+		console.error('Bundle to inject not found, run `npm run pack` in the `inject` folder');
+	throw err;
+}
 
 export const NO_DELAYS = false;
 
@@ -98,7 +106,7 @@ export class FieldsCollector extends BaseCollector {
 
 		/** Get a string which should uniquely identify an element across pages  */
 		function getElemIdentifier(elem: ElementAttrs): string {
-			return `${stripHash(elem.frameStack[0])} ${elem.xpathChain.join(' ')}`;
+			return `${stripHash(elem.frameStack[0])} ${elem.selectorChain.join('>>>')}`;
 		}
 
 		const landingPage   = this.#page!;
@@ -343,11 +351,11 @@ export class FieldsCollector extends BaseCollector {
 				const page = getPageFromHandle(elem.handle)!;
 				//TODO reload page & re-fill fields
 				await page.bringToFront();
-				const formXPathChain = await elem.handle.evaluate(elem => {
+				const formSelector = await elem.handle.evaluate(elem => {
 					const form = (elem as Element & { form?: HTMLFormElement | null }).form;
-					return form ? window[GlobalNames.INJECTED]!.formXPathChain(form) : null;
+					return form ? window[GlobalNames.INJECTED]!.formSelectorChain(form) : null;
 				});
-				if (formXPathChain && !tryAdd(submittedForms, formXPathChain.join(' ')))
+				if (formSelector && !tryAdd(submittedForms, formSelector.join('>>>')))
 					continue;
 				if (await submitField(elem))
 					await this.waitForNavigation();
@@ -382,13 +390,15 @@ export class FieldsCollector extends BaseCollector {
 							for (const node of m.addedNodes)
 								observeRecursive(node);
 
-						const leakXPathChains = mutations
+						const leakSelectors = mutations
 							  .filter(m => m.attributeName && m.target instanceof Element &&
 									m.target.getAttribute(m.attributeName)?.includes(password))
-							  .map(m => window[GlobalNames.INJECTED]!.formXPathChain(
-									(m.target as Element).getAttributeNode(m.attributeName!)!)); //TODO what if attr removed immediately
-						if (leakXPathChains.length)
-							window[GlobalNames.PASSWORD_CALLBACK]!(location.href, leakXPathChains);
+							  .map(m => ({
+								  selector: window[GlobalNames.INJECTED]!.formSelectorChain(m.target as Element),
+								  attribute: m.attributeName!,
+							  })); //TODO what if elem removed immediately
+						if (leakSelectors.length)
+							window[GlobalNames.PASSWORD_CALLBACK]!(location.href, leakSelectors);
 					} catch (err) {
 						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error ? err.stack! : new Error().stack!);
 					}
@@ -410,9 +420,9 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	passwordObserverCallback(url: string, leakXPathChains: XPathChain[]) {
-		this.#log?.info(`password leaked on ${url} to attributes: ${leakXPathChains.map(p => p.join(' ')).join(', ')}`);
-		this.#passwordLeaks.push(...leakXPathChains.map(attributeXPathChain => ({url, attributeXPathChain})));
+	passwordObserverCallback(url: string, leaks: PagePasswordLeak[]) {
+		this.#log?.info(`password leaked on ${url} to attributes: ${leaks.map(l => `${l.selector.join('>>>')} @${l.attribute}`).join(', ')}`);
+		this.#passwordLeaks.push(...leaks.map(l => ({url, ...l})));
 	}
 
 	async injectErrorCallback(page: Page) {
@@ -425,9 +435,13 @@ export class FieldsCollector extends BaseCollector {
 	}
 }
 
-export interface PasswordLeak {
-	url: string,
-	attributeXPathChain: XPathChain,
+export interface PagePasswordLeak {
+	selector: SelectorChain;
+	attribute: string;
+}
+
+export interface PasswordLeak extends PagePasswordLeak {
+	url: string;
 }
 
 export type FieldCollectorData = Record<string, never> | {
@@ -441,7 +455,7 @@ export type FieldCollectorData = Record<string, never> | {
 declare global {
 	// noinspection JSUnusedGlobalSymbols
 	interface Window {
-		[GlobalNames.INJECTED]?: typeof import('./inject/main');
+		[GlobalNames.INJECTED]?: typeof import('leak-detect-inject');
 		[GlobalNames.PASSWORD_OBSERVED]?: boolean;
 		[GlobalNames.PASSWORD_CALLBACK]?: OmitThisParameter<typeof FieldsCollector.prototype.passwordObserverCallback>;
 		[GlobalNames.ERROR_CALLBACK]?: OmitThisParameter<typeof FieldsCollector.prototype.errorCallback>;
