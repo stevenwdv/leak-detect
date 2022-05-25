@@ -1,0 +1,27 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"useDefineForClassFields": true,
+		"module": "CommonJS",
+		"moduleResolution": "Node",
+		"esModuleInterop": true,
+		"sourceMap": true,
+		"preserveConstEnums": false,
+		"noImplicitOverride": true,
+		"noImplicitReturns": true,
+		"strict": true,
+		"forceConsistentCasingInFileNames": true,
+		"noEmit": true,
+		"outDir": "ts-out",
+		"pretty": true,
+		"resolveJsonModule": true,
+		"allowJs": true
+	},
+	"include": [
+		"*.ts",
+		"*.d.ts"
+	],
+	"exclude": [
+		"fathomDetect.js"
+	]
+}

@@ -1,0 +1,17 @@
+{
+	"name": "leak-detect-inject",
+	"version": "1.0.0",
+	"private": true,
+	"scripts": {
+		"pack": "webpack --mode production"
+	},
+	"type": "module",
+	"dependencies": {
+		"fathom-web": "https://gitpkg.now.sh/stevenwdv/fathom-shadow/fathom",
+		"query-selector-shadow-dom": "^1.0.0"
+	},
+	"devDependencies": {
+		"webpack": "^5.72.1",
+		"webpack-cli": "^4.9.2"
+	}
+}
