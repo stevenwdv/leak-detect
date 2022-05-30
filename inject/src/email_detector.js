@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* File taken from https://github.com/mozilla/fx-private-relay-add-on/blob/2022.5.18.515/src/web-ext-config.js
+/* File taken from https://github.com/mozilla/fx-private-relay-add-on/blob/2022.5.18.515/src/js/other-websites/email_detector.js
  * Changes are marked with #LD-CHANGE */
 
 //#LD-CHANGE use ESM syntax and export detectEmailInputs
@@ -107,7 +107,7 @@ const email_detector_ruleset = ruleset([
 // eslint-disable-next-line no-unused-vars, no-redeclare
 function* detectEmailInputs(domRoot) {
     // First return <input type='email'>
-    const typeEmailInputs = Array.from(domRoot.querySelectorAll('input[type=\'email\']'));
+    const typeEmailInputs = Array.from(domRoot.querySelectorAll('input[type=\'email\']'));  //FIXME either deep or not at all
     for (const input of typeEmailInputs) {
         //#LD-CHANGE yield score
         yield {elem: input, score: 2};

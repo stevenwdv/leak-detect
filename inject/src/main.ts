@@ -26,7 +26,7 @@ function escapeQuotes(str: string): string {
 	return str.replaceAll('\\', '\\\\').replaceAll('\'', '\\\'');
 }
 
-function getSelectorFromRoot(elem: Element): string {
+function formSelectorFromRoot(elem: Element): string {
 	if (elem.id) {
 		const idEscaped = escapeQuotes(elem.id);
 		const root      = elem.getRootNode() as ParentNode;
@@ -35,7 +35,7 @@ function getSelectorFromRoot(elem: Element): string {
 			if (root.querySelectorAll(selector).length === 1)
 				return selector;
 		} catch (err) {
-			//ignore errors due to weird IDs
+			// Ignore errors due to weird IDs
 			if (!(err instanceof SyntaxError)) throw err;
 		}
 	}
@@ -48,7 +48,7 @@ function getSelectorFromRoot(elem: Element): string {
 	let me        = tagName.toLowerCase();
 	const sames   = [...elem.parentNode.children].filter(child => child.tagName === tagName);
 	if (sames.length > 1) me += `:nth-of-type(${sames.indexOf(elem) + 1})`;
-	return `${elem.parentElement ? getSelectorFromRoot(elem.parentElement) : ':host'}>${me}`;
+	return `${elem.parentElement ? formSelectorFromRoot(elem.parentElement) : ':host'}>${me}`;
 }
 
 /**
@@ -57,7 +57,7 @@ function getSelectorFromRoot(elem: Element): string {
 export function formSelectorChain(elem: Element): SelectorChain {
 	const chain = [];
 	while (true) {
-		chain.unshift(getSelectorFromRoot(elem));
+		chain.unshift(formSelectorFromRoot(elem));
 		const root = elem.getRootNode();
 		if (!(root instanceof ShadowRoot)) break;
 		elem = root.host;
@@ -89,6 +89,6 @@ export type SelectorChain = string[];
 
 export interface SelectorChainResult {
 	elem: Element;
-	/** Is this the only matching Node? */
+	/** Is this the only matching Element? */
 	unique: boolean;
 }

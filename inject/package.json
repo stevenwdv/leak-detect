@@ -9,8 +9,7 @@
 	"type": "module",
 	"types": "types/main.d.ts",
 	"dependencies": {
-		"fathom-web": "https://gitpkg.now.sh/stevenwdv/fathom-shadow/fathom",
-		"query-selector-shadow-dom": "^1.0.0"
+		"fathom-web": "https://gitpkg.now.sh/stevenwdv/fathom-shadow/fathom"
 	},
 	"devDependencies": {
 		"@typescript-eslint/eslint-plugin": "^5.26.0",
