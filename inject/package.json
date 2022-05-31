@@ -4,12 +4,12 @@
 	"private": true,
 	"scripts": {
 		"pack": "webpack --mode production",
-		"lint": "tsc --noEmit --emitDeclarationOnly false; eslint ."
+		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint ."
 	},
 	"type": "module",
 	"types": "types/main.d.ts",
 	"dependencies": {
-		"fathom-web": "https://gitpkg.now.sh/stevenwdv/fathom-shadow/fathom"
+		"fathom-web": "https://gitpkg.now.sh/stevenwdv/fathom-shadow/fathom?f8f0e88"
 	},
 	"devDependencies": {
 		"@typescript-eslint/eslint-plugin": "^5.26.0",

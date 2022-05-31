@@ -1,6 +1,6 @@
 import {BoundingBox, ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
 import {GlobalNames} from './FieldsCollector';
-import {getElementBySelectorChain, SelectorChain} from 'leak-detect-inject';
+import {SelectorChain} from 'leak-detect-inject';
 import TypedArray = NodeJS.TypedArray;
 
 // Regexes are taken from:
@@ -13,6 +13,8 @@ const registerFormAttrRegex          = /signup|join|register|regform|registratio
 const loginRegexExtra                = /log_in|logon|log_on|signin|sign_in|sign_up|signon|sign_on|Aanmelden/i;
 const combinedLoginLinkRegexLooseSrc = [loginRegex.source, loginFormAttrRegex.source, registerStringRegex.source, registerActionRegex.source, registerFormAttrRegex.source, loginRegexExtra.source].join('|');
 const combinedLoginLinkRegexExactSrc = '^' + combinedLoginLinkRegexLooseSrc.replace(/\|/g, '$|^') + '$';
+
+export type OmitFirstParameter<Func> = Func extends (first: never, ...args: infer Rest) => infer Return ? (...args: Rest) => Return : never;
 
 export function stripHash(url: string | URL): string {
 	return url.toString().match(/^[^#]*/)![0];
@@ -205,12 +207,12 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 }
 
 export async function getElementInfoFromAttrs(attrs: ElementAttrs, frame: Frame): Promise<ElementInfo | null> {
-	const handle = (await getNodeBySelectorChain(attrs.selectorChain, frame))?.elem;
+	const handle = (await getElementBySelectorChain(attrs.selectorChain, frame))?.elem;
 	return (handle ?? null) && {handle: handle as ElementHandle, attrs};
 }
 
-export async function getNodeBySelectorChain(selector: SelectorChain, frame: Frame): Promise<{ elem: ElementHandle, unique: boolean } | null> {
-	return await unwrapHandle(await frame.evaluateHandle<JSHandle<ReturnType<typeof getElementBySelectorChain>>>(
+export async function getElementBySelectorChain(selector: SelectorChain, frame: Frame): Promise<{ elem: ElementHandle, unique: boolean } | null> {
+	return await unwrapHandle(await frame.evaluateHandle<JSHandle<ReturnType<typeof import('leak-detect-inject').getElementBySelectorChain>>>(
 		  (selector: SelectorChain) => window[GlobalNames.INJECTED]!.getElementBySelectorChain(selector), selector));
 }
 
@@ -249,6 +251,7 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 		frameStack: getFrameStack(handle.executionContext().frame()!).map(f => f.url()),
 		inView,
 		boundingBox,
+		time: Date.now(),
 	};
 }
 
@@ -277,6 +280,8 @@ export interface ElementAttrs {
 	boundingBox: BoundingBox | null;
 
 	selectorChain: SelectorChain;
+
+	time: number;
 }
 
 export interface FathomElementAttrs extends ElementAttrs {

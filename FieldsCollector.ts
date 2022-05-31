@@ -2,7 +2,7 @@ import fs from 'fs';
 import * as forms from './formInteraction';
 import {submitField} from './formInteraction';
 import * as tldts from 'tldts';
-import {BaseCollector} from 'tracker-radar-collector';
+import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
 import {BrowserContext, ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
 import {Logger, TaggedLogger} from './logger';
 import {
@@ -12,13 +12,16 @@ import {
 	FieldElementAttrs,
 	filterUniqBy,
 	getElementAttrs,
+	getElementBySelectorChain,
 	getElementInfoFromAttrs,
+	getFrameStack,
 	getLoginLinks,
 	getPageFromFrame,
 	getPageFromHandle,
 	isOfType,
 	LinkElementAttrs,
 	LinkMatchType,
+	OmitFirstParameter,
 	stripHash,
 	tryAdd,
 	unwrapHandle,
@@ -69,8 +72,8 @@ export class FieldsCollector extends BaseCollector {
 	#injectedPasswordCallback = new Set<Page>();
 	#injectedErrorCallback    = new Set<Page>();
 
-	#passwordLeaks: PasswordLeak[] = [];
-	#visitedPages: string[]        = [];
+	#passwordLeaks: PasswordLeak[]   = [];
+	#visitedTargets: VisitedTarget[] = [];
 
 	constructor(logger?: Logger) {
 		super();
@@ -91,7 +94,7 @@ export class FieldsCollector extends BaseCollector {
 
 	override async addTarget({url, type}: Parameters<typeof BaseCollector.prototype.addTarget>[0]) {
 		if (!this.#page && type === 'page') this.#page = (await this.#context!.pages())[0];
-		this.#visitedPages.push(url);
+		this.#visitedTargets.push({time: Date.now(), type, url});
 	}
 
 	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldCollectorData> {
@@ -173,7 +176,7 @@ export class FieldsCollector extends BaseCollector {
 		}
 
 		return {
-			visitedPages: this.#visitedPages,
+			visitedTargets: this.#visitedTargets,
 			fields: fields,
 			loginRegisterLinksDetails: links,
 			passwordLeaks: this.#passwordLeaks,
@@ -231,7 +234,7 @@ export class FieldsCollector extends BaseCollector {
 
 	async waitForNavigation() {
 		const maxWaitTimeMs = Math.max(
-			  /*FIXME this.#options.landingPageLoadTime*/ (NO_DELAYS ? 1 : 5) * 1_000,
+			  this.#options!.pageLoadDurationMs * 2,
 			  POST_CLICK_LOAD_TIMEOUT);
 
 		//TODO also wait until new page opened? (maybe #context.waitForTarget)
@@ -378,7 +381,7 @@ export class FieldsCollector extends BaseCollector {
 			const page = getPageFromFrame(frame);
 			await this.injectErrorCallback(page);
 			if (tryAdd(this.#injectedPasswordCallback, page))
-				await page.exposeFunction(GlobalNames.PASSWORD_CALLBACK, this.passwordObserverCallback.bind(this));
+				await this.exposeFunction(page, GlobalNames.PASSWORD_CALLBACK, this.passwordObserverCallback.bind(this, frame));
 
 			await frame.evaluate((password: string) => {
 				if (window[GlobalNames.PASSWORD_OBSERVED]) return;
@@ -398,7 +401,7 @@ export class FieldsCollector extends BaseCollector {
 								  attribute: m.attributeName!,
 							  })); //TODO what if elem removed immediately
 						if (leakSelectors.length)
-							window[GlobalNames.PASSWORD_CALLBACK]!(location.href, leakSelectors);
+							void window[GlobalNames.PASSWORD_CALLBACK]!(leakSelectors);
 					} catch (err) {
 						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error ? err.stack! : new Error().stack!);
 					}
@@ -420,18 +423,36 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	passwordObserverCallback(url: string, leaks: PagePasswordLeak[]) {
-		this.#log?.info(`password leaked on ${url} to attributes: ${leaks.map(l => `${l.selector.join('>>>')} @${l.attribute}`).join(', ')}`);
-		this.#passwordLeaks.push(...leaks.map(l => ({url, ...l})));
+	async passwordObserverCallback(frame: Frame, leaks: PagePasswordLeak[]) {
+		this.#log?.info(`password leaked on ${frame.url()} to attributes: ${leaks.map(l => `${l.selector.join('>>>')} @${l.attribute}`).join(', ')}`);
+		this.#passwordLeaks.push(...await Promise.all(leaks.map(async leak => {
+			let attrs;
+			try {
+				const handle = (await getElementBySelectorChain(leak.selector, frame))?.elem;
+				if (handle) attrs = await getElementAttrs(handle);
+			} catch (err) {
+				this.#log?.warn(`failed to get attributes for password field ${leak.selector.join('>>>')}`, err);
+			}
+			return {
+				time: Date.now(),
+				frameStack: !attrs ? getFrameStack(frame).map(f => f.url()) : undefined,
+				attrs,
+				...leak,
+			};
+		})));
 	}
 
 	async injectErrorCallback(page: Page) {
 		if (tryAdd(this.#injectedErrorCallback, page))
-			await page.exposeFunction(GlobalNames.ERROR_CALLBACK, this.errorCallback.bind(this));
+			await this.exposeFunction(page, GlobalNames.ERROR_CALLBACK, this.errorCallback.bind(this));
 	}
 
 	errorCallback(message: string, stack: string) {
 		this.#log?.error('Error in background page script', message, stack);
+	}
+
+	async exposeFunction<Name extends keyof Window & string, Func extends typeof window[Name]>(page: Page, name: Name, func: Func) {
+		await page.exposeFunction(name, func);
 	}
 }
 
@@ -441,11 +462,19 @@ export interface PagePasswordLeak {
 }
 
 export interface PasswordLeak extends PagePasswordLeak {
+	time: number;
+	attrs?: ElementAttrs;
+	frameStack?: string[];
+}
+
+export interface VisitedTarget {
 	url: string;
+	type: TargetCollector.TargetType;
+	time: number;
 }
 
 export type FieldCollectorData = Record<string, never> | {
-	visitedPages: string[],
+	visitedTargets: VisitedTarget[],
 	fields: FieldElementAttrs[],
 	/** `null` on fail */
 	loginRegisterLinksDetails: LinkElementAttrs[] | null,
@@ -457,7 +486,7 @@ declare global {
 	interface Window {
 		[GlobalNames.INJECTED]?: typeof import('leak-detect-inject');
 		[GlobalNames.PASSWORD_OBSERVED]?: boolean;
-		[GlobalNames.PASSWORD_CALLBACK]?: OmitThisParameter<typeof FieldsCollector.prototype.passwordObserverCallback>;
+		[GlobalNames.PASSWORD_CALLBACK]?: OmitFirstParameter<OmitThisParameter<typeof FieldsCollector.prototype.passwordObserverCallback>>;
 		[GlobalNames.ERROR_CALLBACK]?: OmitThisParameter<typeof FieldsCollector.prototype.errorCallback>;
 	}
 }

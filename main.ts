@@ -36,6 +36,7 @@ async function main() {
 		  new URL(args.url),
 		  {
 			  log: console.log,
+			  maxCollectionTimeMs: 60_000,
 			  collectors: [
 				  new FieldsCollector(new ConsoleLogger()),
 				  new APICallCollector(breakpoints),
