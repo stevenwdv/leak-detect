@@ -1,4 +1,4 @@
-import {BoundingBox, ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
+import {BoundingBox, ElementHandle, Frame, JSHandle, Page, SerializableOrJSHandle} from 'puppeteer';
 import {GlobalNames} from './FieldsCollector';
 import {SelectorChain} from 'leak-detect-inject';
 import TypedArray = NodeJS.TypedArray;
@@ -15,6 +15,11 @@ const combinedLoginLinkRegexLooseSrc = [loginRegex.source, loginFormAttrRegex.so
 const combinedLoginLinkRegexExactSrc = '^' + combinedLoginLinkRegexLooseSrc.replace(/\|/g, '$|^') + '$';
 
 export type OmitFirstParameter<Func> = Func extends (first: never, ...args: infer Rest) => infer Return ? (...args: Rest) => Return : never;
+
+/** Get a string which should uniquely identify an element across pages  */
+export function getElemIdentifier(elem: ElementAttrs): string {
+	return `${stripHash(elem.frameStack[0])} ${elem.selectorChain.join('>>>')}`;
+}
 
 export function stripHash(url: string | URL): string {
 	return url.toString().match(/^[^#]*/)![0];
@@ -61,14 +66,26 @@ export function getPageFromFrame(frame: Frame): Page {
 	return frame._frameManager.page();  //XXX Replace with stable version if ever available
 }
 
+/** Typed version of {@link Frame#evaluateHandle} and {@link JSHandle#evaluateHandle} */
+export async function evaluateHandle<Args extends SerializableOrJSHandle[], Return>(
+	  target: Frame | JSHandle,
+	  pageFunction: (...args: Args) => Return, ...args: Args): Promise<JSHandle<Return>> {
+	return await target.evaluateHandle(pageFunction, ...args);
+}
+
+/** Typed version of {@link Page#exposeFunction} */
+export async function exposeFunction<Name extends keyof Window & string, Func extends typeof window[Name]>(page: Page, name: Name, func: Func) {
+	await page.exposeFunction(name, func);
+}
+
 export type UnwrappedHandle<T> = T extends string | boolean | number | null | undefined | bigint
 	  ? T
 	  : T extends Element
 			? ElementHandle<T>
 			: T extends (infer V)[]
 				  ? UnwrappedHandle<V>[]
-				  : T extends Node | RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
-						| Iterator<unknown> | Generator | Error | Promise<unknown> | TypedArray | ArrayBuffer | DataView
+				  : T extends Node | RegExp | Date | Map<never, never> | Set<never> | WeakMap<object, never> | WeakSet<object>
+						| Iterator<never, never, never> | Generator<never, never, never> | Error | Promise<never> | TypedArray | ArrayBuffer | DataView
 						? JSHandle<T>
 						: T extends object
 							  ? { [K in keyof T]: UnwrappedHandle<T[K]> }
@@ -87,8 +104,8 @@ export type UnwrappedHandleConservative<T> = T extends string | boolean | number
 			? ElementHandle<T>
 			: T extends (infer V)[]
 				  ? UnwrappedHandleConservative<V>[]
-				  : T extends Node | RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
-						| Iterator<unknown> | Generator | Error | Promise<unknown> | TypedArray | ArrayBuffer | DataView
+				  : T extends Node | RegExp | Date | Map<never, never> | Set<never> | WeakMap<object, never> | WeakSet<object>
+						| Iterator<never, never, never> | Generator<never, never, never> | Error | Promise<never> | TypedArray | ArrayBuffer | DataView
 						? JSHandle<T>
 						: T extends object
 							  ? { [K in keyof T]: UnwrappedHandleConservative<T[K]> } | JSHandle<T>
@@ -128,7 +145,7 @@ export async function unwrapHandleConservative<T>(handle: JSHandle<T>, shouldUnw
 }
 
 async function findLoginLinksByCoords(frame: Frame): Promise<ElementHandle[]> {
-	const listHandle = await frame.evaluateHandle<JSHandle<Element[]>>(() => {
+	const listHandle = await evaluateHandle(frame, () => {
 		const MAX_COORD_BASED_LINKS = 5;
 		const MEDIAN_LOGIN_LINK_X   = 1113,
 		      MEDIAN_LOGIN_LINK_Y   = 64.5;
@@ -151,7 +168,7 @@ async function findLoginLinksByCoords(frame: Frame): Promise<ElementHandle[]> {
 
 export async function findLoginLinks(frame: Frame, exactMatch = false): Promise<ElementHandle[]> {
 	const loginRegexSrc = exactMatch ? combinedLoginLinkRegexExactSrc : combinedLoginLinkRegexLooseSrc;
-	const listHandle    = await frame.evaluateHandle<JSHandle<Element[]>>((loginRegexSrc: string) => {
+	const listHandle    = await evaluateHandle(frame, (loginRegexSrc: string) => {
 		const loginRegex  = new RegExp(loginRegexSrc, 'i');
 		const allElements = [...document.querySelectorAll('a,span,button,div')];
 
@@ -212,7 +229,7 @@ export async function getElementInfoFromAttrs(attrs: ElementAttrs, frame: Frame)
 }
 
 export async function getElementBySelectorChain(selector: SelectorChain, frame: Frame): Promise<{ elem: ElementHandle, unique: boolean } | null> {
-	return await unwrapHandle(await frame.evaluateHandle<JSHandle<ReturnType<typeof import('leak-detect-inject').getElementBySelectorChain>>>(
+	return await unwrapHandle(await evaluateHandle(frame,
 		  (selector: SelectorChain) => window[GlobalNames.INJECTED]!.getElementBySelectorChain(selector), selector));
 }
 
@@ -230,22 +247,26 @@ export function getFrameStack(frame: Frame): Frame[] {
 export async function getElementAttrs(handle: ElementHandle): Promise<ElementAttrs> {
 	const inView         = await handle.isIntersectingViewport();
 	const boundingBox    = await handle.boundingBox();
-	const elAttrsPartial = await handle.evaluate(el => ({
-		id: el.id,
-		tagName: el.nodeName,
-		class: el.className,
+	const elAttrsPartial = await handle.evaluate(el => {
+		const form = (el as Element & { form?: HTMLFormElement }).form;
+		return {
+			id: el.id,
+			tagName: el.nodeName,
+			class: el.className,
 
-		innerText: el instanceof HTMLElement ? el.innerText : el.textContent || '',
-		name: el.getAttribute('name'),
-		type: el.getAttribute('type'),
-		href: el.getAttribute('href'),
-		ariaLabel: el.ariaLabel,
-		placeholder: el.getAttribute('placeholder'),
+			innerText: el instanceof HTMLElement ? el.innerText : el.textContent || '',
+			name: el.getAttribute('name'),
+			type: el.getAttribute('type'),
+			href: el.getAttribute('href'),
+			ariaLabel: el.ariaLabel,
+			placeholder: el.getAttribute('placeholder'),
+			form: form ? window[GlobalNames.INJECTED]!.formSelectorChain(form) : null,
 
-		onTop: window[GlobalNames.INJECTED]!.isOnTop(el),
+			onTop: window[GlobalNames.INJECTED]!.isOnTop(el),
 
-		selectorChain: window[GlobalNames.INJECTED]!.formSelectorChain(el),
-	}));
+			selectorChain: window[GlobalNames.INJECTED]!.formSelectorChain(el),
+		};
+	});
 	return {
 		...elAttrsPartial,
 		frameStack: getFrameStack(handle.executionContext().frame()!).map(f => f.url()),
@@ -260,7 +281,7 @@ export function removeNewLines(str: string) {
 }
 
 export interface ElementAttrs {
-	/** Starting with the bottom frame, going up */
+	/** URLs starting with the bottom frame, going up */
 	frameStack: string[];
 
 	id: string;
@@ -274,6 +295,7 @@ export interface ElementAttrs {
 	href: string | null;
 	ariaLabel: string | null;
 	placeholder: string | null;
+	form: SelectorChain | null;
 
 	onTop: boolean;
 	inView: boolean;

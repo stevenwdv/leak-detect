@@ -3,17 +3,20 @@ import * as forms from './formInteraction';
 import {submitField} from './formInteraction';
 import * as tldts from 'tldts';
 import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
-import {BrowserContext, ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
+import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 import {Logger, TaggedLogger} from './logger';
 import {
 	ElementAttrs,
 	ElementInfo,
+	evaluateHandle,
+	exposeFunction,
 	FathomElementAttrs,
 	FieldElementAttrs,
 	filterUniqBy,
 	getElementAttrs,
 	getElementBySelectorChain,
 	getElementInfoFromAttrs,
+	getElemIdentifier,
 	getFrameStack,
 	getLoginLinks,
 	getPageFromFrame,
@@ -28,7 +31,7 @@ import {
 } from './utils';
 import {performance} from 'perf_hooks';
 import {UnreachableCaseError} from 'ts-essentials';
-import {FathomResult, SelectorChain} from 'leak-detect-inject';
+import {SelectorChain} from 'leak-detect-inject';
 import ErrnoException = NodeJS.ErrnoException;
 
 let injectSrc: string;
@@ -62,13 +65,13 @@ export const enum GlobalNames {
 
 export class FieldsCollector extends BaseCollector {
 	#log?: Logger;
-	#options?: Parameters<typeof BaseCollector.prototype.getData>[0];
-	#initialUrl?: URL;
-	#context?: BrowserContext;
+	#options!: Parameters<typeof BaseCollector.prototype.getData>[0];
+	#initialUrl!: URL;
+	#context!: BrowserContext;
 	#headless                  = true;
 	#siteDomain: string | null = null;
 
-	#page?: Page;
+	#page!: Page;
 	#injectedPasswordCallback = new Set<Page>();
 	#injectedErrorCallback    = new Set<Page>();
 
@@ -93,7 +96,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	override async addTarget({url, type}: Parameters<typeof BaseCollector.prototype.addTarget>[0]) {
-		if (!this.#page && type === 'page') this.#page = (await this.#context!.pages())[0];
+		if (!this.#page && type === 'page') this.#page = (await this.#context.pages())[0];
 		this.#visitedTargets.push({time: Date.now(), type, url});
 	}
 
@@ -107,18 +110,12 @@ export class FieldsCollector extends BaseCollector {
 			return {};
 		}
 
-		/** Get a string which should uniquely identify an element across pages  */
-		function getElemIdentifier(elem: ElementAttrs): string {
-			return `${stripHash(elem.frameStack[0])} ${elem.selectorChain.join('>>>')}`;
-		}
-
-		const landingPage   = this.#page!;
+		const landingPage   = this.#page;
 		// Search for fields on the landing page(s)
 		const fieldsLanding = await this.findFieldsOnAllPages();
 		this.#log?.log(`found ${fieldsLanding.length} total fields on landing page(s) ${landingPage.url()}`);
 		const fields      = fieldsLanding.map(f => f.attrs);
-		const foundFields = new Set<string>();
-		for (const field of fieldsLanding) foundFields.add(getElemIdentifier(field.attrs));
+		const foundFields = new Set<string>(fieldsLanding.map(field => getElemIdentifier(field.attrs)));
 
 		await this.fillFields(fieldsLanding);
 		this.#log?.debug('sleeping');
@@ -184,15 +181,15 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async closeExtraPages() {
-		return Promise.all((await this.#context!.pages())
+		return Promise.all((await this.#context.pages())
 			  .filter(page => page !== this.#page)
 			  .map(page => page.close({runBeforeUnload: false})));
 	}
 
 	async followLink(link: ElementAttrs): Promise<void> {
-		const page         = this.#page!;
+		const page         = this.#page;
 		const preClickUrl  = page.url();
-		const prevNumPages = (await this.#context!.pages()).length;
+		const prevNumPages = (await this.#context.pages()).length;
 		await this.injectPageScript(page.mainFrame());
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
 		if (!linkInfo) throw new Error('Could not find link element anymore');
@@ -200,16 +197,16 @@ export class FieldsCollector extends BaseCollector {
 			await this.waitForNavigation();
 
 		this.#log?.debug(`navigated ${preClickUrl} -> ${page.url()}; ${
-			  (await this.#context!.pages()).length - prevNumPages} new pages created`);
+			  (await this.#context.pages()).length - prevNumPages} new pages created`);
 	}
 
 	async goToLandingPage() {
-		const landingPage = this.#page!;
+		const landingPage = this.#page;
 		await landingPage.bringToFront();
 		const pageUrl = landingPage.url();
-		this.#log?.debug(`will return to landing page ${pageUrl} -> ${this.#options!.finalUrl}`);
+		this.#log?.debug(`will return to landing page ${pageUrl} -> ${this.#options.finalUrl}`);
 		try {
-			await landingPage.goto(this.#options!.finalUrl, {'timeout': MAX_RELOAD_TIME, 'waitUntil': 'load'});
+			await landingPage.goto(this.#options.finalUrl, {'timeout': MAX_RELOAD_TIME, 'waitUntil': 'load'});
 			this.#log?.debug('sleeping');
 			await landingPage.waitForTimeout(POST_LANDING_RELOAD_WAIT);
 		} catch (error) {
@@ -234,11 +231,11 @@ export class FieldsCollector extends BaseCollector {
 
 	async waitForNavigation() {
 		const maxWaitTimeMs = Math.max(
-			  this.#options!.pageLoadDurationMs * 2,
+			  this.#options.pageLoadDurationMs * 2,
 			  POST_CLICK_LOAD_TIMEOUT);
 
 		//TODO also wait until new page opened? (maybe #context.waitForTarget)
-		const page = this.#page!;
+		const page = this.#page;
 		this.#log?.debug('waiting for navigation');
 
 		const startTime = performance.now();
@@ -259,12 +256,12 @@ export class FieldsCollector extends BaseCollector {
 
 	async findFieldsOnAllPages(): Promise<ElementInfo<FieldElementAttrs>[]> {
 		if (this.#headless)
-			return (await Promise.all((await this.#context!.pages())
+			return (await Promise.all((await this.#context.pages())
 				  .map(async page => await this.findFieldsRecursive(page) ?? []))).flat();
 		else {
 			const fields = [];
 			// Execute one-by-one such that we can bring pages to front
-			for (const page of await this.#context!.pages())
+			for (const page of await this.#context.pages())
 				fields.push(...await this.findFieldsRecursive(page) ?? []);
 			return fields;
 		}
@@ -299,9 +296,8 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async getEmailFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs & FathomElementAttrs>[]> {
-		const emailFieldsFromFathom =
-			        await unwrapHandle(await frame.evaluateHandle<JSHandle<FathomResult[]>>(
-					      () => [...window[GlobalNames.INJECTED]!.detectEmailInputs(document.documentElement)]));
+		const emailFieldsFromFathom = await unwrapHandle(await evaluateHandle(frame,
+			  () => [...window[GlobalNames.INJECTED]!.detectEmailInputs(document.documentElement)]));
 		return Promise.all(emailFieldsFromFathom.map(async field => ({
 			handle: field.elem,
 			attrs: {
@@ -333,7 +329,7 @@ export class FieldsCollector extends BaseCollector {
 			await this.injectPasswordLeakDetection(field.handle.executionContext().frame()!);
 			switch (field.attrs.fieldType) {
 				case 'email':
-					await forms.fillEmailField(field, this.#initialUrl!.hostname, EMAIL_ADDRESS, this.#log);
+					await forms.fillEmailField(field, this.#initialUrl.hostname, EMAIL_ADDRESS, this.#log);
 					break;
 				case 'password':
 					await forms.fillPasswordField(field, PASSWORD, this.#log);
@@ -358,7 +354,7 @@ export class FieldsCollector extends BaseCollector {
 					const form = (elem as Element & { form?: HTMLFormElement | null }).form;
 					return form ? window[GlobalNames.INJECTED]!.formSelectorChain(form) : null;
 				});
-				if (formSelector && !tryAdd(submittedForms, formSelector.join('>>>')))
+				if (formSelector && !tryAdd(submittedForms, `${stripHash(elem.attrs.frameStack[0])} ${formSelector.join('>>>')}`))
 					continue;
 				if (await submitField(elem))
 					await this.waitForNavigation();
@@ -381,7 +377,7 @@ export class FieldsCollector extends BaseCollector {
 			const page = getPageFromFrame(frame);
 			await this.injectErrorCallback(page);
 			if (tryAdd(this.#injectedPasswordCallback, page))
-				await this.exposeFunction(page, GlobalNames.PASSWORD_CALLBACK, this.passwordObserverCallback.bind(this, frame));
+				await exposeFunction(page, GlobalNames.PASSWORD_CALLBACK, this.passwordObserverCallback.bind(this, frame));
 
 			await frame.evaluate((password: string) => {
 				if (window[GlobalNames.PASSWORD_OBSERVED]) return;
@@ -444,15 +440,11 @@ export class FieldsCollector extends BaseCollector {
 
 	async injectErrorCallback(page: Page) {
 		if (tryAdd(this.#injectedErrorCallback, page))
-			await this.exposeFunction(page, GlobalNames.ERROR_CALLBACK, this.errorCallback.bind(this));
+			await exposeFunction(page, GlobalNames.ERROR_CALLBACK, this.errorCallback.bind(this));
 	}
 
 	errorCallback(message: string, stack: string) {
 		this.#log?.error('Error in background page script', message, stack);
-	}
-
-	async exposeFunction<Name extends keyof Window & string, Func extends typeof window[Name]>(page: Page, name: Name, func: Func) {
-		await page.exposeFunction(name, func);
 	}
 }
 
@@ -474,6 +466,7 @@ export interface VisitedTarget {
 }
 
 export type FieldCollectorData = Record<string, never> | {
+	/** Similar to what {@link import('tracker-radar-collector').TargetCollector} does but with timestamps */
 	visitedTargets: VisitedTarget[],
 	fields: FieldElementAttrs[],
 	/** `null` on fail */

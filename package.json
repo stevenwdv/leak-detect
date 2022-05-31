@@ -1,6 +1,8 @@
 {
 	"name": "leak-detection",
 	"version": "0.0.0",
+	"author": "stevenwdv",
+	"repository": "github:stevenwdv/leak-detection",
 	"scripts": {
 		"install": "npm -w inject run pack && sed -i '1s;^;// @ts-nocheck\\n;' node_modules/@duckduckgo/autoconsent/lib/tabwrapper.ts",
 		"start": "node --require ts-node/register main.ts",
