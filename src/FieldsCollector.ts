@@ -5,33 +5,32 @@ import * as tldts from 'tldts';
 import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
 import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 import {Logger, TaggedLogger} from './logger';
+import {filterUniqBy, OmitFirstParameter, stripHash, tryAdd} from './utils';
+import {performance} from 'perf_hooks';
+import {UnreachableCaseError} from 'ts-essentials';
+import {SelectorChain} from 'leak-detect-inject';
 import {
 	ElementAttrs,
 	ElementInfo,
-	evaluateHandle,
-	exposeFunction,
 	FathomElementAttrs,
 	FieldElementAttrs,
-	filterUniqBy,
 	getElementAttrs,
 	getElementBySelectorChain,
 	getElementInfoFromAttrs,
 	getElemIdentifier,
+	LinkElementAttrs,
+	LinkMatchType,
+} from './pageUtils';
+import {getLoginLinks} from './loginLinks';
+import {
+	evaluateHandle,
+	exposeFunction,
 	getFrameStack,
-	getLoginLinks,
 	getPageFromFrame,
 	getPageFromHandle,
 	isOfType,
-	LinkElementAttrs,
-	LinkMatchType,
-	OmitFirstParameter,
-	stripHash,
-	tryAdd,
 	unwrapHandle,
-} from './utils';
-import {performance} from 'perf_hooks';
-import {UnreachableCaseError} from 'ts-essentials';
-import {SelectorChain} from 'leak-detect-inject';
+} from './puppeteerUtils';
 import ErrnoException = NodeJS.ErrnoException;
 
 let injectSrc: string;

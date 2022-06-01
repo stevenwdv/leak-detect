@@ -1,25 +1,24 @@
+// noinspection JSUnusedGlobalSymbols
+
 import {detectEmailInputs as _detectEmailInputs} from './email_detector';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore Fathom has no type declarations
 import {utils} from 'fathom-web';
 
-const detectEmailInputs = _detectEmailInputs as (domRoot: Element) => Generator<FathomResult, void, undefined>;
-export {detectEmailInputs};
-
-const {isVisible} = (utils as { isVisible: (elem: Element) => boolean });
-export {isVisible};
+export const detectEmailInputs = _detectEmailInputs as (domRoot: Element) => Generator<FathomResult, void, undefined>;
+export const {isVisible}       = (utils as { isVisible: (elem: Element) => boolean });
 
 export interface FathomResult {
 	elem: Element;
 	score: number;
 }
 
-export function isOnTop(el: Element): boolean {
-	const rect    = el.getBoundingClientRect();
+export function isOnTop(elem: Element): boolean {
+	const rect    = elem.getBoundingClientRect();
 	const centerX = (rect.left + rect.right) / 2,
 	      centerY = (rect.top + rect.bottom) / 2;
 	const topEl   = document.elementFromPoint(centerX, centerY);
-	return el.isSameNode(topEl);
+	return elem.isSameNode(topEl);
 }
 
 function escapeQuotes(str: string): string {
