@@ -1,7 +1,7 @@
 import {ElementHandle} from 'puppeteer';
 import {Logger} from './logger';
 import {NO_DELAYS} from './FieldsCollector';
-import {getPageFromHandle} from './puppeteerUtils';
+import {evaluate, getPageFromHandle} from './puppeteerUtils';
 import {ElementInfo} from './pageUtils';
 
 const KEY_PRESS_DWELL_TIME = NO_DELAYS ? 0 : 100;
@@ -21,7 +21,7 @@ export async function focusElement(handle: ElementHandle) {
 }
 
 async function smoothScrollToElement(handle: ElementHandle) {
-	await handle.evaluate(el => el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'}));
+	await evaluate(handle, el => el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'}));
 }
 
 async function fillInputElement(elem: ElementInfo, text: string) {

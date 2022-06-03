@@ -23,6 +23,7 @@ import {
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
 import {
+	evaluate,
 	evaluateHandle,
 	exposeFunction,
 	getFrameStack,
@@ -216,7 +217,7 @@ export class FieldsCollector extends BaseCollector {
 	async click(link: ElementInfo) {
 		await getPageFromHandle(link.handle)!.bringToFront();
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
-		const success = await link.handle.evaluate(el => {
+		const success = await evaluate(link.handle, el => {
 			if (el instanceof HTMLElement) {
 				el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
 				el.click();
@@ -256,12 +257,12 @@ export class FieldsCollector extends BaseCollector {
 	async findFieldsOnAllPages(): Promise<ElementInfo<FieldElementAttrs>[]> {
 		if (this.#headless)
 			return (await Promise.all((await this.#context.pages())
-				  .map(async page => await this.findFieldsRecursive(page) ?? []))).flat();
+				  .map(async page => await this.findFieldsRecursive(page)))).flat();
 		else {
 			const fields = [];
 			// Execute one-by-one such that we can bring pages to front
 			for (const page of await this.#context.pages())
-				fields.push(...await this.findFieldsRecursive(page) ?? []);
+				fields.push(...await this.findFieldsRecursive(page));
 			return fields;
 		}
 	}
@@ -320,7 +321,7 @@ export class FieldsCollector extends BaseCollector {
 
 	async getPasswordFieldHandles(frame: Frame): Promise<ElementHandle[]> {
 		return await Promise.all((await frame.$$<HTMLInputElement>('pierce/input[type=password]'))
-			  .filter(inp => inp.evaluate(inp => window[GlobalNames.INJECTED]!.isVisible(inp))));
+			  .filter(inp => evaluate(inp, inp => window[GlobalNames.INJECTED]!.isVisible(inp))));
 	}
 
 	async fillFields(fields: ElementInfo<FieldElementAttrs>[]) {
@@ -349,7 +350,7 @@ export class FieldsCollector extends BaseCollector {
 				const page = getPageFromHandle(elem.handle)!;
 				//TODO reload page & re-fill fields
 				await page.bringToFront();
-				const formSelector = await elem.handle.evaluate(elem => {
+				const formSelector = await evaluate(elem.handle, elem => {
 					const form = (elem as Element & { form?: HTMLFormElement | null }).form;
 					return form ? window[GlobalNames.INJECTED]!.formSelectorChain(form) : null;
 				});
@@ -378,7 +379,7 @@ export class FieldsCollector extends BaseCollector {
 			if (tryAdd(this.#injectedPasswordCallback, page))
 				await exposeFunction(page, GlobalNames.PASSWORD_CALLBACK, this.passwordObserverCallback.bind(this, frame));
 
-			await frame.evaluate((password: string) => {
+			await evaluate(frame, (password: string) => {
 				if (window[GlobalNames.PASSWORD_OBSERVED]) return;
 				window[GlobalNames.PASSWORD_OBSERVED] = true;
 

@@ -1,4 +1,4 @@
-import {ElementHandle, Frame, JSHandle, Page, SerializableOrJSHandle} from 'puppeteer';
+import {ElementHandle, Frame, JSHandle, Page, Serializable, SerializableOrJSHandle} from 'puppeteer';
 import TypedArray = NodeJS.TypedArray;
 
 // puppeteer does not actually export its classes, so we cannot use instanceof and instead need this stupid stuff
@@ -28,16 +28,28 @@ export function getFrameStack(frame: Frame): Frame[] {
 	return frames;
 }
 
+type Passed<H extends SerializableOrJSHandle> = H extends JSHandle<infer U> | ElementHandle<infer U> /*Why??*/ ? U : H;
+type PassedArgs<Args extends SerializableOrJSHandle[]> =
+	  Args extends [infer T0 extends SerializableOrJSHandle, ...infer Ts extends SerializableOrJSHandle[]]
+			? [Passed<T0>, ...PassedArgs<Ts>] : [];
+
 type PageFunction<Target extends Frame | JSHandle, Args extends SerializableOrJSHandle[], Return> =
-	  Target extends JSHandle<infer T>
-			? (obj: T, ...args: Args) => Return
-			: (...args: Args) => Return;
+	  Target extends JSHandle<infer T> | ElementHandle<infer T> /*Why??*/
+			? (obj: T, ...args: PassedArgs<Args>) => Return
+			: (...args: PassedArgs<Args>) => Return;
 
 /** Typed version of {@link Frame#evaluateHandle} and {@link JSHandle#evaluateHandle} */
 export async function evaluateHandle<Target extends Frame | JSHandle, Args extends SerializableOrJSHandle[], Return>(
-	  target: Target,
-	  pageFunction: PageFunction<Target, Args, Return>, ...args: Args): Promise<JSHandle<Return>> {
+	  target: Target, pageFunction: PageFunction<Target, Args, Return>, ...args: Args): Promise<JSHandle<Return>> {
 	return await target.evaluateHandle(pageFunction, ...args);
+}
+
+/** Typed version of {@link Frame#evaluate} and {@link JSHandle#evaluate} */
+export async function evaluate<Target extends Frame | JSHandle, Args extends SerializableOrJSHandle[], Return extends Serializable | void>(
+	  target: Target, pageFunction: PageFunction<Target, Args, Return>, ...args: Args): Promise<Awaited<Return>> {
+	// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+	// @ts-ignore This compiles for both Frame & JSHandle individually
+	return await target.evaluate(pageFunction as never, ...args) as Awaited<Return>;
 }
 
 /** Typed version of {@link Page#exposeFunction} */

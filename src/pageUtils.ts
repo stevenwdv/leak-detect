@@ -3,7 +3,7 @@ import {stripHash} from './utils';
 import {BoundingBox, ElementHandle, Frame} from 'puppeteer';
 import {SelectorChain} from 'leak-detect-inject';
 import {GlobalNames} from './FieldsCollector';
-import {evaluateHandle, getFrameStack, unwrapHandle} from './puppeteerUtils';
+import {evaluate, evaluateHandle, getFrameStack, unwrapHandle} from './puppeteerUtils';
 
 export function getElemIdentifier(elem: ElementAttrs): string {
 	return `${stripHash(elem.frameStack[0])} ${elem.selectorChain.join('>>>')}`;
@@ -22,7 +22,7 @@ export async function getElementBySelectorChain(selector: SelectorChain, frame: 
 export async function getElementAttrs(handle: ElementHandle): Promise<ElementAttrs> {
 	const inView         = await handle.isIntersectingViewport();
 	const boundingBox    = await handle.boundingBox();
-	const elAttrsPartial = await handle.evaluate(el => {
+	const elAttrsPartial = await evaluate(handle, el => {
 		const form = (el as Element & { form?: HTMLFormElement }).form;
 		return {
 			id: el.id,
