@@ -14,7 +14,7 @@
 	"dependencies": {
 		"puppeteer": "^14.0.0",
 		"tldts": "^5.7.78",
-		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#2d81799",
+		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#19f124d3",
 		"yargs": "^17.5.1"
 	},
 	"devDependencies": {
