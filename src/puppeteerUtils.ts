@@ -28,16 +28,6 @@ export function getFrameStack(frame: Frame): Frame[] {
 	return frames;
 }
 
-type Passed<H extends SerializableOrJSHandle> = H extends JSHandle<infer U> | ElementHandle<infer U> /*Why??*/ ? U : H;
-type PassedArgs<Args extends SerializableOrJSHandle[]> =
-	  Args extends [infer T0 extends SerializableOrJSHandle, ...infer Ts extends SerializableOrJSHandle[]]
-			? [Passed<T0>, ...PassedArgs<Ts>] : [];
-
-type PageFunction<Target extends Frame | JSHandle, Args extends SerializableOrJSHandle[], Return> =
-	  Target extends JSHandle<infer T> | ElementHandle<infer T> /*Why??*/
-			? (obj: T, ...args: PassedArgs<Args>) => Return
-			: (...args: PassedArgs<Args>) => Return;
-
 /** Typed version of {@link Frame#evaluateHandle} and {@link JSHandle#evaluateHandle} */
 export async function evaluateHandle<Target extends Frame | JSHandle, Args extends SerializableOrJSHandle[], Return>(
 	  target: Target, pageFunction: PageFunction<Target, Args, Return>, ...args: Args): Promise<JSHandle<Return>> {
@@ -52,24 +42,27 @@ export async function evaluate<Target extends Frame | JSHandle, Args extends Ser
 	return await target.evaluate(pageFunction as never, ...args) as Awaited<Return>;
 }
 
+// Need the ElementHandle case because inferring U on JSHandle gives unknown because currently JSHandle<A> extends JSHandle<B> for any A,B...
+type HandleValue<H extends JSHandle> = H extends ElementHandle<infer U> ? U
+	  : H extends JSHandle<infer U> ? U : never;
+
+type Passed<H extends SerializableOrJSHandle> = H extends JSHandle ? HandleValue<H> : H;
+type PassedArgs<Args extends SerializableOrJSHandle[]> =
+	  Args extends [] ? []
+			: Args extends [infer T0 extends SerializableOrJSHandle, ...infer Ts extends SerializableOrJSHandle[]]
+				  ? [Passed<T0>, ...PassedArgs<Ts>]
+				  : Args extends (infer T extends SerializableOrJSHandle)[]
+						? Passed<T>[] : unknown;
+
+type PageFunction<Target extends Frame | JSHandle, Args extends SerializableOrJSHandle[], Return> =
+	  Target extends JSHandle
+			? (obj: HandleValue<Target>, ...args: PassedArgs<Args>) => Return
+			: (...args: PassedArgs<Args>) => Return;
+
 /** Typed version of {@link Page#exposeFunction} */
 export async function exposeFunction<Name extends keyof Window & string, Func extends typeof window[Name]>(page: Page, name: Name, func: Func) {
 	await page.exposeFunction(name, func);
 }
-
-export type UnwrappedHandle<T> = T extends string | boolean | number | null | undefined | bigint
-	  ? T
-	  : T extends Element
-			? ElementHandle<T>
-			: T extends (infer V)[]
-				  ? UnwrappedHandle<V>[]
-				  : T extends Node | RegExp | Date | Map<never, never> | Set<never> | WeakMap<object, never> | WeakSet<object>
-						// eslint-disable-next-line @typescript-eslint/ban-types
-						| Iterator<never, never, never> | Generator<never, never, never> | Error | Promise<never> | TypedArray | ArrayBuffer | DataView | Function
-						? JSHandle<T>
-						: T extends object
-							  ? { [K in keyof T]: UnwrappedHandle<T[K]> }
-							  : unknown;
 
 /**
  * Like {@link JSHandle#jsonValue}, but retains some non-serializable objects as {@link JSHandle}s
@@ -77,20 +70,6 @@ export type UnwrappedHandle<T> = T extends string | boolean | number | null | un
 export async function unwrapHandle<T>(handle: JSHandle<T>): Promise<UnwrappedHandle<T>> {
 	return await unwrapHandleConservative(handle, () => true) as UnwrappedHandle<T>;
 }
-
-export type UnwrappedHandleConservative<T> = T extends string | boolean | number | null | undefined | bigint
-	  ? T
-	  : T extends Element
-			? ElementHandle<T>
-			: T extends (infer V)[]
-				  ? UnwrappedHandleConservative<V>[]
-				  : T extends Node | RegExp | Date | Map<never, never> | Set<never> | WeakMap<object, never> | WeakSet<object>
-						// eslint-disable-next-line @typescript-eslint/ban-types
-						| Iterator<never, never, never> | Generator<never, never, never> | Error | Promise<never> | TypedArray | ArrayBuffer | DataView | Function
-						? JSHandle<T>
-						: T extends object
-							  ? { [K in keyof T]: UnwrappedHandleConservative<T[K]> } | JSHandle<T>
-							  : unknown;
 
 /**
  * Like {@link JSHandle#jsonValue}, but retains non-serializable objects as {@link JSHandle}s
@@ -125,3 +104,33 @@ export async function unwrapHandleConservative<T>(handle: JSHandle<T>, shouldUnw
 					? eval(handle._remoteObject.unserializableValue)
 					: await handle.jsonValue())) as UnwrappedHandleConservative<T>;
 }
+
+export type UnwrappedHandle<T> = T extends string | boolean | number | null | undefined | bigint
+	  ? T
+	  : T extends Element
+			? ElementHandle<T>
+			: T extends (infer V)[]
+				  ? UnwrappedHandle<V>[]
+				  : T extends Node | RegExp | Date | Map<never, never> | Set<never> | WeakMap<object, never> | WeakSet<object>
+						| Iterator<never, never, never> | Generator<never, never, never> | Error | Promise<never> | TypedArray | ArrayBuffer | DataView
+						// eslint-disable-next-line @typescript-eslint/ban-types
+						| Function | symbol
+						? JSHandle<T>
+						: T extends object
+							  ? { [K in keyof T]: UnwrappedHandle<T[K]> }
+							  : unknown;
+
+export type UnwrappedHandleConservative<T> = T extends string | boolean | number | null | undefined | bigint
+	  ? T
+	  : T extends Element
+			? ElementHandle<T>
+			: T extends (infer V)[]
+				  ? UnwrappedHandleConservative<V>[]
+				  : T extends Node | RegExp | Date | Map<never, never> | Set<never> | WeakMap<object, never> | WeakSet<object>
+						| Iterator<never, never, never> | Generator<never, never, never> | Error | Promise<never> | TypedArray | ArrayBuffer | DataView
+						// eslint-disable-next-line @typescript-eslint/ban-types
+						| Function | symbol
+						? JSHandle<T>
+						: T extends object
+							  ? { [K in keyof T]: UnwrappedHandleConservative<T[K]> } | JSHandle<T>
+							  : unknown;

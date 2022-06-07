@@ -1,12 +1,19 @@
-/** Get a string which should uniquely identify an element across pages  */
-import {stripHash} from './utils';
-import {BoundingBox, ElementHandle, Frame} from 'puppeteer';
 import {SelectorChain} from 'leak-detect-inject';
+import {BoundingBox, BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
+
+import {stripHash} from './utils';
 import {GlobalNames} from './FieldsCollector';
 import {evaluate, evaluateHandle, getFrameStack, unwrapHandle} from './puppeteerUtils';
 
-export function getElemIdentifier(elem: ElementAttrs): string {
-	return `${stripHash(elem.frameStack[0])} ${elem.selectorChain.join('>>>')}`;
+export async function closeExtraPages(context: BrowserContext, keep: Set<Page>) {
+	await Promise.all((await context.pages()).filter(page => !keep.has(page))
+		  .map(page => page.close({runBeforeUnload: false})));
+}
+
+/** Get a string which should uniquely identify an element across pages  */
+export function getElemIdentifier(elem: ElementAttrs | ElementInfo): string {
+	const attrs = 'attrs' in elem ? elem.attrs : elem;
+	return `${stripHash(attrs.frameStack[0])} ${attrs.selectorChain.join('>>>')}`;
 }
 
 export async function getElementInfoFromAttrs(attrs: ElementAttrs, frame: Frame): Promise<ElementInfo | null> {
@@ -29,7 +36,7 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 			tagName: el.nodeName,
 			class: el.className,
 
-			innerText: el instanceof HTMLElement ? el.innerText : el.textContent || '',
+			innerText: el instanceof HTMLElement ? el.innerText : el.textContent ?? '',
 			name: el.getAttribute('name'),
 			type: el.getAttribute('type'),
 			href: el.getAttribute('href'),
@@ -84,6 +91,7 @@ export interface FathomElementAttrs extends ElementAttrs {
 export interface FieldElementAttrs extends ElementAttrs {
 	fieldType: FieldType;
 	filled?: boolean;
+	submitted?: boolean;
 }
 
 export interface LinkElementAttrs extends ElementAttrs {

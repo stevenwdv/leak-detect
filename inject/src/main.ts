@@ -6,7 +6,7 @@ import {detectEmailInputs as _detectEmailInputs} from './email_detector';
 import {utils} from 'fathom-web';
 
 export const detectEmailInputs = _detectEmailInputs as (domRoot: Element) => Generator<FathomResult, void, undefined>;
-export const {isVisible}       = (utils as { isVisible: (elem: Element) => boolean });
+export const {isVisible}       = utils as { isVisible: (elem: Element) => boolean };
 
 export interface FathomResult {
 	elem: Element;

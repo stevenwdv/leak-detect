@@ -1,15 +1,17 @@
-import fs from 'fs';
-import * as forms from './formInteraction';
-import {submitField} from './formInteraction';
-import * as tldts from 'tldts';
-import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
+import fs from 'node:fs';
+
 import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
-import {Logger, TaggedLogger} from './logger';
-import {filterUniqBy, OmitFirstParameter, stripHash, tryAdd} from './utils';
-import {performance} from 'perf_hooks';
+import {groupBy} from 'ramda';
+import tldts from 'tldts';
+import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
 import {UnreachableCaseError} from 'ts-essentials';
+
 import {SelectorChain} from 'leak-detect-inject';
+import {addAll, OmitFirstParameter, tryAdd} from './utils';
+import {Logger, TaggedLogger} from './logger';
+import {fillEmailField, fillPasswordField, submitField} from './formInteraction';
 import {
+	closeExtraPages,
 	ElementAttrs,
 	ElementInfo,
 	FathomElementAttrs,
@@ -74,6 +76,7 @@ export class FieldsCollector extends BaseCollector {
 	#page!: Page;
 	#injectedPasswordCallback = new Set<Page>();
 	#injectedErrorCallback    = new Set<Page>();
+	#submittedFields          = new Set<string>();
 
 	#passwordLeaks: PasswordLeak[]   = [];
 	#visitedTargets: VisitedTarget[] = [];
@@ -84,7 +87,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	override id() {
-		return 'fields';
+		return 'fields' as const;
 	}
 
 	override init({log, url, context}: BaseCollector.CollectorInitOptions) {
@@ -110,24 +113,15 @@ export class FieldsCollector extends BaseCollector {
 			return {};
 		}
 
-		const landingPage   = this.#page;
+		const landingPage = this.#page;
 		// Search for fields on the landing page(s)
-		const fieldsLanding = await this.findFieldsOnAllPages();
-		this.#log?.log(`found ${fieldsLanding.length} total fields on landing page(s) ${landingPage.url()}`);
-		const fields      = fieldsLanding.map(f => f.attrs);
-		const foundFields = new Set<string>(fieldsLanding.map(field => getElemIdentifier(field.attrs)));
-
-		await this.fillFields(fieldsLanding);
-		this.#log?.debug('sleeping');
-		await landingPage.waitForTimeout(SLEEP_AFTER_FILL);
-
-		this.#log?.debug('submitting fields');
-		await this.submitFields(fieldsLanding);
+		const fields      = await this.processFieldsOnAllPages();
 
 		let links = null;
 
 		// Search for fields on linked pages
 		try {
+			await this.injectPageScript(landingPage.mainFrame());
 			links = (await getLoginLinks(landingPage.mainFrame(), new Set(['exact', 'loose', 'coords'])))
 				  .map(info => info.attrs);
 
@@ -139,7 +133,7 @@ export class FieldsCollector extends BaseCollector {
 			if (links.length > NUM_LINKS_TO_CLICK)
 				this.#log?.debug(`skipping last ${links.length - NUM_LINKS_TO_CLICK} links`);
 
-			for (const [i, link] of links.slice(0, NUM_LINKS_TO_CLICK).entries())
+			for (const [nLink, link] of links.slice(0, NUM_LINKS_TO_CLICK).entries())
 				try {
 					if (SKIP_EXTERNAL_LINKS && link.href &&
 						  tldts.getDomain(new URL(link.href, this.#options.finalUrl).href) !== this.#siteDomain) {
@@ -147,24 +141,12 @@ export class FieldsCollector extends BaseCollector {
 						continue;
 					}
 
-					if (i) await this.goToLandingPage();
+					if (nLink) await this.goto(landingPage.mainFrame(), this.#options.finalUrl);
 					await this.closeExtraPages();
 
 					this.#log?.debug(`will follow link: ${JSON.stringify(link)}`);
 					await this.followLink(link);
-					const fieldsSub = filterUniqBy(await this.findFieldsOnAllPages(), foundFields, field => getElemIdentifier(field.attrs));
-					this.#log?.log(`found ${fieldsSub.length} new fields on sub pages for link ${link.href ?? JSON.stringify(link)}`);
-					fields.push(...fieldsSub.map(f => f.attrs));
-
-					if (fieldsSub.length) {
-						this.#log?.debug(`will fill fields for link ${link.href ?? JSON.stringify(link)}`);
-						await this.fillFields(fieldsSub);
-						this.#log?.debug('sleeping');
-						await landingPage.waitForTimeout(SLEEP_AFTER_FILL);
-
-						this.#log?.debug(`will submit fields for link ${link.href ?? JSON.stringify(link)}`);
-						await this.submitFields(fieldsSub);
-					}
+					fields.push(...await this.processFieldsOnAllPages());
 				} catch (err) {
 					this.#log?.warn(`failed to inspect linked page for link ${JSON.stringify(link)}`, err);
 				}
@@ -172,18 +154,18 @@ export class FieldsCollector extends BaseCollector {
 			this.#log?.error('failed to inspect linked pages', err);
 		}
 
+		await this.closeExtraPages();
+
 		return {
 			visitedTargets: this.#visitedTargets,
-			fields: fields,
+			fields,
 			loginRegisterLinksDetails: links,
 			passwordLeaks: this.#passwordLeaks,
 		};
 	}
 
 	async closeExtraPages() {
-		return Promise.all((await this.#context.pages())
-			  .filter(page => page !== this.#page)
-			  .map(page => page.close({runBeforeUnload: false})));
+		await closeExtraPages(this.#context, new Set([this.#page]));
 	}
 
 	async followLink(link: ElementAttrs): Promise<void> {
@@ -194,23 +176,24 @@ export class FieldsCollector extends BaseCollector {
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
 		if (!linkInfo) throw new Error('Could not find link element anymore');
 		if (await this.click(linkInfo))
-			await this.waitForNavigation();
+			await this.waitForNavigation(page.mainFrame()); //TODO what if parent navigates?
 
 		this.#log?.debug(`navigated ${preClickUrl} -> ${page.url()}; ${
 			  (await this.#context.pages()).length - prevNumPages} new pages created`);
 	}
 
-	async goToLandingPage() {
-		const landingPage = this.#page;
-		await landingPage.bringToFront();
-		const pageUrl = landingPage.url();
-		this.#log?.debug(`will return to landing page ${pageUrl} -> ${this.#options.finalUrl}`);
+	async goto(frame: Frame, url: string) {
+		const maxWaitTimeMs = Math.max(
+			  this.#options.pageLoadDurationMs * 2,
+			  MAX_RELOAD_TIME);
+
+		this.#log?.debug(`will navigate ${frame.url()} -> ${url}`);
 		try {
-			await landingPage.goto(this.#options.finalUrl, {'timeout': MAX_RELOAD_TIME, 'waitUntil': 'load'});
+			await frame.goto(url, {'timeout': maxWaitTimeMs, 'waitUntil': 'load'});
 			this.#log?.debug('sleeping');
-			await landingPage.waitForTimeout(POST_LANDING_RELOAD_WAIT);
+			await frame.waitForTimeout(POST_LANDING_RELOAD_WAIT);
 		} catch (error) {
-			this.#log?.debug('error while returning to landing page', error);
+			this.#log?.debug(`error while going to ${url}`, error);
 		}
 	}
 
@@ -229,18 +212,21 @@ export class FieldsCollector extends BaseCollector {
 		return success;
 	}
 
-	async waitForNavigation() {
+	async waitForNavigation(frame: Frame) {
 		const maxWaitTimeMs = Math.max(
 			  this.#options.pageLoadDurationMs * 2,
 			  POST_CLICK_LOAD_TIMEOUT);
 
-		//TODO also wait until new page opened? (maybe #context.waitForTarget)
-		const page = this.#page;
-		this.#log?.debug('waiting for navigation');
+		this.#log?.debug(`waiting for navigation from ${frame.url()}`);
 
-		const startTime = performance.now();
 		try {
-			await page.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
+			const msg = await Promise.race([
+				frame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'})
+					  .then(() => `navigated to ${frame.url()}`),
+				this.#context.waitForTarget(target => target.type() === 'page', {timeout: maxWaitTimeMs})
+					  .then(page => `opened ${page.url()}`),
+			]);
+			this.#log?.debug(msg);
 		} catch (err) {
 			if (isOfType(err, 'TimeoutError')) {
 				this.#log?.debug('navigation timeout exceeded (but maybe the link did trigger a popup or something)');
@@ -248,30 +234,76 @@ export class FieldsCollector extends BaseCollector {
 			}
 			throw err;
 		}
-		const endTime = performance.now();
-		this.#log?.debug(`navigated in ${((endTime - startTime) / 1e3).toFixed(2)}s to ${page.url()}`);
 		this.#log?.debug('sleeping');
-		await page.waitForTimeout(maxWaitTimeMs);
+		await frame.waitForTimeout(maxWaitTimeMs);
 	}
 
-	async findFieldsOnAllPages(): Promise<ElementInfo<FieldElementAttrs>[]> {
-		if (this.#headless)
-			return (await Promise.all((await this.#context.pages())
-				  .map(async page => await this.findFieldsRecursive(page)))).flat();
-		else {
-			const fields = [];
-			// Execute one-by-one such that we can bring pages to front
-			for (const page of await this.#context.pages())
-				fields.push(...await this.findFieldsRecursive(page));
-			return fields;
+	async processFieldsOnAllPages(): Promise<FieldElementAttrs[]> {
+		const fields = [];
+		for (const page of await this.#context.pages())
+			fields.push(await this.processFieldsRecursive(page));
+		return fields.flat();
+	}
+
+	async processFieldsRecursive(page: Page): Promise<FieldElementAttrs[]> {
+		const submittedFrames = new Set<string>();
+
+		const startUrl  = page.url();
+		const openPages = new Set(await this.#context.pages());
+
+		const fields = [];
+
+		let done = false;
+		while (!done) {
+			attempt: {
+				for (const frame of page.frames().filter(frame => !submittedFrames.has(frame.url()))) {
+					const {field, lastField} = await this.processField(frame);
+					if (lastField) submittedFrames.add(frame.url());  // This frame is done
+					if (field) {
+						fields.push(field);
+						break attempt;  // We submitted a field, now reload the page and try other fields
+					}
+				}
+				done = true;  // All frames are done
+			}
+			await this.goto(page.mainFrame(), startUrl);
+			await closeExtraPages(this.#context, openPages);
 		}
+
+		return fields;
 	}
 
-	async findFieldsRecursive(page: Page): Promise<ElementInfo<FieldElementAttrs>[]> {
-		return (await Promise.all(
-			  page.frames()
-					.filter(frame => !frame.isDetached())
-					.map(async frame => await this.findFields(frame) ?? []))).flat();
+	async processField(frame: Frame): Promise<{ field: FieldElementAttrs | null, lastField: boolean }> {
+		const frameFields = await this.findFields(frame);
+		if (frameFields?.length) {
+			const fieldsByForm     = groupBy(field => field.attrs.form?.join('>>>') ?? '', frameFields);
+			const fieldsByFormList = Object.entries(fieldsByForm).sort(([formA]) => formA === '' ? 1 : 0);
+			for (const [lastForm, [formSelector, formFields]] of fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
+				try {
+					const field = formFields.find(field => !this.#submittedFields.has(getElemIdentifier(field)));
+					if (!field) continue;
+
+					await this.fillFields(formFields);
+					this.#log?.debug('sleeping');
+					await frame.waitForTimeout(SLEEP_AFTER_FILL);
+
+					if (await submitField(field)) {
+						field.attrs.submitted = true;
+						await this.waitForNavigation(field.handle.executionContext().frame()!);
+					}
+					if (formSelector) addAll(this.#submittedFields, formFields.map(getElemIdentifier));
+					else this.#submittedFields.add(getElemIdentifier(field));
+
+					return {
+						field: field.attrs,
+						lastField: lastForm && this.#submittedFields.has(getElemIdentifier(formFields.at(-1)!)),
+					};
+				} catch (err) {
+					this.#log?.warn(`failed to process form ${formSelector}`, err);
+				}
+			}
+		}
+		return {field: null, lastField: true};
 	}
 
 	async findFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs>[] | null> {
@@ -329,10 +361,10 @@ export class FieldsCollector extends BaseCollector {
 			await this.injectPasswordLeakDetection(field.handle.executionContext().frame()!);
 			switch (field.attrs.fieldType) {
 				case 'email':
-					await forms.fillEmailField(field, this.#initialUrl.hostname, EMAIL_ADDRESS, this.#log);
+					await fillEmailField(field, this.#initialUrl.hostname, EMAIL_ADDRESS, this.#log);
 					break;
 				case 'password':
-					await forms.fillPasswordField(field, PASSWORD, this.#log);
+					await fillPasswordField(field, PASSWORD, this.#log);
 					break;
 				default:
 					throw new UnreachableCaseError(field.attrs.fieldType);
@@ -340,27 +372,6 @@ export class FieldsCollector extends BaseCollector {
 			field.attrs.filled = true;
 			this.#log?.debug('sleeping');
 			await this.#page?.waitForTimeout(SLEEP_AFTER_SINGLE_FILL);
-		}
-	}
-
-	async submitFields(fields: ElementInfo[]) {
-		const submittedForms = new Set<string>();
-		for (const elem of fields) {
-			try {
-				const page = getPageFromHandle(elem.handle)!;
-				//TODO reload page & re-fill fields
-				await page.bringToFront();
-				const formSelector = await evaluate(elem.handle, elem => {
-					const form = (elem as Element & { form?: HTMLFormElement | null }).form;
-					return form ? window[GlobalNames.INJECTED]!.formSelectorChain(form) : null;
-				});
-				if (formSelector && !tryAdd(submittedForms, `${stripHash(elem.attrs.frameStack[0])} ${formSelector.join('>>>')}`))
-					continue;
-				if (await submitField(elem))
-					await this.waitForNavigation();
-			} catch (err) {
-				this.#log?.warn(`failed to submit field ${JSON.stringify(elem.attrs)}`, err);
-			}
 		}
 	}
 
@@ -406,7 +417,7 @@ export class FieldsCollector extends BaseCollector {
 				function observeRecursive(node: Node) {
 					if ([Node.DOCUMENT_NODE, Node.DOCUMENT_FRAGMENT_NODE].includes(node.nodeType))
 						observer.observe(node, {subtree: true, attributes: true, childList: true});
-					if (node instanceof Element && node.shadowRoot)
+					if (node instanceof Element && node.shadowRoot) //TODO what if shadow attach after elem added?
 						observeRecursive(node.shadowRoot);
 					for (const child of node.childNodes)
 						observeRecursive(child);

@@ -1,10 +1,12 @@
-import fs from 'fs';
+import fs from 'node:fs';
+
 import {APICallCollector, crawler, RequestCollector} from 'tracker-radar-collector';
 import yargs from 'yargs';
 
 import {FieldsCollector} from './FieldsCollector';
 import {ConsoleLogger} from './logger';
 import breakpoints from './breakpoints';
+import {formatDuration} from './utils';
 import ErrnoException = NodeJS.ErrnoException;
 
 async function main() {
@@ -36,7 +38,7 @@ async function main() {
 		  new URL(args.url),
 		  {
 			  log: console.log,
-			  maxCollectionTimeMs: 60_000,
+			  maxCollectionTimeMs: 120_000,
 			  collectors: [
 				  new FieldsCollector(new ConsoleLogger()),
 				  new APICallCollector(breakpoints),
@@ -47,19 +49,6 @@ async function main() {
 	console.info(result);
 	debugger  // Give you the ability to inspect the result in a debugger
 	console.log(JSON.stringify(result, undefined, 2));
-}
-
-function formatDuration(ms: number): string {
-	let str = '';
-	if (ms >= 3600_000) str += `${Math.floor(ms / 3600_000)}h `;
-	ms %= 3600_000;
-	if (ms >= 60_000) str += `${Math.floor(ms / 60_000)}m `;
-	ms %= 60_000;
-	if (ms >= 1_000) str += `${Math.floor(ms / 1_000)}s `;
-	ms %= 1_000;
-	if (!str) str += `${Math.ceil(ms)}ms `;
-	str = str.slice(0, -1);
-	return str;
 }
 
 void (async () => {

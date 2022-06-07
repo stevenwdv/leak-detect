@@ -1,8 +1,9 @@
 import {ElementHandle} from 'puppeteer';
+
 import {Logger} from './logger';
-import {NO_DELAYS} from './FieldsCollector';
 import {evaluate, getPageFromHandle} from './puppeteerUtils';
 import {ElementInfo} from './pageUtils';
+import {NO_DELAYS} from './FieldsCollector';
 
 const KEY_PRESS_DWELL_TIME = NO_DELAYS ? 0 : 100;
 const CLICK_DWELL_TIME     = NO_DELAYS ? 0 : 100;

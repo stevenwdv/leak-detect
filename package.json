@@ -12,7 +12,9 @@
 		"inject"
 	],
 	"dependencies": {
+		"@types/ramda": "^0.28.13",
 		"puppeteer": "^14.0.0",
+		"ramda": "^0.28.0",
 		"tldts": "^5.7.78",
 		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#19f124d3",
 		"yargs": "^17.5.1"
