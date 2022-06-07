@@ -1,3 +1,5 @@
+import {DeepPartial} from 'ts-essentials';
+
 export type OmitFirstParameter<Func> = Func extends (first: never, ...args: infer Rest) => infer Return
 	  ? (...args: Rest) => Return : never;
 
@@ -45,4 +47,15 @@ export function formatDuration(ms: number): string {
 	if (!str) str += `${Math.ceil(ms)}ms `;
 	str = str.slice(0, -1);
 	return str;
+}
+
+export function populateDefaults<T>(obj: DeepPartial<T>, defaults: T): T {
+	const objMap      = obj as { [key in string]?: unknown },
+	      defaultsMap = defaults as { [key in string]?: unknown };
+	if (obj && Object.getPrototypeOf(obj) === Object.prototype) {
+		for (const key of Object.keys(defaults))
+			if (objMap[key] === undefined) objMap[key] = defaultsMap[key];
+			else populateDefaults(objMap[key], defaultsMap[key]);
+	}
+	return obj as T;
 }
