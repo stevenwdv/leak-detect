@@ -6,5 +6,11 @@ Run crawl:
 
 ```shell
 npm install
-npm start crawl https://example.com/
+npm start -- crawl https://example.com/
+```
+
+Get options:
+
+```shell
+npm start -- crawl --help
 ```

@@ -19,7 +19,7 @@ async function main() {
 					demandOption: true,
 				})
 				.option('config', {
-					description: 'path to configuration file, see src/crawl-config.schema for syntax',
+					description: 'path to configuration file, see src/crawl-config.schema.json for syntax',
 					type: 'string',
 					normalize: true,
 				})
