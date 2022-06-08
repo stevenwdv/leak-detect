@@ -5,9 +5,13 @@ import {stripHash} from './utils';
 import {GlobalNames} from './FieldsCollector';
 import {evaluate, evaluateHandle, getFrameStack, unwrapHandle} from './puppeteerUtils';
 
-export async function closeExtraPages(context: BrowserContext, keep: Set<Page>) {
-	await Promise.all((await context.pages()).filter(page => !keep.has(page))
-		  .map(page => page.close({runBeforeUnload: false})));
+/**
+ * Close pages in `context` not in `keep`
+ * @returns Closed pages
+ */
+export async function closeExtraPages(context: BrowserContext, keep: Set<Page>): Promise<Page[]> {
+	return Promise.all((await context.pages()).filter(page => !keep.has(page))
+		  .map(page => page.close({runBeforeUnload: false}).then(() => page)));
 }
 
 /** Get a string which should uniquely identify an element across pages  */

@@ -65,29 +65,7 @@ export class FieldsCollector extends BaseCollector {
 
 	constructor(options?: DeepPartial<FieldsCollectorOptions>, logger?: Logger) {
 		super();
-		this.#options = populateDefaults<FieldsCollectorOptions>(options ?? {}, {
-			timeoutMs: {
-				reload: 2_500,
-				followLink: 2_500,
-				submitField: 2_500,
-			},
-			sleepMs: {
-				postFill: 5_000,
-				postNavigate: 1_000,
-				fill: {
-					clickDwell: 100,
-					keyDwell: 100,
-					betweenKeys: 250,
-				},
-			},
-			clickLinkCount: 10,
-			skipExternal: 'frames',
-			fill: {
-				emailBase: 'x@example.com',
-				password: 'P@s5w0rd!',
-				submit: true,
-			},
-		});
+		this.#options = populateDefaults<FieldsCollectorOptions>(options ?? {}, defaultOptions);
 
 		FieldsCollector.#loadInjectScript();
 		this.#log = logger;
@@ -100,7 +78,7 @@ export class FieldsCollector extends BaseCollector {
 				bundleTime = fs.statSync('./inject/dist/bundle.js').mtimeMs;
 			} catch (err) {
 				if ((err as ErrnoException).code === 'ENOENT')
-					console.error('Bundle to inject not found, run `npm run pack` in the `inject` folder');
+					console.error('bundle to inject not found, run `npm run pack` in the `inject` folder');
 				throw err;
 			}
 			const timeDiff = fs.statSync('./inject/src/main.ts').mtimeMs - bundleTime;
@@ -119,9 +97,7 @@ export class FieldsCollector extends BaseCollector {
 			})())`);
 	}
 
-	override id() {
-		return 'fields' as const;
-	}
+	override id() { return 'fields' as const; }
 
 	override init({log, url, context}: BaseCollector.CollectorInitOptions) {
 		this.#log ??= new TaggedLogger(log);
@@ -140,30 +116,26 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	override async addTarget({url, type}: Parameters<typeof BaseCollector.prototype.addTarget>[0]) {
-		if (!this.#page && type === 'page') this.#page = (await this.#context.pages())[0];
-		this.#visitedTargets.push({time: Date.now(), type, url});
+		if (!this.#page && type === 'page') this.#page = (await this.#context.pages())[0];  // Take first page
+		this.#visitedTargets.push({time: Date.now(), type, url});  // Save other targets as well
 	}
 
 	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldCollectorData> {
 		this.#dataParams = options;
-
-		this.#log?.info(`getData ${options.finalUrl}`);
 
 		if (this.#siteDomain === null && this.#initialUrl?.hostname !== 'localhost') {
 			this.#log?.warn('URL has no domain with public suffix, will skip this page');
 			return {};
 		}
 
-		const landingPage = this.#page;
 		// Search for fields on the landing page(s)
-		const fields     = await this.#processFieldsOnAllPages();
-
-		let links = null;
+		const fields = await this.#processFieldsOnAllPages();
 
 		// Search for fields on linked pages
-		try {
-			await FieldsCollector.#injectPageScript(landingPage.mainFrame());
-			links = (await getLoginLinks(landingPage.mainFrame(), new Set(['exact', 'loose', 'coords'])))
+		let links = null;
+		if (this.#options.clickLinkCount) try {
+			await FieldsCollector.#injectPageScript(this.#page.mainFrame());
+			links = (await getLoginLinks(this.#page.mainFrame(), new Set(['exact', 'loose', 'coords'])))
 				  .map(info => info.attrs);
 
 			const matchTypeCounts = links.reduce((acc, attrs) =>
@@ -172,25 +144,27 @@ export class FieldsCollector extends BaseCollector {
 			this.#log?.debug(`found ${links.length} login/register links on the landing page`, matchTypeCounts);
 
 			if (links.length > this.#options.clickLinkCount)
-				this.#log?.debug(`skipping last ${links.length - this.#options.clickLinkCount} links`);
+				this.#log?.log(`skipping last ${links.length - this.#options.clickLinkCount} links`);
 
 			for (const [nLink, link] of links.slice(0, this.#options.clickLinkCount).entries())
-				try {
-					if (this.#options.skipExternal && link.href &&
-						  tldts.getDomain(new URL(link.href, this.#dataParams.finalUrl).href) !== this.#siteDomain) {
-						this.#log?.debug(`skip external link: ${link.href}`);
-						continue;
+				await this.#group(`link ${link.selectorChain.join('>>>')}`, async () => {
+					try {
+						if (this.#options.skipExternal && link.href &&
+							  tldts.getDomain(new URL(link.href, this.#dataParams.finalUrl).href) !== this.#siteDomain) {
+							this.#log?.log('skipping external link', link.href);
+							return;
+						}
+
+						if (!this.#options.fill.submit && nLink)
+							await this.#goto(this.#page.mainFrame(), this.#dataParams.finalUrl, this.#options.timeoutMs.reload);
+						await this.#closeExtraPages();
+
+						await this.#followLink(link);
+						fields.push(...await this.#processFieldsOnAllPages());
+					} catch (err) {
+						this.#log?.warn('failed to inspect linked page for link', link, err);
 					}
-
-					if (nLink) await this.#goto(landingPage.mainFrame(), this.#dataParams.finalUrl, this.#options.timeoutMs.reload);
-					await this.#closeExtraPages();
-
-					this.#log?.debug(`will follow link: ${JSON.stringify(link)}`);
-					await this.#followLink(link);
-					fields.push(...await this.#processFieldsOnAllPages());
-				} catch (err) {
-					this.#log?.warn(`failed to inspect linked page for link ${JSON.stringify(link)}`, err);
-				}
+				});
 		} catch (err) {
 			this.#log?.error('failed to inspect linked pages', err);
 		}
@@ -205,40 +179,45 @@ export class FieldsCollector extends BaseCollector {
 		};
 	}
 
-	async #closeExtraPages() {
-		await closeExtraPages(this.#context, new Set([this.#page]));
+	#group<T>(name: string, func: () => T): T {
+		return this.#log ? this.#log.group(name, func) : func();
 	}
 
-	async #followLink(link: ElementAttrs): Promise<void> {
-		const page         = this.#page;
-		const preClickUrl  = page.url();
-		const prevNumPages = (await this.#context.pages()).length;
+	async #closeExtraPages() {
+		const closedPages = await closeExtraPages(this.#context, new Set([this.#page]));
+		if (closedPages.length) this.#log?.debug(`closed ${closedPages.length} pages`);
+	}
+
+	async #followLink(link: ElementAttrs) {
+		this.#log?.log('following link', link.selectorChain.join('>>>'));
+		const page = this.#page;
 		await FieldsCollector.#injectPageScript(page.mainFrame());
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
-		if (!linkInfo) throw new Error('Could not find link element anymore');
+		if (!linkInfo) throw new Error('could not find link element anymore');
 		if (await this.#click(linkInfo))
-			await this.#waitForNavigation(page.mainFrame(), this.#options.timeoutMs.followLink); //TODO what if parent navigates?
-
-		this.#log?.debug(`navigated ${preClickUrl} -> ${page.url()}; ${
-			  (await this.#context.pages()).length - prevNumPages} new pages created`);
+			await this.#waitForNavigation(page.mainFrame(), this.#options.timeoutMs.followLink);
 	}
 
 	async #goto(frame: Frame, url: string, minTimeoutMs: number) {
 		const maxWaitTimeMs = Math.max(minTimeoutMs,
 			  this.#dataParams.pageLoadDurationMs * 2);
 
-		this.#log?.debug(`will navigate ${frame.url()} -> ${url}`);
+		this.#log?.log(frame.url() === url ? 'will reload' : `will navigate ${frame.url()} → ${url}`);
 		await getPageFromFrame(frame).bringToFront();
 		try {
-			await frame.goto(url, {'timeout': maxWaitTimeMs, 'waitUntil': 'load'});
-			this.#log?.debug('sleeping');
+			await frame.goto(url, {timeout: maxWaitTimeMs, waitUntil: 'load'});
+			this.#log?.debug('💤');
 			await frame.waitForTimeout(this.#options.sleepMs?.postNavigate ?? 0);
-		} catch (error) {
-			this.#log?.debug(`error while going to ${url}`, error);
+		} catch (err) {
+			if (isOfType(err, 'TimeoutError')) {
+				this.#log?.log('navigation timeout exceeded (will continue)');
+				return;
+			}
+			throw err;
 		}
 	}
 
-	async #click(link: ElementInfo) {
+	async #click(link: ElementInfo): Promise<boolean> {
 		await getPageFromHandle(link.handle)!.bringToFront();
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
 		const success = await evaluate(link.handle, el => {
@@ -258,20 +237,22 @@ export class FieldsCollector extends BaseCollector {
 			  this.#dataParams.pageLoadDurationMs * 2);
 
 		this.#log?.debug(`waiting for navigation from ${frame.url()}`);
-
 		try {
-			const msg = await Promise.race([
+			const prePages = new Set(await this.#context.pages());
+			const msg      = await Promise.race([
 				frame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'})
 					  .then(() => `navigated to ${frame.url()}`),
-				this.#context.waitForTarget(target => target.type() === 'page', {timeout: maxWaitTimeMs})
+				this.#context.waitForTarget(
+					  async target => target.type() === 'page' && !prePages.has((await target.page())!),
+					  {timeout: maxWaitTimeMs})
 					  .then(page => `opened ${page.url()}`),
 			]);
-			this.#log?.debug(msg);
-			this.#log?.debug('sleeping');
+			this.#log?.log(msg);
+			this.#log?.debug('💤');
 			await frame.waitForTimeout(this.#options.sleepMs?.postNavigate ?? 0);
 		} catch (err) {
 			if (isOfType(err, 'TimeoutError')) {
-				this.#log?.debug('navigation timeout exceeded (but maybe the link did trigger a popup or something)');
+				this.#log?.log('navigation timeout exceeded (will continue)');
 				return;
 			}
 			throw err;
@@ -286,76 +267,89 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #processFieldsRecursive(page: Page): Promise<FieldElementAttrs[] | null> {
-		if (this.#options.skipExternal && tldts.getDomain(page.url()) !== this.#siteDomain!) {
-			this.#log?.debug(`off-domain navigation. Will not search for email/password fields on ${page.url()}`);
-			return null;
-		}
+		return this.#group(page.url(), async () => {
+			if (this.#options.skipExternal && tldts.getDomain(page.url()) !== this.#siteDomain!) {
+				this.#log?.log('skipping external page');
+				return null;
+			}
 
-		const submittedFrames = new Set<string>();
+			const submittedFrames = new Set<string>();
 
-		const startUrl  = page.url();
-		const openPages = new Set(await this.#context.pages());
+			const startUrl  = page.url();
+			const openPages = new Set(await this.#context.pages());
 
-		const pageFields = [];
+			const pageFields = [];
 
-		let done = false;
-		while (!done) attempt: {
-			for (const frame of page.frames().filter(frame => !submittedFrames.has(frame.url()))) {
-				const {fields, done} = await this.#processFields(frame);
-				if (done) submittedFrames.add(frame.url());  // This frame is done
-				if (fields?.length) {
-					pageFields.push(fields);
-					if (this.#options.fill.submit) {
-						// We submitted a field, now reload the page and try other fields
-						await this.#goto(page.mainFrame(), startUrl, this.#options.timeoutMs.reload);
-						await closeExtraPages(this.#context, openPages);
-						break attempt;
+			let done = false;
+			while (!done) attempt: {
+				for (const frame of page.frames().filter(frame => !submittedFrames.has(frame.url()))) {
+					const {fields, done} = await this.#processFields(frame);
+					if (done) submittedFrames.add(frame.url());  // This frame is done
+					if (fields?.length) {
+						pageFields.push(fields);
+						if (this.#options.fill.submit) {
+							// We submitted a field, now reload the page and try other fields
+							await this.#goto(page.mainFrame(), startUrl, this.#options.timeoutMs.reload);
+							await closeExtraPages(this.#context, openPages);
+							break attempt;
+						}
 					}
 				}
+				done = true;  // All frames are done
 			}
-			done = true;  // All frames are done
-		}
 
-		return pageFields.flat();
+			this.#log?.log(`processed ${pageFields.length} new fields`);
+			return pageFields.flat();
+		});
 	}
 
+	/**
+	 * Fill and optionally submit field(s) on a frame.
+	 * For submission, only one form will be filled & submitted at a time.
+	 */
 	async #processFields(frame: Frame): Promise<{ fields: FieldElementAttrs[] | null, done: boolean }> {
-		const frameFields = await this.#findFields(frame);
-		if (!frameFields) return {fields: null, done: true};
+		return this.#group(frame.url(), async () => {
+			const frameFields = await this.#findFields(frame);
+			if (!frameFields) return {fields: null, done: true};
 
-		if (this.#options.fill.submit) {
-			const fieldsByForm     = groupBy(field => field.attrs.form?.join('>>>') ?? '', frameFields);
-			const fieldsByFormList = Object.entries(fieldsByForm).sort(([formA]) => formA === '' ? 1 : 0);
-			for (const [lastForm, [formSelector, formFields]] of fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
-				try {
-					const field = formFields.find(field => !this.#processedFields.has(getElemIdentifier(field)));
-					if (!field) continue;
+			if (this.#options.fill.submit) {
+				const fieldsByForm     = groupBy(field => field.attrs.form?.join('>>>') ?? '', frameFields);
+				const fieldsByFormList = Object.entries(fieldsByForm).sort(([formA]) => formA === '' ? 1 : 0);
+				for (const [lastForm, [formSelector, formFields]] of fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
+					const res = await this.#group(formSelector ? `form ${formSelector}` : 'no form', async () => {
+						try {
+							const field = formFields.find(field => !this.#processedFields.has(getElemIdentifier(field)));
+							if (!field) return null;
 
-					await this.#fillFields(formFields);
+							await this.#fillFields(formFields);
 
-					this.#log?.debug('sleeping');
-					await frame.waitForTimeout(this.#options.sleepMs?.postFill ?? 0);
-					if (await submitField(field, this.#options.sleepMs?.fill.clickDwell ?? 0, this.#log)) {
-						field.attrs.submitted = true;
-						await this.#waitForNavigation(field.handle.executionContext().frame()!,
-							  this.#options.timeoutMs.submitField);
-					}
-					if (formSelector) addAll(this.#processedFields, formFields.map(getElemIdentifier));
-					else this.#processedFields.add(getElemIdentifier(field));
+							this.#log?.debug('💤');
+							await frame.waitForTimeout(this.#options.sleepMs?.postFill ?? 0);
+							if (await submitField(field, this.#options.sleepMs?.fill.clickDwell ?? 0, this.#log)) {
+								field.attrs.submitted = true;
+								await this.#waitForNavigation(field.handle.executionContext().frame()!,
+									  this.#options.timeoutMs.submitField); //TODO what if parent navigates?
+							}
+							if (formSelector) addAll(this.#processedFields, formFields.map(getElemIdentifier));
+							else this.#processedFields.add(getElemIdentifier(field));
 
-					return {
-						fields: [field.attrs],
-						done: lastForm && this.#processedFields.has(getElemIdentifier(formFields.at(-1)!)),
-					};
-				} catch (err) {
-					this.#log?.warn(`failed to process form ${formSelector}`, err);
+							return {
+								fields: formSelector ? formFields.map(f => f.attrs) : [field.attrs],
+								done: lastForm && this.#processedFields.has(getElemIdentifier(formFields.at(-1)!)),
+							};
+						} catch (err) {
+							this.#log?.warn('failed to process form', formSelector, err);
+						}
+						return null;
+					});
+					if (res) return res;
 				}
+				return {fields: [], done: true};
+			} else {
+				await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
+				return {fields: frameFields.map(f => f.attrs), done: true};
 			}
-			return {fields: [], done: true};
-		} else {
-			await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
-			return {fields: frameFields.map(f => f.attrs), done: true};
-		}
+		});
 	}
 
 	async #findFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs>[] | null> {
@@ -364,17 +358,17 @@ export class FieldsCollector extends BaseCollector {
 			await getPageFromFrame(frame).bringToFront();
 		}
 
-		this.#log?.debug(`searching for fields on frame ${frame.url()} on ${getPageFromFrame(frame).url()}`);
+		this.#log?.debug('finding fields');
 		const url = frame.url();
 		if (this.#options.skipExternal === 'frames' && tldts.getDomain(url) !== this.#siteDomain!) {
-			this.#log?.debug(`off-domain navigation. Will not search for email/password fields on ${url}`);
+			this.#log?.log('skipping external frame');
 			return null;
 		}
 
 		await FieldsCollector.#injectPageScript(frame);
 
 		const fields = (await Promise.all([this.#getEmailFields(frame), await this.#getPasswordFields(frame)])).flat();
-		this.#log?.debug(`found ${fields.length} fields on ${url}`);
+		this.#log?.log(`found ${fields.length} fields`);
 		return fields;
 	}
 
@@ -408,6 +402,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #fillFields(fields: ElementInfo<FieldElementAttrs>[]) {
+		this.#log?.log(`filling ${fields.length} fields`);
 		const fillTimes = this.#options.sleepMs?.fill ?? {clickDwell: 0, keyDwell: 0, betweenKeys: 0};
 		for (const field of fields.filter(f => !f.attrs.filled)) {
 			await this.#injectPasswordLeakDetection(field.handle.executionContext().frame()!);
@@ -432,8 +427,8 @@ export class FieldsCollector extends BaseCollector {
 			if (tryAdd(this.#injectedPasswordCallback, page))
 				await exposeFunction(page, GlobalNames.PASSWORD_CALLBACK, this.#passwordObserverCallback.bind(this, frame));
 
-			await evaluate(frame, (password: string) => {
-				if (window[GlobalNames.PASSWORD_OBSERVED]) return;
+			const didInject = await evaluate(frame, (password: string) => {
+				if (window[GlobalNames.PASSWORD_OBSERVED]) return false;
 				window[GlobalNames.PASSWORD_OBSERVED] = true;
 
 				const observer = new MutationObserver(mutations => {
@@ -466,9 +461,12 @@ export class FieldsCollector extends BaseCollector {
 				}
 
 				observeRecursive(document);
+				return true;
 			}, this.#options.fill.password);
+
+			if (didInject) this.#log?.debug('injected password leak detection');
 		} catch (err) {
-			this.#log?.error(`failed to inject password leak detection on ${frame.url()}`, err);
+			this.#log?.error('failed to inject password leak detection on', frame.url(), err);
 		}
 	}
 
@@ -480,7 +478,7 @@ export class FieldsCollector extends BaseCollector {
 				const handle = (await getElementBySelectorChain(leak.selector, frame))?.elem;
 				if (handle) attrs = await getElementAttrs(handle);
 			} catch (err) {
-				this.#log?.warn(`failed to get attributes for password field ${leak.selector.join('>>>')}`, err);
+				this.#log?.warn('failed to get attributes for password field', leak.selector.join('>>>'), err);
 			}
 			return {
 				time: Date.now(),
@@ -497,33 +495,90 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	#errorCallback(message: string, stack: string) {
-		this.#log?.error('Error in background page script', message, stack);
+		this.#log?.error('error in background page script', message, stack);
 	}
 }
 
+type integer = number;
+
 export interface FieldsCollectorOptions {
+	/** Timeouts in milliseconds */
 	timeoutMs: {
+		/** Page reload timeout (e.g. after submit)
+		 * @minimum 0 */
 		reload: number;
+		/** Timeout waiting for navigation after following a link
+		 * @minimum 0 */
 		followLink: number;
+		/** Timeout waiting for navigation after submitting a field
+		 * @minimum 0 */
 		submitField: number;
 	};
+	/** Intentional delays in milliseconds, or `null` to disable all delays */
 	sleepMs: {
+		/** Delay after filling some fields (in a form)
+		 * @minimum 0 */
 		postFill: number;
+		/** Delay after navigating to some page
+		 * @minimum 0 */
 		postNavigate: number;
+		/** Field fill-related delays */
 		fill: {
+			/** Time between mouse down & mouse up when clicking a field
+			 * @minimum 0 */
 			clickDwell: number;
+			/** Maximum time between key down & key up when typing in a field
+			 * @minimum 0 */
 			keyDwell: number;
+			/** Maximum time between keystrokes when typing in a field
+			 * @minimum 0 */
 			betweenKeys: number;
 		};
 	} | null;
+	/**
+	 * Whether to skip external sites.
+	 * Specify `"pages"` to only look at top-level URLs.
+	 * @default "frames"
+	 */
 	skipExternal: 'frames' | 'pages' | false;
-	clickLinkCount: number;
+	/** Maximum number of links to click on the landing page, can be 0
+	 * @minimum 0 */
+	clickLinkCount: integer;
+	/** Field fill-related settings */
 	fill: {
+		/** Email address to fill in (`domainname+` is prepended to this) */
 		emailBase: string;
+		/** Password to fill in */
 		password: string;
+		/** Try to submit forms?
+		 * @default true */
 		submit: boolean;
 	};
 }
+
+const defaultOptions: FieldsCollectorOptions = {
+	timeoutMs: {
+		reload: 2_500,
+		followLink: 2_500,
+		submitField: 2_500,
+	},
+	sleepMs: {
+		postFill: 5_000,
+		postNavigate: 1_000,
+		fill: {
+			clickDwell: 100,
+			keyDwell: 100,
+			betweenKeys: 250,
+		},
+	},
+	clickLinkCount: 10,
+	skipExternal: 'frames',
+	fill: {
+		emailBase: 'x@example.com',
+		password: 'P@s5w0rd!',
+		submit: true,
+	},
+};
 
 export interface PagePasswordLeak {
 	selector: SelectorChain;

@@ -1,0 +1,110 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false,
+    "properties": {
+        "clickLinkCount": {
+            "description": "Maximum number of links to click on the landing page, can be 0",
+            "minimum": 0,
+            "type": "integer"
+        },
+        "fill": {
+            "additionalProperties": false,
+            "description": "Field fill-related settings",
+            "properties": {
+                "emailBase": {
+                    "description": "Email address to fill in (`domainname+` is prepended to this)",
+                    "type": "string"
+                },
+                "password": {
+                    "description": "Password to fill in",
+                    "type": "string"
+                },
+                "submit": {
+                    "default": true,
+                    "description": "Try to submit forms?",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
+        "skipExternal": {
+            "default": "frames",
+            "description": "Whether to skip external sites.\nSpecify `\"pages\"` to only look at top-level URLs.",
+            "enum": [
+                false,
+                "frames",
+                "pages"
+            ]
+        },
+        "sleepMs": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "fill": {
+                            "additionalProperties": false,
+                            "description": "Field fill-related delays",
+                            "properties": {
+                                "betweenKeys": {
+                                    "description": "Maximum time between keystrokes when typing in a field",
+                                    "minimum": 0,
+                                    "type": "number"
+                                },
+                                "clickDwell": {
+                                    "description": "Time between mouse down & mouse up when clicking a field",
+                                    "minimum": 0,
+                                    "type": "number"
+                                },
+                                "keyDwell": {
+                                    "description": "Maximum time between key down & key up when typing in a field",
+                                    "minimum": 0,
+                                    "type": "number"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "postFill": {
+                            "description": "Delay after filling some fields (in a form)",
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        "postNavigate": {
+                            "description": "Delay after navigating to some page",
+                            "minimum": 0,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Intentional delays in milliseconds, or `null` to disable all delays"
+        },
+        "timeoutMs": {
+            "additionalProperties": false,
+            "description": "Timeouts in milliseconds",
+            "properties": {
+                "followLink": {
+                    "description": "Timeout waiting for navigation after following a link",
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "reload": {
+                    "description": "Page reload timeout (e.g. after submit)",
+                    "minimum": 0,
+                    "type": "number"
+                },
+                "submitField": {
+                    "description": "Timeout waiting for navigation after submitting a field",
+                    "minimum": 0,
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "type": "object"
+}
+

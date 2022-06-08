@@ -34,10 +34,10 @@ export async function fillPasswordField(elem: ElementInfo, password: string, opt
 	try {
 		await fillInputElement(elem, password, options);
 	} catch (err) {
-		log?.warn(`failed to fill password field ${JSON.stringify(elem.attrs)}`, err);
+		log?.warn('failed to fill password field', elem.attrs, err);
 		return false;
 	}
-	log?.debug(`filled password field ${JSON.stringify(elem.attrs)}`);
+	log?.debug('filled password field', elem.attrs.selectorChain.join('>>>'));
 	return true;
 }
 
@@ -53,22 +53,22 @@ export async function fillEmailField(elem: ElementInfo, hostname: string, emailA
 	try {
 		await fillInputElement(elem, emailToFill, options);
 	} catch (err) {
-		log?.warn(`failed to fill email field ${JSON.stringify(elem.attrs)}`, err);
+		log?.warn('failed to fill email field', elem.attrs, err);
 		return false;
 	}
-	log?.debug(`filled email field ${JSON.stringify(elem.attrs)}`);
+	log?.debug('filled email field', elem.attrs.selectorChain.join('>>>'));
 	return true;
 }
 
 export async function submitField(elem: ElementInfo, clickDwellTimeMs: number, log?: Logger) {
-	log?.debug(`submitting field ${JSON.stringify(elem.attrs)}`);
+	log?.log('submitting field', elem.attrs.selectorChain.join('>>>'));
 	try {
 		await focusElement(elem.handle, clickDwellTimeMs);
 		const page = getPageFromHandle(elem.handle)!;
 		await page.keyboard.press('Enter');
 
 	} catch (err) {
-		log?.warn(`failed to submit field ${JSON.stringify(elem.attrs)}`, err);
+		log?.warn('failed to submit field', elem.attrs, err);
 		return false;
 	}
 	return true;

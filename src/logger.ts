@@ -1,3 +1,5 @@
+import chalk, {Chalk} from 'chalk';
+
 export interface Logger {
 	debug(...args: unknown[]): void;
 
@@ -8,44 +10,62 @@ export interface Logger {
 	warn(...args: unknown[]): void;
 
 	error(...args: unknown[]): void;
+
+	group<T>(name: string, func: () => T): T;
 }
 
 export class ConsoleLogger implements Logger {
-	static #printConsole(print: (msg?: unknown, ...args: unknown[]) => void, args: unknown[]) {
-		if (args.length)
-			print(typeof args[0] === 'string' ? '%s' : '%O', ...args);
-	}
+	readonly #groups: string[] = [];
 
 	debug(...args: unknown[]): void {
-		ConsoleLogger.#printConsole(console.debug, args);
+		this.#printConsole(console.debug, chalk.gray, args);
 	}
 
 	log(...args: unknown[]): void {
-		ConsoleLogger.#printConsole(console.log, args);
+		this.#printConsole(console.log, chalk, args);
 	}
 
 	info(...args: unknown[]): void {
-		ConsoleLogger.#printConsole(console.info, args);
+		this.#printConsole(console.info, chalk.blueBright, args);
 	}
 
 	warn(...args: unknown[]): void {
-		ConsoleLogger.#printConsole(console.warn, args);
+		this.#printConsole(console.warn, chalk.yellow, args);
 	}
 
 	error(...args: unknown[]): void {
-		ConsoleLogger.#printConsole(console.error, args);
+		this.#printConsole(console.error, chalk.redBright, args);
+	}
+
+	group<T>(name: string, func: () => T): T {
+		this.#groups.push(name);
+		let promise;
+		try {
+			const res = func();
+			if ((promise = res instanceof Promise)) res.finally(() => this.#groups.pop());
+			return res;
+		} finally {
+			if (!promise) this.#groups.pop();
+		}
+	}
+
+	#printConsole(print: (msg?: unknown, ...args: unknown[]) => void, color: Chalk, args: unknown[]) {
+		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
+		if (args.length)
+			print(typeof args[0] === 'string' ? '%s' : '%O', ...args.map(a => typeof a === 'string' ? color(a) : a));
 	}
 }
 
 export class TaggedLogger implements Logger {
-	readonly #log: (...args: unknown[]) => void;
+	readonly #groups: string[] = [];
+	readonly #logFn: (...args: unknown[]) => void;
 
 	constructor(log: (...args: unknown[]) => void) {
-		this.#log = log;
+		this.#logFn = log;
 	}
 
 	debug(...args: unknown[]): void {
-		this.#log('[dbg]', ...args);
+		this.#log(chalk.gray('[dbg]'), ...args);
 	}
 
 	log(...args: unknown[]): void {
@@ -53,14 +73,31 @@ export class TaggedLogger implements Logger {
 	}
 
 	info(...args: unknown[]): void {
-		this.#log('[INFO]', ...args);
+		this.#log(chalk.blueBright('[INFO]'), ...args);
 	}
 
 	warn(...args: unknown[]): void {
-		this.#log('[WARN]', ...args);
+		this.#log(chalk.yellow('[WARN]'), ...args);
 	}
 
 	error(...args: unknown[]): void {
-		this.#log('[ERROR]', ...args);
+		this.#log(chalk.redBright('[ERROR]'), ...args);
+	}
+
+	group<T>(name: string, func: () => T): T {
+		this.#groups.push(name);
+		let promise;
+		try {
+			const res = func();
+			if ((promise = res instanceof Promise)) res.finally(() => this.#groups.pop());
+			return res;
+		} finally {
+			if (!promise) this.#groups.pop();
+		}
+	}
+
+	#log(...args: unknown[]) {
+		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
+		this.#logFn(...args);
 	}
 }
