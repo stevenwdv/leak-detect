@@ -45,6 +45,7 @@ async function main() {
 		if (res.errors.length)
 			throw new AggregateError(res.errors.map(err => err.stack /*actually more like message*/),
 				  'config file validation failed');
+		console.log('loaded config: %o', options);
 	}
 
 	const result = await crawler(
@@ -63,10 +64,9 @@ async function main() {
 		fs.writeFileSync(args.output, JSON.stringify(result, undefined, '\t'));
 		console.info('output written to', args.output);
 	} else {
-		console.info(result);
+		console.info('%o', result);  // %o: print more properties
 		// eslint-disable-next-line no-debugger
 		debugger  // Give you the ability to inspect the result in a debugger
-		console.log(JSON.stringify(result, undefined, 2));
 	}
 }
 

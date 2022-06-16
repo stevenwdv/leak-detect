@@ -18,23 +18,23 @@ export class ConsoleLogger implements Logger {
 	readonly #groups: string[] = [];
 
 	debug(...args: unknown[]): void {
-		this.#printConsole(console.debug, chalk.gray, args);
+		this.#printConsole(console.debug, null, chalk.gray, args);
 	}
 
 	log(...args: unknown[]): void {
-		this.#printConsole(console.log, chalk, args);
+		this.#printConsole(console.log, null, chalk, args);
 	}
 
 	info(...args: unknown[]): void {
-		this.#printConsole(console.info, chalk.blueBright, args);
+		this.#printConsole(console.info, 'ℹ️', chalk.blueBright, args);
 	}
 
 	warn(...args: unknown[]): void {
-		this.#printConsole(console.warn, chalk.yellow, args);
+		this.#printConsole(console.warn, '⚠️', chalk.yellow, args);
 	}
 
 	error(...args: unknown[]): void {
-		this.#printConsole(console.error, chalk.redBright, args);
+		this.#printConsole(console.error, '❌️', chalk.redBright, args);
 	}
 
 	group<T>(name: string, func: () => T): T {
@@ -49,7 +49,8 @@ export class ConsoleLogger implements Logger {
 		}
 	}
 
-	#printConsole(print: (msg?: unknown, ...args: unknown[]) => void, color: Chalk, args: unknown[]) {
+	#printConsole(print: (msg?: unknown, ...args: unknown[]) => void, prefix: string | null, color: Chalk, args: unknown[]) {
+		if (prefix) args.unshift(color(prefix));
 		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
 		if (args.length)
 			print(typeof args[0] === 'string' ? '%s' : '%O', ...args.map(a => typeof a === 'string' ? color(a) : a));

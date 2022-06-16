@@ -83,8 +83,8 @@ export class FieldsCollector extends BaseCollector {
 			}
 			const timeDiff = fs.statSync('./inject/src/main.ts').mtimeMs - bundleTime;
 			if (timeDiff > 0)
-				console.error(`!!! inject script was modified ${formatDuration(timeDiff)} after bundle creation, ` +
-					  'you should probably run `npm run pack` in the `inject` folder !!!');
+				console.error(`⚠️ inject script was modified ${formatDuration(timeDiff)} after bundle creation, ` +
+					  'you should probably run `npm run pack` in the `inject` folder');
 			return fs.readFileSync('./inject/dist/bundle.js', 'utf8');
 		})();
 	}
@@ -283,7 +283,9 @@ export class FieldsCollector extends BaseCollector {
 			let done = false;
 			while (!done) attempt: {
 				for (const frame of page.frames().filter(frame => !submittedFrames.has(frame.url()))) {
-					const {fields, done} = await this.#processFields(frame);
+					const {fields, done} = await (frame.url() !== page.url()
+						  ? this.#group(`frame ${frame.url()}`, () => this.#processFields(frame))
+						  : this.#processFields(frame));
 					if (done) submittedFrames.add(frame.url());  // This frame is done
 					if (fields?.length) {
 						pageFields.push(fields);
@@ -308,48 +310,46 @@ export class FieldsCollector extends BaseCollector {
 	 * For submission, only one form will be filled & submitted at a time.
 	 */
 	async #processFields(frame: Frame): Promise<{ fields: FieldElementAttrs[] | null, done: boolean }> {
-		return this.#group(frame.url(), async () => {
-			const frameFields = await this.#findFields(frame);
-			if (!frameFields) return {fields: null, done: true};
+		const frameFields = await this.#findFields(frame);
+		if (!frameFields) return {fields: null, done: true};
 
-			if (this.#options.fill.submit) {
-				const fieldsByForm     = groupBy(field => field.attrs.form?.join('>>>') ?? '', frameFields);
-				const fieldsByFormList = Object.entries(fieldsByForm).sort(([formA]) => formA === '' ? 1 : 0);
-				for (const [lastForm, [formSelector, formFields]] of fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
-					const res = await this.#group(formSelector ? `form ${formSelector}` : 'no form', async () => {
-						try {
-							const field = formFields.find(field => !this.#processedFields.has(getElemIdentifier(field)));
-							if (!field) return null;
+		if (this.#options.fill.submit) {
+			const fieldsByForm     = groupBy(field => field.attrs.form?.join('>>>') ?? '', frameFields);
+			const fieldsByFormList = Object.entries(fieldsByForm).sort(([formA]) => formA === '' ? 1 : 0);
+			for (const [lastForm, [formSelector, formFields]] of fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
+				const res = await this.#group(formSelector ? `form ${formSelector}` : 'no form', async () => {
+					try {
+						const field = formFields.find(field => !this.#processedFields.has(getElemIdentifier(field)));
+						if (!field) return null;
 
-							await this.#fillFields(formFields);
+						await this.#fillFields(formFields);
 
-							this.#log?.debug('💤');
-							await frame.waitForTimeout(this.#options.sleepMs?.postFill ?? 0);
-							if (await submitField(field, this.#options.sleepMs?.fill.clickDwell ?? 0, this.#log)) {
-								field.attrs.submitted = true;
-								await this.#waitForNavigation(field.handle.executionContext().frame()!,
-									  this.#options.timeoutMs.submitField); //TODO what if parent navigates?
-							}
-							if (formSelector) addAll(this.#processedFields, formFields.map(getElemIdentifier));
-							else this.#processedFields.add(getElemIdentifier(field));
-
-							return {
-								fields: formSelector ? formFields.map(f => f.attrs) : [field.attrs],
-								done: lastForm && this.#processedFields.has(getElemIdentifier(formFields.at(-1)!)),
-							};
-						} catch (err) {
-							this.#log?.warn('failed to process form', formSelector, err);
+						this.#log?.debug('💤');
+						await frame.waitForTimeout(this.#options.sleepMs?.postFill ?? 0);
+						if (await submitField(field, this.#options.sleepMs?.fill.clickDwell ?? 0, this.#log)) {
+							field.attrs.submitted = true;
+							await this.#waitForNavigation(field.handle.executionContext().frame()!,
+								  this.#options.timeoutMs.submitField); //TODO what if parent navigates?
 						}
-						return null;
-					});
-					if (res) return res;
-				}
-				return {fields: [], done: true};
-			} else {
-				await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
-				return {fields: frameFields.map(f => f.attrs), done: true};
+						if (formSelector) addAll(this.#processedFields, formFields.map(getElemIdentifier));
+						else this.#processedFields.add(getElemIdentifier(field));
+
+						return {
+							fields: formSelector ? formFields.map(f => f.attrs) : [field.attrs],
+							done: lastForm && this.#processedFields.has(getElemIdentifier(formFields.at(-1)!)),
+						};
+					} catch (err) {
+						this.#log?.warn('failed to process form', formSelector, err);
+					}
+					return null;
+				});
+				if (res) return res;
 			}
-		});
+			return {fields: [], done: true};
+		} else {
+			await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
+			return {fields: frameFields.map(f => f.attrs), done: true};
+		}
 	}
 
 	async #findFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs>[] | null> {

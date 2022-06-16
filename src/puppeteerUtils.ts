@@ -7,6 +7,7 @@ import {
 	Page,
 	Serializable,
 	SerializableOrJSHandle,
+	WebWorker,
 } from 'puppeteer';
 import TypedArray = NodeJS.TypedArray;
 
@@ -38,16 +39,16 @@ export function getFrameStack(frame: Frame): Frame[] {
 }
 
 /** Typed version of {@link Frame#evaluateHandle}, {@link JSHandle#evaluateHandle}, etc. */
-export async function evaluateHandle<Subject extends Frame | Page | ExecutionContext | DOMWorld | JSHandle,
+export async function evaluateHandle<Subject extends Frame | Page | ExecutionContext | DOMWorld | WebWorker | JSHandle,
 	  Args extends SerializableOrJSHandle[], Return>(
-	  subject: Subject, pageFunction: PageFunction<Subject, Args, Return>, ...args: Args): Promise<JSHandle<Return>> {
+	  subject: Subject, pageFunction: PageFunction<Subject, Args, Return>, ...args: Args): Promise<JSHandle<Awaited<Return>>> {
 	// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 	// @ts-ignore This compiles for all Targets individually
 	return await subject.evaluateHandle(pageFunction, ...args) as JSHandle<Return>;
 }
 
 /** Typed version of {@link Frame#evaluate}, {@link JSHandle#evaluate}, etc. */
-export async function evaluate<Subject extends Frame | Page | ExecutionContext | DOMWorld | JSHandle,
+export async function evaluate<Subject extends Frame | Page | ExecutionContext | DOMWorld | WebWorker | JSHandle,
 	  Args extends SerializableOrJSHandle[], Return extends Serializable | PromiseLike<Serializable> | void>(
 	  subject: Subject, pageFunction: PageFunction<Subject, Args, Return>, ...args: Args): Promise<Awaited<Return>> {
 	// eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -62,7 +63,7 @@ type HandleValue<H extends JSHandle> = H extends ElementHandle<infer U> ? U
 type Passed<H extends SerializableOrJSHandle> = H extends JSHandle ? HandleValue<H> : H;
 type PassedArgs<Args extends SerializableOrJSHandle[]> = { [K in keyof Args]: Passed<Args[K]> };
 
-type PageFunction<Target extends Frame | Page | ExecutionContext | DOMWorld | JSHandle,
+type PageFunction<Target extends Frame | Page | ExecutionContext | DOMWorld | WebWorker | JSHandle,
 	  Args extends SerializableOrJSHandle[], Return> =
 	  Target extends JSHandle
 			? (obj: HandleValue<Target>, ...args: PassedArgs<Args>) => Return
