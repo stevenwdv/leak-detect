@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Crappy AJAX login</title>
+	<script>
+		onload = () => {
+			submit.onclick = async () => {
+				const data = new URLSearchParams();
+				data.set('email', email.value);
+				data.set('password', password.value);
+				const res = await fetch(`logged_in.html?${data.toString()}`);
+				document.body.append(...new DOMParser().parseFromString(await res.text(), 'text/html').body.childNodes);
+			};
+		};
+	</script>
+	<style>
+		.hidden {
+			display: none !important;
+		}
+	</style>
+</head>
+<body>
+Welcome!
+
+<h1>Login</h1>
+↓ Not an actual <code>&lt;form></code><br/>
+<input id="email" placeholder="email" type="email"/>
+<input id="password" placeholder="password" type="password"/>
+<button id="submit">Submit</button>
+
+</body>
+</html>

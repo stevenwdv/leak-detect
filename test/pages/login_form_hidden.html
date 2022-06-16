@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Hidden login form</title>
+	<script>
+		onload = () => {
+			popupLink.onclick = () => {
+				popupContainer.classList.remove('hidden');
+				form.action = 'logged_in.html';
+			};
+		};
+	</script>
+	<style>
+		.hidden {
+			display: none !important;
+		}
+
+		#popupContainer {
+			display: flex;
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			justify-content: center;
+			align-items: center;
+			padding: 2em;
+			background: #cccc;
+			box-sizing: border-box;
+		}
+
+		#popupContainer:not(.hidden) ~ #hidden-info {
+			display: none;
+		}
+
+		#popup {
+			display: block;
+			background: aquamarine;
+			border: outset;
+			padding: 1em;
+		}
+	</style>
+</head>
+<body>
+Welcome!
+
+<a href="javascript:undefined" id="popupLink">Login (popup)</a>
+
+<div class="hidden" id="popupContainer">
+	<div id="popup">
+		<h1>Login</h1>
+		<form action="javascript:alert('NO! The form is hidden, do not submit it')" id="form">
+			<input name="email" placeholder="email" type="email"/>
+			<input name="password" placeholder="password" type="password"/>
+			<input type="submit"/>
+		</form>
+	</div>
+</div>
+<p id="hidden-info">Form is currently hidden, you should not try to fill it now</p>
+
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Popup login form</title>
+	<script>
+		onload = () => {
+			popupLink.onclick = () => {
+				if (popupContainer.classList.contains('hidden')) {
+					const email       = document.createElement('input');
+					email.name        = 'email';
+					email.type        = 'email';
+					email.placeholder = 'email';
+
+					const password       = document.createElement('input');
+					password.name        = 'password';
+					password.type        = 'password';
+					password.placeholder = 'password (leaks to attr)';
+					password.oninput     = () => password.setAttribute('value', password.value);
+
+					const submit       = document.createElement('button');
+					submit.textContent = 'Login (GET request)';
+					submit.type        = 'submit';
+
+					const form  = document.createElement('form');
+					form.action = 'logged_in.html';
+					form.append(email, password, submit);
+
+					popup.append(form);
+					popupContainer.classList.remove('hidden');
+				}
+			};
+		};
+	</script>
+	<style>
+		.hidden {
+			display: none !important;
+		}
+
+		#popupContainer {
+			display: flex;
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			justify-content: center;
+			align-items: center;
+			padding: 2em;
+			background: #cccc;
+			box-sizing: border-box;
+		}
+
+		#popup {
+			display: block;
+			background: aquamarine;
+			border: outset;
+			padding: 1em;
+		}
+	</style>
+</head>
+<body>
+Welcome!
+
+<a href="javascript:undefined" id="popupLink">Login (popup)</a>
+
+<div class="hidden" id="popupContainer">
+	<div id="popup">
+		<h1>Login</h1>
+	</div>
+</div>
+
+</body>
+</html>
