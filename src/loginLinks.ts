@@ -65,6 +65,7 @@ export async function findLoginLinks(frame: Frame, exactMatch = false): Promise<
 		const loginRegex  = new RegExp(loginRegexSrc, 'i');
 		const allElements = [...document.querySelectorAll('a,span,button,div')];
 
+		// noinspection JSDeprecatedSymbols For SVGElement#className
 		return allElements.filter(el => (
 			  el instanceof HTMLElement && (
 					loginRegex.test(el.innerText) ||

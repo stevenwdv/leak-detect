@@ -58,8 +58,9 @@ export class FieldsCollector extends BaseCollector {
 	#page!: Page;
 	#injectedPasswordCallback = new Set<Page>();
 	#injectedErrorCallback    = new Set<Page>();
-	#processedFields          = new Set<string>();
 
+	#events: FieldCollectorEvent[]   = [];
+	#processedFields                 = new Set<string>();
 	#passwordLeaks: PasswordLeak[]   = [];
 	#visitedTargets: VisitedTarget[] = [];
 
@@ -111,6 +112,7 @@ export class FieldsCollector extends BaseCollector {
 		this.#injectedErrorCallback    = new Set();
 		this.#processedFields          = new Set();
 
+		this.#events         = [];
 		this.#passwordLeaks  = [];
 		this.#visitedTargets = [];
 	}
@@ -155,8 +157,10 @@ export class FieldsCollector extends BaseCollector {
 							return;
 						}
 
-						if (!this.#options.fill.submit && nLink)
+						if (!this.#options.fill.submit && nLink) {
+							this.#events.push(new ReturnEvent());
 							await this.#goto(this.#page.mainFrame(), this.#dataParams.finalUrl, this.#options.timeoutMs.reload);
+						}
 						await this.#closeExtraPages();
 
 						await this.#followLink(link);
@@ -176,6 +180,7 @@ export class FieldsCollector extends BaseCollector {
 			fields,
 			loginRegisterLinksDetails: links,
 			passwordLeaks: this.#passwordLeaks,
+			events: this.#events,
 		};
 	}
 
@@ -190,6 +195,7 @@ export class FieldsCollector extends BaseCollector {
 
 	async #followLink(link: ElementAttrs) {
 		this.#log?.log('following link', link.selectorChain.join('>>>'));
+		this.#events.push(new ClickLinkEvent(link.selectorChain));
 		const page = this.#page;
 		await FieldsCollector.#injectPageScript(page.mainFrame());
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
@@ -291,6 +297,7 @@ export class FieldsCollector extends BaseCollector {
 						pageFields.push(fields);
 						if (this.#options.fill.submit) {
 							// We submitted a field, now reload the page and try other fields
+							this.#events.push(new ReturnEvent());
 							await this.#goto(page.mainFrame(), startUrl, this.#options.timeoutMs.reload);
 							await closeExtraPages(this.#context, openPages);
 							break attempt;
@@ -326,6 +333,7 @@ export class FieldsCollector extends BaseCollector {
 
 						this.#log?.debug('💤');
 						await frame.waitForTimeout(this.#options.sleepMs?.postFill ?? 0);
+						this.#events.push(new SubmitEvent(field.attrs.selectorChain));
 						if (await submitField(field, this.#options.sleepMs?.fill.clickDwell ?? 0, this.#log)) {
 							field.attrs.submitted = true;
 							await this.#waitForNavigation(field.handle.executionContext().frame()!,
@@ -405,6 +413,7 @@ export class FieldsCollector extends BaseCollector {
 		this.#log?.log(`filling ${fields.length} fields`);
 		const fillTimes = this.#options.sleepMs?.fill ?? {clickDwell: 0, keyDwell: 0, betweenKeys: 0};
 		for (const field of fields.filter(f => !f.attrs.filled)) {
+			this.#events.push(new FillEvent(field.attrs.selectorChain));
 			await this.#injectPasswordLeakDetection(field.handle.executionContext().frame()!);
 			switch (field.attrs.fieldType) {
 				case 'email':
@@ -597,6 +606,34 @@ export interface VisitedTarget {
 	time: number;
 }
 
+export abstract class FieldCollectorEvent {
+	protected constructor(public readonly type: string, public readonly time = Date.now()) {}
+}
+
+export class FillEvent extends FieldCollectorEvent {
+	constructor(public readonly field: SelectorChain) {
+		super('fill');
+	}
+}
+
+export class SubmitEvent extends FieldCollectorEvent {
+	constructor(public readonly field: SelectorChain) {
+		super('submit');
+	}
+}
+
+export class ReturnEvent extends FieldCollectorEvent {
+	constructor() {
+		super('return');
+	}
+}
+
+export class ClickLinkEvent extends FieldCollectorEvent {
+	constructor(public readonly link: SelectorChain) {
+		super('link');
+	}
+}
+
 export type FieldCollectorData = Record<string, never> | {
 	/** Similar to what {@link import('tracker-radar-collector').TargetCollector} does but with timestamps */
 	visitedTargets: VisitedTarget[],
@@ -604,6 +641,7 @@ export type FieldCollectorData = Record<string, never> | {
 	/** `null` on fail */
 	loginRegisterLinksDetails: LinkElementAttrs[] | null,
 	passwordLeaks: PasswordLeak[],
+	events: FieldCollectorEvent[],
 };
 
 declare global {
