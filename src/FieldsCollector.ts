@@ -335,6 +335,10 @@ export class FieldsCollector extends BaseCollector {
 
 						this.#log?.debug('💤');
 						await frame.waitForTimeout(this.#options.sleepMs?.postFill ?? 0);
+
+						if (this.#options.fill.addFacebookButton)
+							await this.#clickFacebookButton(frame);
+
 						this.#events.push(new SubmitEvent(field.attrs.selectorChain));
 						if (await submitField(field, this.#options.sleepMs?.fill.clickDwell ?? 0, this.#log)) {
 							field.attrs.submitted = true;
@@ -495,6 +499,20 @@ export class FieldsCollector extends BaseCollector {
 		})));
 	}
 
+	async #clickFacebookButton(frame: Frame) {
+		this.#log?.log('adding and clicking button for Facebook detection');
+		this.#events.push(new FacebookButtonEvent());
+		await evaluate(frame, () => {
+			const btn          = document.createElement('button');
+			btn.className      = 'leak-detect-btn button';
+			btn.textContent    = 'button';
+			btn.style.position = 'fixed';
+			btn.style.top      = btn.style.left = '0';
+			document.body.append(btn);
+			btn.click();
+		});
+	}
+
 	async #injectErrorCallback(page: Page) {
 		if (tryAdd(this.#injectedErrorCallback, page))
 			await exposeFunction(page, GlobalNames.ERROR_CALLBACK, this.#errorCallback.bind(this));
@@ -559,6 +577,9 @@ export interface FieldsCollectorOptions {
 		/** Try to submit forms?
 		 * @default true */
 		submit: boolean;
+		/** Add and click a dummy button to detect Facebook leaks
+		 * @default true */
+		addFacebookButton: boolean;
 	};
 }
 
@@ -583,6 +604,7 @@ const defaultOptions: FieldsCollectorOptions = {
 		emailBase: 'x@example.com',
 		password: 'P@s5w0rd!',
 		submit: true,
+		addFacebookButton: true,
 	},
 };
 
@@ -619,6 +641,12 @@ export class FillEvent extends FieldCollectorEvent {
 export class SubmitEvent extends FieldCollectorEvent {
 	constructor(public readonly field: SelectorChain) {
 		super('submit');
+	}
+}
+
+export class FacebookButtonEvent extends FieldCollectorEvent {
+	constructor() {
+		super('fb-button');
 	}
 }
 

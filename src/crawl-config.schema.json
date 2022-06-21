@@ -11,6 +11,11 @@
             "additionalProperties": false,
             "description": "Field fill-related settings",
             "properties": {
+                "addFacebookButton": {
+                    "default": true,
+                    "description": "Add and click a dummy button to detect Facebook leaks",
+                    "type": "boolean"
+                },
                 "emailBase": {
                     "description": "Email address to fill in (`domainname+` is prepended to this)",
                     "type": "string"
