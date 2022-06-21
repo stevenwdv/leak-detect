@@ -9,11 +9,15 @@ import {
 	SerializableOrJSHandle,
 	WebWorker,
 } from 'puppeteer';
+import {IsTuple} from 'ts-essentials';
 import TypedArray = NodeJS.TypedArray;
 
 // puppeteer does not actually export its classes, so we cannot use instanceof and instead need this stupid stuff
 /** Checks if `obj` is exactly of type `className` (not derived) */
-export function isOfType<Name extends keyof typeof import('puppeteer') & string>(obj: unknown, className: Name): boolean {
+export function isOfType<Name extends string & keyof typeof import('puppeteer')>(obj: unknown, className: Name):
+	  obj is typeof import('puppeteer')[Name] extends abstract new (...args: never) => unknown
+			? InstanceType<typeof import('puppeteer')[Name]>
+			: never {
 	// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
 	return Object.getPrototypeOf(obj)?.constructor?.name === className;
 }
@@ -120,9 +124,11 @@ export type UnwrappedHandle<T> = T extends string | boolean | number | null | un
 	  : T extends Element
 			? ElementHandle<T>
 			: T extends (infer V)[]
-				  ? UnwrappedHandle<V>[]
-				  : T extends Node | RegExp | Date | Map<never, never> | Set<never> | WeakMap<object, never> | WeakSet<object>
-						| Iterator<never, never, never> | Generator<never, never, never> | Error | Promise<never> | TypedArray | ArrayBuffer | DataView
+				  ? T extends IsTuple<T>
+						? { [K in keyof T]: UnwrappedHandle<T[K]> }
+						: UnwrappedHandle<V>[]
+				  : T extends Node | RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
+						| Iterator<unknown, never, never> | Error | Promise<unknown> | TypedArray | ArrayBuffer | DataView
 						// eslint-disable-next-line @typescript-eslint/ban-types
 						| Function | symbol
 						? JSHandle<T>
@@ -135,9 +141,11 @@ export type UnwrappedHandleConservative<T> = T extends string | boolean | number
 	  : T extends Element
 			? ElementHandle<T>
 			: T extends (infer V)[]
-				  ? UnwrappedHandleConservative<V>[]
-				  : T extends Node | RegExp | Date | Map<never, never> | Set<never> | WeakMap<object, never> | WeakSet<object>
-						| Iterator<never, never, never> | Generator<never, never, never> | Error | Promise<never> | TypedArray | ArrayBuffer | DataView
+				  ? T extends IsTuple<T>
+						? { [K in keyof T]: UnwrappedHandleConservative<T[K]> }
+						: UnwrappedHandleConservative<V>[]
+				  : T extends Node | RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
+						| Iterator<unknown, never, never> | Error | Promise<unknown> | TypedArray | ArrayBuffer | DataView
 						// eslint-disable-next-line @typescript-eslint/ban-types
 						| Function | symbol
 						? JSHandle<T>
