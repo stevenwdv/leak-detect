@@ -3,7 +3,7 @@
 	"version": "1.0.0",
 	"private": true,
 	"scripts": {
-		"pack": "webpack --mode production && touch dist/bundle.js",
+		"pack": "webpack --mode production && touch ./dist/bundle.js",
 		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint ./"
 	},
 	"type": "module",
@@ -12,6 +12,7 @@
 		"fathom-web": "https://gitpkg.now.sh/stevenwdv/fathom-shadow/fathom?f8f0e88"
 	},
 	"devDependencies": {
+		"@types/query-selector-shadow-dom": "^1.0.0",
 		"@typescript-eslint/eslint-plugin": "^5.26.0",
 		"@typescript-eslint/parser": "^5.26.0",
 		"eslint": "^8.16.0",

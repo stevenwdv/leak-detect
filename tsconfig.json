@@ -18,10 +18,10 @@
 		"allowJs": true
 	},
 	"include": [
-		"src/**/*.ts",
-		"src/**/*.d.ts"
+		"./src/**/*.ts",
+		"./src/**/*.d.ts"
 	],
 	"exclude": [
-		"inject"
+		"./inject/"
 	]
 }

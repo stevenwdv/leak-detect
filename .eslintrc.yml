@@ -18,7 +18,7 @@ overrides:
       no-debugger: warn  # no error
       no-inner-declarations: off  # allow functions inside blocks
       no-loss-of-precision: warn
-      no-promise-executor-return: warn
+      no-promise-executor-return: off
       no-mixed-spaces-and-tabs: off  # allow smart tabs
       quotes:
         - warn

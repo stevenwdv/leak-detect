@@ -49,6 +49,7 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 			form: form ? window[GlobalNames.INJECTED]!.formSelectorChain(form) : null,
 
 			onTop: window[GlobalNames.INJECTED]!.isOnTop(el),
+			visible: window[GlobalNames.INJECTED]!.isVisible(el),
 
 			selectorChain: window[GlobalNames.INJECTED]!.formSelectorChain(el),
 		};
@@ -81,6 +82,7 @@ export interface ElementAttrs {
 
 	onTop: boolean;
 	inView: boolean;
+	visible: boolean;
 	boundingBox: BoundingBox | null;
 
 	selectorChain: SelectorChain;

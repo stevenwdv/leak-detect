@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
+import {BrowserContext, Frame, Page} from 'puppeteer';
 import {groupBy} from 'ramda';
 import * as tldts from 'tldts';
 import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
@@ -90,6 +90,7 @@ export class FieldsCollector extends BaseCollector {
 		})();
 	}
 
+	//TODO use `Page#evaluateOnNewDocument` instead for injections?
 	static async #injectPageScript(frame: Frame) {
 		await frame.evaluate(`void (
 			window["${GlobalNames.INJECTED}"] ??= (() => {
@@ -148,7 +149,8 @@ export class FieldsCollector extends BaseCollector {
 			if (links.length > this.#options.clickLinkCount)
 				this.#log?.log(`skipping last ${links.length - this.#options.clickLinkCount} links`);
 
-			for (const [nLink, link] of links.slice(0, this.#options.clickLinkCount).entries())
+			links = links.slice(0, this.#options.clickLinkCount);
+			for (const [nLink, link] of links.entries())
 				await this.#group(`link ${link.selectorChain.join('>>>')}`, async () => {
 					try {
 						if (this.#options.skipExternal && link.href &&
@@ -178,7 +180,7 @@ export class FieldsCollector extends BaseCollector {
 		return {
 			visitedTargets: this.#visitedTargets,
 			fields,
-			loginRegisterLinksDetails: links,
+			links,
 			passwordLeaks: this.#passwordLeaks,
 			events: this.#events,
 		};
@@ -383,30 +385,25 @@ export class FieldsCollector extends BaseCollector {
 	async #getEmailFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs & FathomElementAttrs>[]> {
 		const emailFieldsFromFathom = await unwrapHandle(await evaluateHandle(frame,
 			  () => [...window[GlobalNames.INJECTED]!.detectEmailInputs(document.documentElement)]));
-		return Promise.all(emailFieldsFromFathom.map(async field => ({
+		return (await Promise.all(emailFieldsFromFathom.map(async field => ({
 			handle: field.elem,
 			attrs: {
 				...await getElementAttrs(field.elem),
 				score: field.score,
 				fieldType: 'email',
 			},
-		})));
+		}) as const))).filter(({attrs: {visible}}) => visible);
 	}
 
 	async #getPasswordFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs>[]> {
-		const elHandles = await this.#getPasswordFieldHandles(frame);
-		return Promise.all(elHandles.map(async handle => ({
+		const elHandles = await frame.$$<HTMLInputElement>('pierce/input[type=password]');
+		return (await Promise.all(elHandles.map(async handle => ({
 			handle,
 			attrs: {
 				...await getElementAttrs(handle),
 				fieldType: 'password',
 			},
-		})));
-	}
-
-	async #getPasswordFieldHandles(frame: Frame): Promise<ElementHandle[]> {
-		return await Promise.all((await frame.$$<HTMLInputElement>('pierce/input[type=password]'))
-			  .filter(inp => evaluate(inp, inp => window[GlobalNames.INJECTED]!.isVisible(inp))));
+		} as const)))).filter(({attrs: {visible}}) => visible);
 	}
 
 	async #fillFields(fields: ElementInfo<FieldElementAttrs>[]) {
@@ -606,16 +603,19 @@ export interface VisitedTarget {
 	time: number;
 }
 
+// noinspection JSUnusedGlobalSymbols
 export abstract class FieldCollectorEvent {
 	protected constructor(public readonly type: string, public readonly time = Date.now()) {}
 }
 
+// noinspection JSUnusedGlobalSymbols
 export class FillEvent extends FieldCollectorEvent {
 	constructor(public readonly field: SelectorChain) {
 		super('fill');
 	}
 }
 
+// noinspection JSUnusedGlobalSymbols
 export class SubmitEvent extends FieldCollectorEvent {
 	constructor(public readonly field: SelectorChain) {
 		super('submit');
@@ -628,6 +628,7 @@ export class ReturnEvent extends FieldCollectorEvent {
 	}
 }
 
+// noinspection JSUnusedGlobalSymbols
 export class ClickLinkEvent extends FieldCollectorEvent {
 	constructor(public readonly link: SelectorChain) {
 		super('link');
@@ -639,7 +640,7 @@ export type FieldCollectorData = Record<string, never> | {
 	visitedTargets: VisitedTarget[],
 	fields: FieldElementAttrs[],
 	/** `null` on fail */
-	loginRegisterLinksDetails: LinkElementAttrs[] | null,
+	links: LinkElementAttrs[] | null,
 	passwordLeaks: PasswordLeak[],
 	events: FieldCollectorEvent[],
 };

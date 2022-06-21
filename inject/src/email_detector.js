@@ -5,6 +5,9 @@
 /* File taken from https://github.com/mozilla/fx-private-relay-add-on/blob/2022.5.18.515/src/js/other-websites/email_detector.js
  * Changes are marked with #LD-CHANGE */
 
+//#LD-CHANGE
+import {querySelectorAllDeep} from 'query-selector-shadow-dom';
+
 //#LD-CHANGE use ESM syntax and export detectEmailInputs
 import {dom, out, rule, ruleset, score, type, utils} from 'fathom-web';
 
@@ -107,7 +110,8 @@ const email_detector_ruleset = ruleset([
 // eslint-disable-next-line no-unused-vars, no-redeclare
 function* detectEmailInputs(domRoot) {
     // First return <input type='email'>
-    const typeEmailInputs = Array.from(domRoot.querySelectorAll('input[type=\'email\']'));  //FIXME either deep or not at all
+    //#LD-CHANGE use querySelectorAllDeep
+    const typeEmailInputs = Array.from(querySelectorAllDeep('input[type=\'email\']'));
     for (const input of typeEmailInputs) {
         //#LD-CHANGE yield score
         yield {elem: input, score: 2};
