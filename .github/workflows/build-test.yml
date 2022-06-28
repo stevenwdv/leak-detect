@@ -1,0 +1,32 @@
+name: Build, lint, test
+
+on: [ push, pull_request ]
+
+jobs:
+  build-lint:
+    name: Build & lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - run: npm ci
+      - name: Build & lint
+        run: npm run lint-all
+      - name: Check pack inject bundle
+        run: npm -w inject run pack
+      - name: Check if crawl-config JSON schema is up-to-date
+        run: |
+          npm run generate-schema
+          git diff --exit-code -s -- ./src/crawl-config.schema.json
+
+  test:
+    name: Test
+    needs: build-lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - name: Test
+        run: npm test
