@@ -3,10 +3,16 @@
 <head>
 	<meta charset="UTF-8">
 	<title>Login link: _blank</title>
+	<script>
+		onload = () => {
+			button.onclick = () => open('login_form.html?register', '_blank');
+		};
+	</script>
 </head>
 <body>
 
-<a href="login_form.html" target="_blank">Log in (opens on new page) >></a>
+<a href="login_form.html" target="_blank">Log in (opens on new page) >></a><br/>
+<button id="button">Register? (new page)</button>
 
 </body>
 </html>

@@ -7,6 +7,47 @@ export function stripHash(url: string | URL): string {
 	return url.toString().match(/^[^#]*/)![0];
 }
 
+/**
+ * Get relative URL for `url` compared to `base`
+ *
+ * @example
+ * getRelativeUrl(
+ *  new URL('https://example.com/page?n=42'),
+ *  new URL('https://example.com/')
+ * ) === 'page?n=42'
+ */
+export function getRelativeUrl(url: URL, base: URL): string {
+	let protocol  = url.protocol,
+	    authority = url.host,
+	    path      = url.pathname,
+	    search    = url.search;
+
+	if (url.protocol === base.protocol) {
+		protocol = '';
+
+		if (url.username === base.username && url.password === base.password
+			  && url.host === base.host) authority = '';
+		else if (url.username || url.password)
+			authority = `${url.username}:${url.password}@${url.host}`;
+
+		if (!authority) {
+			if (url.pathname === base.pathname) path = '';
+			else {
+				const dir = base.pathname.substring(0, base.pathname.lastIndexOf('/') + 1);
+				if (url.pathname.startsWith(dir))
+					path = url.pathname.substring(dir.length) || '.';
+			}
+
+			if (url.search === base.search) search = '';
+		}
+	}
+
+	let res = '';
+	if (protocol || authority) res += `${protocol}//`;
+	res += authority + path + search + url.hash;
+	return res;
+}
+
 /** @return `true` if `key` was newly added to `map`, `false` if it was already present */
 export function trySet<K, V>(map: Map<K, V>, key: K, value: V): boolean {
 	return trySetWith(map, key, () => value);

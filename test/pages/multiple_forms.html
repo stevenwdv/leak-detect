@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Multiple forms</title>
+	<script>
+		onload = () => {
+			newsletterEmail.onkeydown  = ev => {
+				if (ev.key === 'Enter') location.href =
+					  `javascript:'Signed you up, ${newsletterEmail.value}!'`;
+			};
+			unsubscribeEmail.onkeydown = ev => {
+				if (ev.key === 'Enter') document.write('D:');
+			};
+		};
+	</script>
+	<style>
+		#newsletter {
+			position: fixed;
+			right: 2em;
+			top: 2em;
+			padding: 1em;
+			background: #eee;
+		}
+	</style>
+</head>
+<body>
+Welcome!
+
+<div id="newsletter">
+	<i>Not in a form:</i>
+	<br/><br/>
+	<b>Signup for newsletter</b><br/>
+	<input id="newsletterEmail" name="email" placeholder="email" type="email"/>
+	<br/><br/>
+	<b>Unsubscribe from newsletter</b><br/>
+	<input id="unsubscribeEmail" name="email" placeholder="email" type="email"/>
+</div>
+
+<h1>Login</h1>
+<form action="logged_in.html" id="form1">
+	<input name="email" placeholder="email" type="email"/>
+	<input name="password" placeholder="password" type="password"/>
+	<input type="submit"/>
+</form>
+
+<h1>Register</h1>
+<form action="logged_in.html" id="form2">
+	<input name="email" placeholder="email" type="email"/>
+	<input name="password" placeholder="password" type="password"/>
+	<input name="password_confirm" placeholder="confirm password" type="password"/>
+	<input type="submit"/>
+</form>
+
+<h1>Sub-frame</h1>
+<iframe src="login_form.html"></iframe>
+
+</body>
+</html>

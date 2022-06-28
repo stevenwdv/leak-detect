@@ -9,7 +9,7 @@
 		"lint": "tsc --noEmit --emitDeclarationOnly false; eslint ./",
 		"generate-schema": "npx typescript-json-schema ./tsconfig.json FieldsCollectorOptions --ignoreErrors --noExtraProps --strictNullChecks --required=false --out ./src/crawl-config.schema.json",
 		"test-server": "http-server ./test/pages/",
-		"test": "tap --ts --no-coverage --timeout 0"
+		"test": "tap"
 	},
 	"workspaces": [
 		"inject"

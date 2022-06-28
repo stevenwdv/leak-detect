@@ -1,0 +1,5 @@
+# tap test configuration
+coverage: false  # Messes with in-page functions
+reporter: list
+timeout: 0  # Disable
+ts: true

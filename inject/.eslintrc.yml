@@ -1,0 +1,10 @@
+﻿parser: "@typescript-eslint/parser"
+plugins: [ "@typescript-eslint" ]
+
+overrides:
+  - files: [ "*.ts" ]
+    excludedFiles: [ "*.d.ts" ]
+    parserOptions:
+      project: ./tsconfig.json
+    extends:
+      - ../.eslintrc.yml

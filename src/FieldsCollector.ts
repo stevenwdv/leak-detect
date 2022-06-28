@@ -7,7 +7,7 @@ import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
 import {DeepPartial, UnreachableCaseError} from 'ts-essentials';
 
 import {SelectorChain} from 'leak-detect-inject';
-import {addAll, filterUniqBy, formatDuration, populateDefaults, tryAdd} from './utils';
+import {addAll, filterUniqBy, formatDuration, getRelativeUrl, populateDefaults, tryAdd} from './utils';
 import {Logger, TaggedLogger} from './logger';
 import {fillEmailField, fillPasswordField, submitField} from './formInteraction';
 import {
@@ -150,7 +150,7 @@ export class FieldsCollector extends BaseCollector {
 				this.#log?.log(`skipping last ${links.length - this.#options.clickLinkCount} links`);
 
 			links = links.slice(0, this.#options.clickLinkCount);
-			for (const [nLink, link] of links.entries())
+			for (const link of links)
 				await this.#group(`link ${link.selectorChain.join('>>>')}`, async () => {
 					try {
 						if (this.#options.skipExternal && link.href &&
@@ -159,10 +159,8 @@ export class FieldsCollector extends BaseCollector {
 							return;
 						}
 
-						if (!this.#options.fill.submit && nLink) {
-							this.#events.push(new ReturnEvent());
-							await this.#goto(this.#page.mainFrame(), this.#dataParams.finalUrl, this.#options.timeoutMs.reload);
-						}
+						this.#events.push(new ReturnEvent(true));
+						await this.#goto(this.#page.mainFrame(), this.#dataParams.finalUrl, this.#options.timeoutMs.reload);
 						await this.#closeExtraPages();
 
 						await this.#followLink(link);
@@ -275,7 +273,8 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #processFieldsRecursive(page: Page): Promise<FieldElementAttrs[] | null> {
-		return this.#group(page.url(), async () => {
+		const pageUrl = page.url();
+		return this.#group(pageUrl, async () => {
 			if (this.#options.skipExternal && tldts.getDomain(page.url()) !== this.#siteDomain!) {
 				this.#log?.log('skipping external page');
 				return null;
@@ -292,14 +291,15 @@ export class FieldsCollector extends BaseCollector {
 			while (!done) attempt: {
 				for (const frame of page.frames().filter(frame => !submittedFrames.has(frame.url()))) {
 					const {fields, done} = await (frame.url() !== page.url()
-						  ? this.#group(`frame ${frame.url()}`, () => this.#processFields(frame))
+						  ? this.#group(`frame ${getRelativeUrl(new URL(frame.url()), new URL(pageUrl))}`,
+								() => this.#processFields(frame))
 						  : this.#processFields(frame));
 					if (done) submittedFrames.add(frame.url());  // This frame is done
 					if (fields?.length) {
-						pageFields.push(fields);
+						pageFields.push(...fields);
 						if (this.#options.fill.submit) {
 							// We submitted a field, now reload the page and try other fields
-							this.#events.push(new ReturnEvent());
+							this.#events.push(new ReturnEvent(false));
 							await this.#goto(page.mainFrame(), startUrl, this.#options.timeoutMs.reload);
 							await closeExtraPages(this.#context, openPages);
 							break attempt;
@@ -310,7 +310,7 @@ export class FieldsCollector extends BaseCollector {
 			}
 
 			this.#log?.log(`processed ${pageFields.length} new fields`);
-			return pageFields.flat();
+			return pageFields;
 		});
 	}
 
@@ -362,6 +362,11 @@ export class FieldsCollector extends BaseCollector {
 			return {fields: [], done: true};
 		} else {
 			await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
+			if (this.#options.fill.addFacebookButton) {
+				await this.#clickFacebookButton(frame);
+				this.#log?.debug('💤');
+				await frame.waitForTimeout(this.#options.sleepMs?.postFacebookButtonClick ?? 0);
+			}
 			return {fields: frameFields.map(f => f.attrs), done: true};
 		}
 	}
@@ -543,6 +548,9 @@ export interface FieldsCollectorOptions {
 		/** Delay after filling some fields (in a form)
 		 * @minimum 0 */
 		postFill: number;
+		/** Delay after adding & clicking Facebook button
+		 * @minimum 0 */
+		postFacebookButtonClick: number;
 		/** Delay after navigating to some page
 		 * @minimum 0 */
 		postNavigate: number;
@@ -591,6 +599,7 @@ const defaultOptions: FieldsCollectorOptions = {
 	},
 	sleepMs: {
 		postFill: 5_000,
+		postFacebookButtonClick: 1_000,
 		postNavigate: 1_000,
 		fill: {
 			clickDwell: 100,
@@ -651,7 +660,10 @@ export class FacebookButtonEvent extends FieldCollectorEvent {
 }
 
 export class ReturnEvent extends FieldCollectorEvent {
-	constructor() {
+	/**
+	 * @param toLanding Return to landing page after examining a page for a link?
+	 */
+	constructor(public readonly toLanding: boolean) {
 		super('return');
 	}
 }

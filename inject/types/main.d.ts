@@ -1,8 +1,8 @@
 export declare const detectEmailInputs: (domRoot: Element) => Generator<FathomResult, void, undefined>;
 export declare const isVisible: (elem: Element) => boolean;
 export interface FathomResult {
-	elem: Element;
-	score: number;
+    elem: Element;
+    score: number;
 }
 export declare function isOnTop(elem: Element): boolean;
 /**
@@ -17,6 +17,6 @@ export declare function getElementBySelectorChain(selectorChain: SelectorChain, 
 export declare type SelectorChain = string[];
 export interface SelectorChainResult {
     elem: Element;
-	/** Is this the only matching Element? */
+    /** Is this the only matching Element? */
     unique: boolean;
 }
