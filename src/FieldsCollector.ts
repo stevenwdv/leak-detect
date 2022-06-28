@@ -90,7 +90,7 @@ export class FieldsCollector extends BaseCollector {
 		})();
 	}
 
-	//TODO use `Page#evaluateOnNewDocument` instead for injections?
+	//TODO? use `Page#evaluateOnNewDocument` instead for injections
 	static async #injectPageScript(frame: Frame) {
 		await frame.evaluate(`void (
 			window["${GlobalNames.INJECTED}"] ??= (() => {
@@ -136,7 +136,8 @@ export class FieldsCollector extends BaseCollector {
 
 		// Search for fields on linked pages
 		let links = null;
-		if (this.#options.clickLinkCount) try {
+		if (this.#options.clickLinkCount
+			  && !(this.#options.stopEarly === 'first-page-with-form' && fields.length)) try {
 			await FieldsCollector.#injectPageScript(this.#page.mainFrame());
 			links = (await getLoginLinks(this.#page.mainFrame(), new Set(['exact', 'loose', 'coords'])))
 				  .map(info => info.attrs);
@@ -150,7 +151,7 @@ export class FieldsCollector extends BaseCollector {
 				this.#log?.log(`skipping last ${links.length - this.#options.clickLinkCount} links`);
 
 			links = links.slice(0, this.#options.clickLinkCount);
-			for (const link of links)
+			for (const link of links) {
 				await this.#group(`link ${link.selectorChain.join('>>>')}`, async () => {
 					try {
 						if (this.#options.skipExternal && link.href &&
@@ -169,6 +170,9 @@ export class FieldsCollector extends BaseCollector {
 						this.#log?.warn('failed to inspect linked page for link', link, err);
 					}
 				});
+				if (this.#options.stopEarly === 'first-page-with-form' && fields.length)
+					break;
+			}
 		} catch (err) {
 			this.#log?.error('failed to inspect linked pages', err);
 		}
@@ -212,8 +216,7 @@ export class FieldsCollector extends BaseCollector {
 		await getPageFromFrame(frame).bringToFront();
 		try {
 			await frame.goto(url, {timeout: maxWaitTimeMs, waitUntil: 'load'});
-			this.#log?.debug('💤');
-			await frame.waitForTimeout(this.#options.sleepMs?.postNavigate ?? 0);
+			await this.#sleep(this.#options.sleepMs?.postNavigate);
 		} catch (err) {
 			if (isOfType(err, 'TimeoutError')) {
 				this.#log?.log('navigation timeout exceeded (will continue)');
@@ -233,7 +236,7 @@ export class FieldsCollector extends BaseCollector {
 				return true;
 			} else return false;
 		});
-		//TODO Could call `dispatchEvent` with a `click` `PointerEvent`, but tricky to get the same result
+		//TODO? Could call `dispatchEvent` with a `click` `PointerEvent`, but tricky to get the same result
 		if (!success) this.#log?.warn('link is not an HTMLElement');
 		return success;
 	}
@@ -254,8 +257,7 @@ export class FieldsCollector extends BaseCollector {
 					  .then(page => `opened ${page.url()}`),
 			]);
 			this.#log?.log(msg);
-			this.#log?.debug('💤');
-			await frame.waitForTimeout(this.#options.sleepMs?.postNavigate ?? 0);
+			await this.#sleep(this.#options.sleepMs?.postNavigate);
 		} catch (err) {
 			if (isOfType(err, 'TimeoutError')) {
 				this.#log?.log('navigation timeout exceeded (will continue)');
@@ -267,8 +269,11 @@ export class FieldsCollector extends BaseCollector {
 
 	async #processFieldsOnAllPages(): Promise<FieldElementAttrs[]> {
 		const fields = [];
-		for (const page of await this.#context.pages())
+		for (const page of await this.#context.pages()) {
 			fields.push(await this.#processFieldsRecursive(page) ?? []);
+			if (this.#options.stopEarly === 'first-page-with-form' && fields.length)
+				break;
+		}
 		return fields.flat();
 	}
 
@@ -333,8 +338,7 @@ export class FieldsCollector extends BaseCollector {
 
 						await this.#fillFields(formFields);
 
-						this.#log?.debug('💤');
-						await frame.waitForTimeout(this.#options.sleepMs?.postFill ?? 0);
+						await this.#sleep(this.#options.sleepMs?.postFill);
 
 						if (this.#options.fill.addFacebookButton)
 							await this.#clickFacebookButton(frame);
@@ -364,8 +368,7 @@ export class FieldsCollector extends BaseCollector {
 			await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
 			if (this.#options.fill.addFacebookButton) {
 				await this.#clickFacebookButton(frame);
-				this.#log?.debug('💤');
-				await frame.waitForTimeout(this.#options.sleepMs?.postFacebookButtonClick ?? 0);
+				await this.#sleep(this.#options.sleepMs?.postFacebookButtonClick);
 			}
 			return {fields: frameFields.map(f => f.attrs), done: true};
 		}
@@ -526,6 +529,13 @@ export class FieldsCollector extends BaseCollector {
 	#errorCallback(message: string, stack: string) {
 		this.#log?.error('error in background page script', message, stack);
 	}
+
+	async #sleep(ms: number | undefined): Promise<void> {
+		if (ms) {
+			this.#log?.debug('💤');
+			return new Promise(resolve => setTimeout(resolve, ms));
+		}
+	}
 }
 
 type integer = number;
@@ -543,7 +553,7 @@ export interface FieldsCollectorOptions {
 		 * @minimum 0 */
 		submitField: number;
 	};
-	/** Intentional delays in milliseconds, or `null` to disable all delays */
+	/** Intentional delays in milliseconds, or null to disable all delays */
 	sleepMs: {
 		/** Delay after filling some fields (in a form)
 		 * @minimum 0 */
@@ -569,16 +579,23 @@ export interface FieldsCollectorOptions {
 	} | null;
 	/**
 	 * Whether to skip external sites.
-	 * Specify `"pages"` to only look at top-level URLs.
+	 * Specify "pages" to only look at top-level URLs.
 	 * @default "frames"
 	 */
 	skipExternal: 'frames' | 'pages' | false;
 	/** Maximum number of links to click on the landing page, can be 0
 	 * @minimum 0 */
 	clickLinkCount: integer;
+	/**
+	 * Whether to stop crawl early.
+	 * Specify "first-page-with-form" to stop after the first page with a form
+	 * (after filling all forms on that page)
+	 * @default false
+	 */
+	stopEarly: 'first-page-with-form' | false;
 	/** Field fill-related settings */
 	fill: {
-		/** Email address to fill in (`domainname+` is prepended to this) */
+		/** Email address to fill in ("domainname+" is prepended to this) */
 		emailBase: string;
 		/** Password to fill in */
 		password: string;
@@ -609,6 +626,7 @@ const defaultOptions: FieldsCollectorOptions = {
 	},
 	clickLinkCount: 10,
 	skipExternal: 'frames',
+	stopEarly: false,
 	fill: {
 		emailBase: 'x@example.com',
 		password: 'P@s5w0rd!',

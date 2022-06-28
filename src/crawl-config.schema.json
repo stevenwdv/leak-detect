@@ -17,7 +17,7 @@
                     "type": "boolean"
                 },
                 "emailBase": {
-                    "description": "Email address to fill in (`domainname+` is prepended to this)",
+                    "description": "Email address to fill in (\"domainname+\" is prepended to this)",
                     "type": "string"
                 },
                 "password": {
@@ -34,7 +34,7 @@
         },
         "skipExternal": {
             "default": "frames",
-            "description": "Whether to skip external sites.\nSpecify `\"pages\"` to only look at top-level URLs.",
+            "description": "Whether to skip external sites.\nSpecify \"pages\" to only look at top-level URLs.",
             "enum": [
                 false,
                 "frames",
@@ -90,7 +90,15 @@
                     "type": "null"
                 }
             ],
-            "description": "Intentional delays in milliseconds, or `null` to disable all delays"
+            "description": "Intentional delays in milliseconds, or null to disable all delays"
+        },
+        "stopEarly": {
+            "default": false,
+            "description": "Whether to stop crawl early.\nSpecify \"first-page-with-form\" to stop after the first page with a form\n(after filling all forms on that page)",
+            "enum": [
+                false,
+                "first-page-with-form"
+            ]
         },
         "timeoutMs": {
             "additionalProperties": false,

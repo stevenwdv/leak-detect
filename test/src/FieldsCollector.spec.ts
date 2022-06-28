@@ -1,9 +1,9 @@
 import path from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
+import {AddressInfo} from 'node:net';
 
 import {createServer} from 'http-server';
-import {AddressInfo} from 'net';
 import t from 'tap';
 import {DeepPartial} from 'ts-essentials';
 
