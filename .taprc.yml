@@ -1,4 +1,5 @@
 # tap test configuration
+color: true
 coverage: false  # Messes with in-page functions
 reporter: list
 timeout: 0  # Disable

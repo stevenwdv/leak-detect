@@ -13,16 +13,20 @@ import configSchema from './crawl-config.schema.json';
 async function main() {
 	const args = yargs
 		  .command('crawl <url>', 'crawl a URL', yargs => yargs
-				.positional('url', {
-					description: 'URL of homepage to crawl',
-					type: 'string',
-					demandOption: true,
-				})
-				.option('config', {
-					description: 'path to configuration file, see src/crawl-config.schema.json for syntax',
-					type: 'string',
-					normalize: true,
-				})
+			    .positional('url', {
+				    description: 'URL of homepage to crawl',
+				    type: 'string',
+				    demandOption: true,
+			    })
+			    .option('config', {
+				    description: 'path to configuration file, see src/crawl-config.schema.json for syntax',
+				    type: 'string',
+				    normalize: true,
+			    })
+			    .option('headed', {
+				    description: 'open a browser window',
+				    type: 'boolean',
+			    })
 				.option('output', {
 					description: 'output file path',
 					type: 'string',
@@ -53,6 +57,8 @@ async function main() {
 		  {
 			  log: console.log,
 			  maxCollectionTimeMs: 120_000,
+			  headless: !args.headed,
+			  keepOpen: args.headed,
 			  collectors: [
 				  new FieldsCollector(options, new ConsoleLogger()),
 				  new APICallCollector(breakpoints),

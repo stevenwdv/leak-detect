@@ -22,7 +22,7 @@
 		"puppeteer": "^15.1.1",
 		"ramda": "^0.28.0",
 		"tldts": "^5.7.82",
-		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#a4055d2",
+		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#d0e4130",
 		"yargs": "^17.5.1"
 	},
 	"devDependencies": {
