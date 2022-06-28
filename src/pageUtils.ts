@@ -3,7 +3,7 @@ import {BoundingBox, BrowserContext, ElementHandle, Frame, Page} from 'puppeteer
 
 import {stripHash} from './utils';
 import {GlobalNames} from './FieldsCollector';
-import {evaluate, evaluateHandle, getFrameStack, unwrapHandle} from './puppeteerUtils';
+import {getFrameStack, unwrapHandle} from './puppeteerUtils';
 
 /**
  * Close pages in `context` not in `keep`
@@ -26,14 +26,14 @@ export async function getElementInfoFromAttrs(attrs: ElementAttrs, frame: Frame)
 }
 
 export async function getElementBySelectorChain(selector: SelectorChain, frame: Frame): Promise<{ elem: ElementHandle, unique: boolean } | null> {
-	return await unwrapHandle(await evaluateHandle(frame,
+	return await unwrapHandle(await frame.evaluateHandle(
 		  (selector: SelectorChain) => window[GlobalNames.INJECTED]!.getElementBySelectorChain(selector), selector));
 }
 
 export async function getElementAttrs(handle: ElementHandle): Promise<ElementAttrs> {
 	const inView         = await handle.isIntersectingViewport();
 	const boundingBox    = await handle.boundingBox();
-	const elAttrsPartial = await evaluate(handle, el => {
+	const elAttrsPartial = await handle.evaluate(el => {
 		const form = (el as Element & { form?: HTMLFormElement }).form;
 		return {
 			id: el.id,

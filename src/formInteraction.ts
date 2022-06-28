@@ -1,7 +1,7 @@
 import {ElementHandle} from 'puppeteer';
 
 import {Logger} from './logger';
-import {evaluate, getPageFromHandle} from './puppeteerUtils';
+import {getPageFromHandle} from './puppeteerUtils';
 import {ElementInfo} from './pageUtils';
 
 function getRandomUpTo(maxValue: number) {
@@ -17,7 +17,7 @@ export async function focusElement(handle: ElementHandle, clickDwellTimeMs: numb
 }
 
 async function smoothScrollToElement(handle: ElementHandle) {
-	await evaluate(handle, el => el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'}));
+	await handle.evaluate(el => el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'}));
 }
 
 async function fillInputElement(elem: ElementInfo, text: string, options: FillTimesMs) {

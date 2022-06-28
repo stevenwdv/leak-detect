@@ -4,7 +4,7 @@
 	"author": "stevenwdv",
 	"repository": "github:stevenwdv/leak-detection",
 	"scripts": {
-		"install": "npm -w inject run pack && sed -i '1s;^;// @ts-nocheck\\n;' node_modules/@duckduckgo/autoconsent/lib/tabwrapper.ts",
+		"install": "npm -w inject run pack && (sed -i '1s;^;// @ts-nocheck\\n;' node_modules/@duckduckgo/autoconsent/lib/tabwrapper.ts || true)",
 		"start": "node --require ts-node/register ./src/main.ts",
 		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint .",
 		"lint-all": "tsc --noEmit --emitDeclarationOnly false && eslint . && npm -w inject run lint && cd ./test/ && tsc --noEmit --emitDeclarationOnly false && eslint .",
@@ -16,29 +16,29 @@
 		"inject"
 	],
 	"dependencies": {
-		"@types/ramda": "^0.28.13",
+		"@types/ramda": "^0.28.14",
 		"chalk": "^4.1.2",
 		"jsonschema": "^1.4.1",
-		"puppeteer": "^14.0.0",
+		"puppeteer": "^15.1.1",
 		"ramda": "^0.28.0",
-		"tldts": "^5.7.78",
-		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#e37f25f",
+		"tldts": "^5.7.82",
+		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#a4055d2",
 		"yargs": "^17.5.1"
 	},
 	"devDependencies": {
-		"@swc/core": "^1.2.181",
+		"@swc/core": "^1.2.207",
 		"@types/http-server": "^0.12.1",
-		"@types/node": "^17.0.31",
+		"@types/node": "^17.0.45",
 		"@types/tap": "^15.0.7",
 		"@types/yargs": "^17.0.10",
-		"@typescript-eslint/eslint-plugin": "^5.23.0",
-		"@typescript-eslint/parser": "^5.23.0",
-		"eslint": "^8.15.0",
+		"@typescript-eslint/eslint-plugin": "^5.30.0",
+		"@typescript-eslint/parser": "^5.30.0",
+		"eslint": "^8.18.0",
 		"http-server": "^14.1.1",
 		"tap": "^16.3.0",
 		"ts-essentials": "^9.1.2",
-		"ts-node": "^10.7.0",
-		"typescript": "^4.6.4",
+		"ts-node": "^10.8.1",
+		"typescript": "^4.7.4",
 		"typescript-json-schema": "^0.53.1"
 	}
 }

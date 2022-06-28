@@ -1,7 +1,7 @@
 import {ElementHandle, Frame} from 'puppeteer';
 import {filterUniqBy} from './utils';
 import {ElementInfo, getElementAttrs, LinkElementAttrs, LinkMatchType} from './pageUtils';
-import {evaluateHandle, unwrapHandle} from './puppeteerUtils';
+import {unwrapHandle} from './puppeteerUtils';
 
 /** Does not search in Shadow DOM */
 export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>):
@@ -38,7 +38,7 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 }
 
 async function findLoginLinksByCoords(frame: Frame): Promise<ElementHandle[]> {
-	const listHandle = await evaluateHandle(frame, () => {
+	const listHandle = await frame.evaluateHandle(() => {
 		const MAX_COORD_BASED_LINKS = 5;
 		const MEDIAN_LOGIN_LINK_X   = 1113,
 		      MEDIAN_LOGIN_LINK_Y   = 64.5;
@@ -61,7 +61,7 @@ async function findLoginLinksByCoords(frame: Frame): Promise<ElementHandle[]> {
 
 export async function findLoginLinks(frame: Frame, exactMatch = false): Promise<ElementHandle[]> {
 	const loginRegexSrc = exactMatch ? combinedLoginLinkRegexExactSrc : combinedLoginLinkRegexLooseSrc;
-	const listHandle    = await evaluateHandle(frame, (loginRegexSrc: string) => {
+	const listHandle    = await frame.evaluateHandle((loginRegexSrc: string) => {
 		const loginRegex  = new RegExp(loginRegexSrc, 'i');
 		const allElements = [...document.querySelectorAll('a,span,button,div')];
 

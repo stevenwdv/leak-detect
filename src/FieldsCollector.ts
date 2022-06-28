@@ -25,8 +25,6 @@ import {
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
 import {
-	evaluate,
-	evaluateHandle,
 	exposeFunction,
 	getFrameStack,
 	getPageFromFrame,
@@ -229,7 +227,7 @@ export class FieldsCollector extends BaseCollector {
 	async #click(link: ElementInfo): Promise<boolean> {
 		await getPageFromHandle(link.handle)!.bringToFront();
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
-		const success = await evaluate(link.handle, el => {
+		const success = await link.handle.evaluate(el => {
 			if (el instanceof HTMLElement) {
 				el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
 				el.click();
@@ -395,7 +393,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #getEmailFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs & FathomElementAttrs>[]> {
-		const emailFieldsFromFathom = await unwrapHandle(await evaluateHandle(frame,
+		const emailFieldsFromFathom = await unwrapHandle(await frame.evaluateHandle(
 			  () => [...window[GlobalNames.INJECTED]!.detectEmailInputs(document.documentElement)]));
 		return (await Promise.all(emailFieldsFromFathom.map(async field => ({
 			handle: field.elem,
@@ -408,7 +406,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #getPasswordFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs>[]> {
-		const elHandles = await frame.$$<HTMLInputElement>('pierce/input[type=password]');
+		const elHandles = await frame.$$('pierce/input[type=password]');
 		return (await Promise.all(elHandles.map(async handle => ({
 			handle,
 			attrs: {
@@ -445,7 +443,7 @@ export class FieldsCollector extends BaseCollector {
 			if (tryAdd(this.#injectedPasswordCallback, page))
 				await exposeFunction(page, GlobalNames.PASSWORD_CALLBACK, this.#passwordObserverCallback.bind(this, frame));
 
-			const didInject = await evaluate(frame, (password: string) => {
+			const didInject = await frame.evaluate((password: string) => {
 				if (window[GlobalNames.PASSWORD_OBSERVED]) return false;
 				window[GlobalNames.PASSWORD_OBSERVED] = true;
 
@@ -510,7 +508,7 @@ export class FieldsCollector extends BaseCollector {
 	async #clickFacebookButton(frame: Frame) {
 		this.#log?.log('adding and clicking button for Facebook detection');
 		this.#events.push(new FacebookButtonEvent());
-		await evaluate(frame, () => {
+		await frame.evaluate(() => {
 			const btn          = document.createElement('button');
 			btn.className      = 'leak-detect-btn button';
 			btn.textContent    = 'button';
