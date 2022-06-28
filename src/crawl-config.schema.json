@@ -68,6 +68,11 @@
                             },
                             "type": "object"
                         },
+                        "postFacebookButtonClick": {
+                            "description": "Delay after adding & clicking Facebook button",
+                            "minimum": 0,
+                            "type": "number"
+                        },
                         "postFill": {
                             "description": "Delay after filling some fields (in a form)",
                             "minimum": 0,
