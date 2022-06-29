@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
-	<title>Shadow email field with type=text</title>
+	<title>Closed shadow email field with type=text</title>
 	<script>
 		customElements.define('my-login-form', class LoginForm extends HTMLElement
 		{
@@ -42,7 +42,7 @@
 						);
 					}
 					:host::before {
-						content: 'shadow';
+						content: 'closed shadow';
 						font-weight: bold;
 						color: white;
 					}

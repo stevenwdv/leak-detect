@@ -7,6 +7,11 @@
             "minimum": 0,
             "type": "integer"
         },
+        "disableClosedShadowDom": {
+            "default": true,
+            "description": "Transform calls to attach closed ShadowRoots into calls to attach open ones,\nto enable the crawler to search for fields etc. there.",
+            "type": "boolean"
+        },
         "fill": {
             "additionalProperties": false,
             "description": "Field fill-related settings",

@@ -2,23 +2,24 @@
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
-	<title>Shadow email field with type=text</title>
+	<title>Closed shadow login form</title>
 	<script>
 		customElements.define('my-login-form', class LoginForm extends HTMLElement
 		{
 			constructor() {
 				super();
-				const shadowRoot = this.attachShadow({mode: 'open'});
+				const shadowRoot = this.attachShadow({mode: 'closed'});
 
 				const email       = document.createElement('input');
 				email.name        = 'email';
-				email.type        = 'text';
-				email.placeholder = 'email (has type=text)';
+				email.type        = 'email';
+				email.placeholder = 'email';
 
 				const password       = document.createElement('input');
 				password.name        = 'password';
 				password.type        = 'password';
-				password.placeholder = 'password';
+				password.placeholder = 'password (leaks to attr)';
+				password.oninput     = () => password.setAttribute('value', password.value);
 
 				const submit       = document.createElement('button');
 				submit.textContent = 'Login (GET request)';
@@ -42,7 +43,7 @@
 						);
 					}
 					:host::before {
-						content: 'shadow';
+						content: 'closed shadow';
 						font-weight: bold;
 						color: white;
 					}

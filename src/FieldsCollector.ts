@@ -7,7 +7,7 @@ import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
 import {DeepPartial, UnreachableCaseError} from 'ts-essentials';
 
 import {SelectorChain} from 'leak-detect-inject';
-import {addAll, filterUniqBy, formatDuration, getRelativeUrl, populateDefaults, tryAdd} from './utils';
+import {addAll, AsBound, filterUniqBy, formatDuration, getRelativeUrl, populateDefaults, tryAdd} from './utils';
 import {Logger, TaggedLogger} from './logger';
 import {fillEmailField, fillPasswordField, submitField} from './formInteraction';
 import {
@@ -43,7 +43,7 @@ export const enum GlobalNames {
 }
 
 export class FieldsCollector extends BaseCollector {
-	static #injectSrc: string;
+	static #doInjectFun: () => void;
 
 	#options: FieldsCollectorOptions;
 	#log?: Logger;
@@ -55,7 +55,6 @@ export class FieldsCollector extends BaseCollector {
 
 	#page!: Page;
 	#injectedPasswordCallback = new Set<Page>();
-	#injectedErrorCallback    = new Set<Page>();
 
 	#events: FieldCollectorEvent[]   = [];
 	#processedFields                 = new Set<string>();
@@ -71,7 +70,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	static #loadInjectScript() {
-		FieldsCollector.#injectSrc ||= (() => {
+		FieldsCollector.#doInjectFun ||= (() => {
 			let bundleTime;
 			try {
 				bundleTime = fs.statSync('./inject/dist/bundle.js').mtimeMs;
@@ -84,17 +83,17 @@ export class FieldsCollector extends BaseCollector {
 			if (timeDiff > 0)
 				console.error(`⚠️ inject script was modified ${formatDuration(timeDiff)} after bundle creation, ` +
 					  'you should probably run `npm run pack` in the `inject` folder');
-			return fs.readFileSync('./inject/dist/bundle.js', 'utf8');
+			const injectSrc = fs.readFileSync('./inject/dist/bundle.js', 'utf8');
+			// eslint-disable-next-line @typescript-eslint/no-implied-eval
+			return Function(`try {
+				window["${GlobalNames.INJECTED}"] ??= (() => {
+					${injectSrc};
+					return leakDetectToBeInjected;
+				})();
+			} catch (err) {
+				window["${GlobalNames.ERROR_CALLBACK}"](String(err), err instanceof Error && err.stack || new Error().stack);
+			}`) as () => void;
 		})();
-	}
-
-	//TODO? use `Page#evaluateOnNewDocument` instead for injections
-	static async #injectPageScript(frame: Frame) {
-		await frame.evaluate(`void (
-			window["${GlobalNames.INJECTED}"] ??= (() => {
-				${FieldsCollector.#injectSrc};
-				return leakDetectToBeInjected;
-			})())`);
 	}
 
 	override id() { return 'fields' as const; }
@@ -108,7 +107,6 @@ export class FieldsCollector extends BaseCollector {
 
 		this.#page                     = undefined!;  // Initialized in addTarget
 		this.#injectedPasswordCallback = new Set();
-		this.#injectedErrorCallback    = new Set();
 		this.#processedFields          = new Set();
 
 		this.#events         = [];
@@ -117,8 +115,30 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	override async addTarget({url, type}: Parameters<typeof BaseCollector.prototype.addTarget>[0]) {
-		if (!this.#page && type === 'page') this.#page = (await this.#context.pages())[0];  // Take first page
 		this.#visitedTargets.push({time: Date.now(), type, url});  // Save other targets as well
+		if (type === 'page') {
+			const page = (await this.#context.pages()).at(-1)!;
+			this.#page ??= page;  // Take first page
+
+			await exposeFunction(page, GlobalNames.ERROR_CALLBACK, this.#errorCallback.bind(this));
+
+			await page.evaluateOnNewDocument(FieldsCollector.#doInjectFun);
+
+			if (this.#options.disableClosedShadowDom)
+				await page.evaluateOnNewDocument(() => {
+					try {
+						// eslint-disable-next-line @typescript-eslint/unbound-method
+						const attachShadow: AsBound<typeof Element, 'attachShadow'> = Element.prototype.attachShadow;
+
+						Element.prototype.attachShadow = function(init, ...args) {
+							window[GlobalNames.ERROR_CALLBACK]!('attach shadow rewritten', '!');
+							return attachShadow.call(this, {...init, mode: 'open'}, ...args);
+						};
+					} catch (err) {
+						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || new Error().stack!);
+					}
+				});
+		}
 	}
 
 	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldCollectorData> {
@@ -136,7 +156,6 @@ export class FieldsCollector extends BaseCollector {
 		let links = null;
 		if (this.#options.clickLinkCount
 			  && !(this.#options.stopEarly === 'first-page-with-form' && fields.length)) try {
-			await FieldsCollector.#injectPageScript(this.#page.mainFrame());
 			links = (await getLoginLinks(this.#page.mainFrame(), new Set(['exact', 'loose', 'coords'])))
 				  .map(info => info.attrs);
 
@@ -198,12 +217,11 @@ export class FieldsCollector extends BaseCollector {
 	async #followLink(link: ElementAttrs) {
 		this.#log?.log('following link', link.selectorChain.join('>>>'));
 		this.#events.push(new ClickLinkEvent(link.selectorChain));
-		const page = this.#page;
-		await FieldsCollector.#injectPageScript(page.mainFrame());
+		const page     = this.#page;
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
 		if (!linkInfo) throw new Error('could not find link element anymore');
-		if (await this.#click(linkInfo))
-			await this.#waitForNavigation(page.mainFrame(), this.#options.timeoutMs.followLink);
+		await this.#click(linkInfo);
+		await this.#waitForNavigation(page.mainFrame(), this.#options.timeoutMs.followLink);
 	}
 
 	async #goto(frame: Frame, url: string, minTimeoutMs: number) {
@@ -224,19 +242,14 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	async #click(link: ElementInfo): Promise<boolean> {
+	async #click(link: ElementInfo) {
 		await getPageFromHandle(link.handle)!.bringToFront();
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
-		const success = await link.handle.evaluate(el => {
-			if (el instanceof HTMLElement) {
-				el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
-				el.click();
-				return true;
-			} else return false;
+		await link.handle.evaluate(el => {
+			el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
+			if (el instanceof HTMLElement) el.click();
+			else el.dispatchEvent(new MouseEvent('click', {view: window, bubbles: true, cancelable: true}));
 		});
-		//TODO? Could call `dispatchEvent` with a `click` `PointerEvent`, but tricky to get the same result
-		if (!success) this.#log?.warn('link is not an HTMLElement');
-		return success;
 	}
 
 	async #waitForNavigation(frame: Frame, minTimeoutMs: number) {
@@ -293,7 +306,7 @@ export class FieldsCollector extends BaseCollector {
 			let done = false;
 			while (!done) attempt: {
 				for (const frame of page.frames().filter(frame => !submittedFrames.has(frame.url()))) {
-					const {fields, done} = await (frame.url() !== page.url()
+					const {fields, done} = await (frame !== page.mainFrame()
 						  ? this.#group(`frame ${getRelativeUrl(new URL(frame.url()), new URL(pageUrl))}`,
 								() => this.#processFields(frame))
 						  : this.#processFields(frame));
@@ -385,8 +398,6 @@ export class FieldsCollector extends BaseCollector {
 			return null;
 		}
 
-		await FieldsCollector.#injectPageScript(frame);
-
 		const fields = (await Promise.all([this.#getEmailFields(frame), await this.#getPasswordFields(frame)])).flat();
 		this.#log?.log(`found ${fields.length} fields`);
 		return fields;
@@ -439,7 +450,6 @@ export class FieldsCollector extends BaseCollector {
 	async #injectPasswordLeakDetection(frame: Frame) {
 		try {
 			const page = getPageFromFrame(frame);
-			await this.#injectErrorCallback(page);
 			if (tryAdd(this.#injectedPasswordCallback, page))
 				await exposeFunction(page, GlobalNames.PASSWORD_CALLBACK, this.#passwordObserverCallback.bind(this, frame));
 
@@ -451,7 +461,7 @@ export class FieldsCollector extends BaseCollector {
 					try {
 						for (const m of mutations)
 							for (const node of m.addedNodes)
-								observeRecursive(node);
+								inspectRecursive(node, true);
 
 						const leakSelectors = mutations
 							  .filter(m => m.attributeName && m.target instanceof Element &&
@@ -459,24 +469,49 @@ export class FieldsCollector extends BaseCollector {
 							  .map(m => ({
 								  selector: window[GlobalNames.INJECTED]!.formSelectorChain(m.target as Element),
 								  attribute: m.attributeName!,
-							  })); //TODO what if elem removed immediately
+							  }));
 						if (leakSelectors.length)
 							void window[GlobalNames.PASSWORD_CALLBACK]!(leakSelectors);
 					} catch (err) {
-						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error ? err.stack! : new Error().stack!);
+						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || new Error().stack!);
 					}
 				});
 
-				function observeRecursive(node: Node) {
+				function inspectRecursive(node: Node, checkExistingAttrs: boolean) {
 					if ([Node.DOCUMENT_NODE, Node.DOCUMENT_FRAGMENT_NODE].includes(node.nodeType))
 						observer.observe(node, {subtree: true, attributes: true, childList: true});
-					if (node instanceof Element && node.shadowRoot) //TODO what if shadow attach after elem added?
-						observeRecursive(node.shadowRoot);
+					if (node instanceof Element) {
+						if (checkExistingAttrs) {
+							const leakSelectors = [...node.attributes]
+								  .filter(attr => attr.value === password)
+								  .map(attr => ({
+									  selector: window[GlobalNames.INJECTED]!.formSelectorChain(node),
+									  attribute: attr.name,
+								  }));
+							if (leakSelectors.length)
+								void window[GlobalNames.PASSWORD_CALLBACK]!(leakSelectors);
+						}
+						if (node.shadowRoot) inspectRecursive(node.shadowRoot, checkExistingAttrs);
+					}
 					for (const child of node.childNodes)
-						observeRecursive(child);
+						inspectRecursive(child, checkExistingAttrs);
 				}
 
-				observeRecursive(document);
+				// Also catch ShadowRoots added after element was added to document
+				// eslint-disable-next-line @typescript-eslint/unbound-method
+				const attachShadow: AsBound<typeof Element, 'attachShadow'> = Element.prototype.attachShadow;
+
+				Element.prototype.attachShadow = function(...args) {
+					const shadow = attachShadow.call(this, ...args);
+					try {
+						inspectRecursive(shadow, true);
+					} catch (err) {
+						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || new Error().stack!);
+					}
+					return shadow;
+				};
+
+				inspectRecursive(document, false);
 				return true;
 			}, this.#options.fill.password);
 
@@ -516,16 +551,12 @@ export class FieldsCollector extends BaseCollector {
 			btn.style.top      = btn.style.left = '0';
 			document.body.append(btn);
 			btn.click();
+			btn.remove();
 		});
 	}
 
-	async #injectErrorCallback(page: Page) {
-		if (tryAdd(this.#injectedErrorCallback, page))
-			await exposeFunction(page, GlobalNames.ERROR_CALLBACK, this.#errorCallback.bind(this));
-	}
-
 	#errorCallback(message: string, stack: string) {
-		this.#log?.error('error in background page script', message, stack);
+		this.#log?.error('error in background page script:', message, stack);
 	}
 
 	async #sleep(ms: number | undefined): Promise<void> {
@@ -536,6 +567,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 }
 
+// noinspection JSClassNamingConvention
 type integer = number;
 
 export interface FieldsCollectorOptions {
@@ -604,6 +636,12 @@ export interface FieldsCollectorOptions {
 		 * @default true */
 		addFacebookButton: boolean;
 	};
+	/**
+	 * Transform calls to attach closed ShadowRoots into calls to attach open ones,
+	 * to enable the crawler to search for fields etc. there.
+	 * @default true
+	 */
+	disableClosedShadowDom: boolean;
 }
 
 const defaultOptions: FieldsCollectorOptions = {
@@ -631,6 +669,7 @@ const defaultOptions: FieldsCollectorOptions = {
 		submit: true,
 		addFacebookButton: true,
 	},
+	disableClosedShadowDom: true,
 };
 
 export interface PagePasswordLeak {

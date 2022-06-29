@@ -26,7 +26,11 @@ function escapeAttrVal(str: string): string {
 }
 
 function formSelectorFromRoot(elem: Element): string {
-	if (!elem.parentNode) throw new Error('elem is detached (or not an Element)');
+	if (!elem.parentNode) {
+		console.warn('elem is detached (or not an Element)', elem);
+		// Best-effort info
+		return elem.id ? `${elem.tagName}[id='${escapeAttrVal(elem.id)}']` : `${elem.tagName}[detached]`;
+	}
 	if (elem.parentNode instanceof Document) return ':root';  // <html> element
 
 	function globallyUnique(selector: string): boolean {
@@ -91,6 +95,7 @@ export function formSelectorChain(elem: Element): SelectorChain {
 	while (true) {
 		chain.unshift(formSelectorFromRoot(elem));
 		const root = elem.getRootNode();
+		// root is equal to elem if it has no parent, or Document for <html>
 		if (!(root instanceof ShadowRoot)) break;
 		elem = root.host;
 	}

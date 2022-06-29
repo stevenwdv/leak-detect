@@ -54,6 +54,7 @@ void (async () => {
 			)).data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldCollectorData }).fields;
 		}
 
+		//TODO check that no warnings/errors are generated
 		return Promise.all([
 			t.test('for a simple form', async t => {
 				const result = await runCrawler('login_form.html');
@@ -118,8 +119,23 @@ void (async () => {
 				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
 				t.ok(leak?.attrs, 'should have password leak element attrs set');
 			}),
-			t.test('for a shadow form', async t => {
+			t.test('for an open shadow form', async t => {
 				const result = await runCrawler('login_form_shadow.html');
+				t.equal(result.fields.length, 2, 'should find 2 fields');
+				const emailField    = result.fields.find(field => field.fieldType === 'email'),
+				      passwordField = result.fields.find(field => field.fieldType === 'password');
+				t.ok(emailField, 'should find email field');
+				t.ok(passwordField, 'should find password field');
+
+				t.ok(emailField?.submitted, 'should submit field');
+
+				t.equal(result.passwordLeaks.length, 1, 'should find 1 password leak');
+				const leak = result.passwordLeaks[0];
+				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
+				t.ok(leak?.attrs, 'should have password leak element attrs set');
+			}),
+			t.test('for a closed shadow form', async t => {
+				const result = await runCrawler('login_form_shadow_closed.html');
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				const emailField    = result.fields.find(field => field.fieldType === 'email'),
 				      passwordField = result.fields.find(field => field.fieldType === 'password');
@@ -139,8 +155,14 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
-			t.test('for shadow email input with type=text', async t => {
+			t.test('for open shadow email input with type=text', async t => {
 				const result = await runCrawler('login_form_shadow_text_email.html');
+				t.equal(result.fields.length, 2, 'should find 2 fields');
+				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
+				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
+			}),
+			t.test('for closed shadow email input with type=text', async t => {
+				const result = await runCrawler('login_form_shadow_closed_text_email.html');
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
