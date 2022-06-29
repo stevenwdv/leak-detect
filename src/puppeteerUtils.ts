@@ -41,41 +41,41 @@ export async function exposeFunction<Name extends keyof Window & string, Func ex
  * Like {@link JSHandle#jsonValue}, but retains some non-serializable objects as {@link JSHandle}s
  */
 export async function unwrapHandle<T>(handle: JSHandle<T>): Promise<UnwrappedHandle<T>> {
-	return await unwrapHandleConservative(handle, () => true) as UnwrappedHandle<T>;
+	return await unwrapHandleEx(handle, () => true) as UnwrappedHandle<T>;
 }
 
 /**
  * Like {@link JSHandle#jsonValue}, but retains non-serializable objects as {@link JSHandle}s
  */
-export async function unwrapHandleConservative<T>(handle: JSHandle<T>, shouldUnwrap: (className: string) => boolean = className => ['Object', 'Proxy'].includes(className)):
-	  Promise<UnwrappedHandleConservative<T>> {
+export async function unwrapHandleEx<T>(handle: JSHandle<T>, shouldUnwrap: (className: string) => boolean = className => ['Object', 'Proxy'].includes(className)):
+	  Promise<UnwrappedHandleEx<T>> {
 	//XXX Replace _remoteObject with stable version if ever available
 
 	// Leave functions & symbols wrapped
 	if (['function', 'symbol'].includes(handle._remoteObject.type))
-		return handle as UnwrappedHandleConservative<T>;
+		return handle as UnwrappedHandleEx<T>;
 
 	if (handle._remoteObject.type === 'object') {
 		if ([undefined, 'proxy'].includes(handle._remoteObject.subtype)) {
 			if (shouldUnwrap(handle._remoteObject.className!))
 				return Object.fromEntries(await Promise.all([...await handle.getProperties()]
-					  .map(async ([k, v]) => [k, await unwrapHandleConservative(v, shouldUnwrap)]))) as UnwrappedHandleConservative<T>;
+					  .map(async ([k, v]) => [k, await unwrapHandleEx(v, shouldUnwrap)]))) as UnwrappedHandleEx<T>;
 		} else {
 			if (handle._remoteObject.subtype === 'null')
-				return null as UnwrappedHandleConservative<T>;
+				return null as UnwrappedHandleEx<T>;
 			if (handle._remoteObject.subtype === 'array')
 				return await Promise.all([...await handle.getProperties()]
-					  .map(async ([, v]) => await unwrapHandleConservative(v, shouldUnwrap))) as UnwrappedHandleConservative<T>;
+					  .map(async ([, v]) => await unwrapHandleEx(v, shouldUnwrap))) as UnwrappedHandleEx<T>;
 		}
-		return (handle.asElement() ?? handle) as UnwrappedHandleConservative<T>;
+		return handle as UnwrappedHandleEx<T>;
 
 	} else  // Return other types such as numbers, booleans, bigints, etc. unwrapped
 		return (handle._remoteObject.type === 'undefined'
 			  ? undefined
 			  : handle._remoteObject.value
 			  ?? (handle._remoteObject.unserializableValue
-					? eval(handle._remoteObject.unserializableValue)
-					: await handle.jsonValue())) as UnwrappedHandleConservative<T>;
+					? eval(handle._remoteObject.unserializableValue)  //TODO? not use eval
+					: await handle.jsonValue())) as UnwrappedHandleEx<T>;
 }
 
 export type UnwrappedHandle<T> = T extends string | boolean | number | null | undefined | bigint
@@ -95,19 +95,19 @@ export type UnwrappedHandle<T> = T extends string | boolean | number | null | un
 							  ? { [K in keyof T]: UnwrappedHandle<T[K]> }
 							  : unknown;
 
-export type UnwrappedHandleConservative<T> = T extends string | boolean | number | null | undefined | bigint
+export type UnwrappedHandleEx<T> = T extends string | boolean | number | null | undefined | bigint
 	  ? T
 	  : T extends Element
 			? ElementHandle<T>
 			: T extends (infer V)[]
 				  ? T extends IsTuple<T>
-						? { [K in keyof T]: UnwrappedHandleConservative<T[K]> }
-						: UnwrappedHandleConservative<V>[]
+						? { [K in keyof T]: UnwrappedHandleEx<T[K]> }
+						: UnwrappedHandleEx<V>[]
 				  : T extends Node | RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
 						| Iterator<unknown, never, never> | Error | Promise<unknown> | TypedArray | ArrayBuffer | DataView
 						// eslint-disable-next-line @typescript-eslint/ban-types
 						| Function | symbol
 						? JSHandle<T>
 						: T extends object
-							  ? { [K in keyof T]: UnwrappedHandleConservative<T[K]> } | JSHandle<T>
+							  ? { [K in keyof T]: UnwrappedHandleEx<T[K]> } | JSHandle<T>
 							  : unknown;
