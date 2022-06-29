@@ -26,6 +26,7 @@ async function main() {
 			    .option('headed', {
 				    description: 'open a browser window',
 				    type: 'boolean',
+				    default: false,
 			    })
 				.option('output', {
 					description: 'output file path',
@@ -57,7 +58,7 @@ async function main() {
 		  {
 			  log: console.log,
 			  maxCollectionTimeMs: 120_000,
-			  headless: !args.headed,
+			  headed: args.headed,
 			  keepOpen: args.headed,
 			  collectors: [
 				  new FieldsCollector(options, new ConsoleLogger()),
