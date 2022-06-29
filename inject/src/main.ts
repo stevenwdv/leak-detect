@@ -21,33 +21,66 @@ export function isOnTop(elem: Element): boolean {
 	return elem.isSameNode(topEl);
 }
 
-function escapeQuotes(str: string): string {
+function escapeAttrVal(str: string): string {
 	return str.replaceAll('\\', '\\\\').replaceAll('\'', '\\\'');
 }
 
 function formSelectorFromRoot(elem: Element): string {
-	if (elem.id) {
-		const idEscaped = escapeQuotes(elem.id);
-		const root      = elem.getRootNode() as ParentNode;
-		const selector  = `[id='${idEscaped}']`;
+	if (!elem.parentNode) throw new Error('elem is detached (or not an Element)');
+	if (elem.parentNode instanceof Document) return ':root';  // <html> element
+
+	function globallyUnique(selector: string): boolean {
 		try {
-			if (root.querySelectorAll(selector).length === 1)
-				return selector;
+			return (elem.getRootNode() as ParentNode)
+				  .querySelectorAll(selector)
+				  .length === 1;
 		} catch (err) {
-			// Ignore errors due to weird IDs
-			if (!(err instanceof SyntaxError)) throw err;
+			// Catch errors due to weird names/IDs
+			if (err instanceof SyntaxError) return false;
+			throw err;
 		}
 	}
 
-	if (!elem.parentNode) throw new Error('elem is detached (or not an Element)');
+	function validSelector(selector: string): string | null {
+		try {
+			void (elem.getRootNode() as ParentNode).querySelector(selector);
+			return selector;
+		} catch (err) {
+			// Catch errors due to weird names/IDs
+			if (err instanceof SyntaxError) return null;
+			throw err;
+		}
+	}
 
-	if (elem.parentNode instanceof Document) return ':root';  // <html> element
+	function matchSiblings(selector: string): { index: number, matchCount: number } {
+		// These are sorted in document order
+		const matches = elem.parentNode!.querySelectorAll(`:scope>${selector}`);
+		return {
+			index: [...matches].indexOf(elem),
+			matchCount: matches.length,
+		};
+	}
 
-	const tagName = elem.tagName;
-	let me        = tagName.toLowerCase();
-	const sames   = [...elem.parentNode.children].filter(child => child.tagName === tagName);
-	if (sames.length > 1) me += `:nth-of-type(${sames.indexOf(elem) + 1})`;
-	return `${elem.parentElement ? formSelectorFromRoot(elem.parentElement) : ':host'}>${me}`;
+	let mySelector;
+
+	if (elem.id) {
+		const globalSelector = /^[a-z0-9_-]+$/i.test(elem.id)
+			  ? `#${elem.id}`
+			  : `[id='${escapeAttrVal(elem.id)}']`;
+		if (globallyUnique(globalSelector)) return globalSelector;
+		mySelector = validSelector(globalSelector);
+	}
+
+	mySelector ||= elem.hasAttribute('name') && validSelector(`[name='${escapeAttrVal(elem.getAttribute('name')!)}']`);
+	mySelector ||= elem.tagName.toLowerCase();
+
+	const sameSiblings = matchSiblings(mySelector);
+	if (sameSiblings.matchCount > 1)
+		mySelector += `:nth-of-type(${sameSiblings.index + 1})`;
+
+	// No parentElement: parentNode is ShadowRoot
+	const parentSelector = elem.parentElement ? formSelectorFromRoot(elem.parentElement) : ':host';
+	return `${parentSelector}>${mySelector}`;
 }
 
 /**
