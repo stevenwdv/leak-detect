@@ -1,4 +1,5 @@
 import {ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
+import {Protocol} from 'devtools-protocol';
 import {IsTuple} from 'ts-essentials';
 import TypedArray = NodeJS.TypedArray;
 
@@ -44,6 +45,25 @@ export async function unwrapHandle<T>(handle: JSHandle<T>): Promise<UnwrappedHan
 	return await unwrapHandleEx(handle, () => true) as UnwrappedHandle<T>;
 }
 
+function valueFromRemoteObject(obj: Protocol.Runtime.RemoteObject): unknown {
+	if (obj.unserializableValue)
+		switch (obj.type) {
+			case 'bigint':
+				return BigInt(obj.unserializableValue.replace('n', ''));
+			case 'number': {
+				const val = {
+					'-0': -0,
+					'NaN': NaN,
+					'Infinity': Infinity,
+					'-Infinity': -Infinity,
+				}[obj.unserializableValue];
+				if (val !== undefined) return val;
+				break;
+			}
+		}
+	return obj.value;
+}
+
 /**
  * Like {@link JSHandle#jsonValue}, but retains non-serializable objects as {@link JSHandle}s
  */
@@ -72,10 +92,8 @@ export async function unwrapHandleEx<T>(handle: JSHandle<T>, shouldUnwrap: (clas
 	} else  // Return other types such as numbers, booleans, bigints, etc. unwrapped
 		return (handle._remoteObject.type === 'undefined'
 			  ? undefined
-			  : handle._remoteObject.value
-			  ?? (handle._remoteObject.unserializableValue
-					? eval(handle._remoteObject.unserializableValue)  //TODO? not use eval
-					: await handle.jsonValue())) as UnwrappedHandleEx<T>;
+			  : valueFromRemoteObject(handle._remoteObject)
+			  ?? await handle.jsonValue()) as UnwrappedHandleEx<T>;
 }
 
 export type UnwrappedHandle<T> = T extends string | boolean | number | null | undefined | bigint
