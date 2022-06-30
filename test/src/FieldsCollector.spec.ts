@@ -22,6 +22,9 @@ import {
 import {ConsoleLogger} from '../../src/logger';
 import {CollectorData} from 'tracker-radar-collector/helpers/collectorsList';
 
+const serial = process.argv.includes('--serial');
+const headed = process.argv.includes('--headed');
+
 void (async () => {
 	const {server, baseUrl} = await
 		  new Promise<{ server: http.Server | https.Server, baseUrl: URL }>((resolve, reject) => {
@@ -37,7 +40,7 @@ void (async () => {
 					.once('error', reject);
 		  });
 
-	await t.test(FieldsCollector.name, {jobs: 20, buffered: true}, t => {
+	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 20, buffered: true}, t => {
 		t.teardown(() => new Promise<void>((resolve, reject) =>
 			  server.close(err => err ? reject(err) : resolve())));
 
@@ -47,6 +50,8 @@ void (async () => {
 				  {
 					  log: console.log,
 					  maxCollectionTimeMs: 120_000,
+					  headed: headed,
+					  devtools: headed,
 					  collectors: [
 						  new FieldsCollector(options, new ConsoleLogger()),
 					  ],

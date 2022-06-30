@@ -91,7 +91,7 @@ export class FieldsCollector extends BaseCollector {
 					return leakDetectToBeInjected;
 				})();
 			} catch (err) {
-				window["${GlobalNames.ERROR_CALLBACK}"](String(err), err instanceof Error && err.stack || new Error().stack);
+				window["${GlobalNames.ERROR_CALLBACK}"](String(err), err instanceof Error && err.stack || Error().stack);
 			}`) as () => void;
 		})();
 	}
@@ -117,25 +117,34 @@ export class FieldsCollector extends BaseCollector {
 	override async addTarget({url, type}: Parameters<typeof BaseCollector.prototype.addTarget>[0]) {
 		this.#visitedTargets.push({time: Date.now(), type, url});  // Save other targets as well
 		if (type === 'page') {
-			const page = (await this.#context.pages()).at(-1)!;
-			this.#page ??= page;  // Take first page
+			const pages   = await this.#context.pages();
+			const newPage = pages.at(-1)!;
+			this.#page ??= newPage;  // Take first page
 
-			await exposeFunction(page, GlobalNames.ERROR_CALLBACK, this.#errorCallback.bind(this));
+			await exposeFunction(newPage, GlobalNames.ERROR_CALLBACK, this.#errorCallback.bind(this));
 
-			await page.evaluateOnNewDocument(FieldsCollector.#doInjectFun);
+			async function evaluateOnAll(pageFunction: (...args: never) => void) {
+				// Add on new & existing frames
+				await newPage.evaluateOnNewDocument(pageFunction);
+				await Promise.all(await Promise.all(newPage.frames().map(frame => frame.evaluate(pageFunction))));
+			}
+
+			await evaluateOnAll(FieldsCollector.#doInjectFun);
 
 			if (this.#options.disableClosedShadowDom)
-				await page.evaluateOnNewDocument(() => {
+				await evaluateOnAll(() => {
 					try {
 						// eslint-disable-next-line @typescript-eslint/unbound-method
 						const attachShadow: AsBound<typeof Element, 'attachShadow'> = Element.prototype.attachShadow;
 
+						// Make sure to keep forwards-compatible
 						Element.prototype.attachShadow = function(init, ...args) {
-							window[GlobalNames.ERROR_CALLBACK]!('attach shadow rewritten', '!');
-							return attachShadow.call(this, {...init, mode: 'open'}, ...args);
+							return attachShadow.call(this,
+								  typeof init === 'object' ? {...init, mode: 'open'} : init,
+								  ...args);
 						};
 					} catch (err) {
-						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || new Error().stack!);
+						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || Error().stack!);
 					}
 				});
 		}
@@ -473,7 +482,7 @@ export class FieldsCollector extends BaseCollector {
 						if (leakSelectors.length)
 							void window[GlobalNames.PASSWORD_CALLBACK]!(leakSelectors);
 					} catch (err) {
-						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || new Error().stack!);
+						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || Error().stack!);
 					}
 				});
 
@@ -506,7 +515,7 @@ export class FieldsCollector extends BaseCollector {
 					try {
 						inspectRecursive(shadow, true);
 					} catch (err) {
-						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || new Error().stack!);
+						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || Error().stack!);
 					}
 					return shadow;
 				};
@@ -647,7 +656,7 @@ export interface FieldsCollectorOptions {
 const defaultOptions: FieldsCollectorOptions = {
 	timeoutMs: {
 		reload: 2_500,
-		followLink: 2_500,
+		followLink: 5_000,
 		submitField: 2_500,
 	},
 	sleepMs: {
