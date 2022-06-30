@@ -1,104 +1,187 @@
 import chalk, {Chalk} from 'chalk';
 
-export interface Logger {
-	debug(...args: unknown[]): void;
+export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
 
-	log(...args: unknown[]): void;
+export abstract class Logger {
+	abstract logLevel(level: LogLevel, ...args: unknown[]): void;
 
-	info(...args: unknown[]): void;
+	debug(...args: unknown[]): void {this.logLevel('debug', ...args);}
 
-	warn(...args: unknown[]): void;
+	log(...args: unknown[]): void {this.logLevel('log', ...args);}
 
-	error(...args: unknown[]): void;
+	info(...args: unknown[]): void {this.logLevel('info', ...args);}
 
-	group<T>(name: string, func: () => T): T;
-}
+	warn(...args: unknown[]): void {this.logLevel('warn', ...args);}
 
-export class ConsoleLogger implements Logger {
-	readonly #groups: string[] = [];
+	error(...args: unknown[]): void {this.logLevel('error', ...args);}
 
-	debug(...args: unknown[]): void {
-		this.#printConsole(console.debug, null, chalk.gray, args);
-	}
+	abstract startGroup(name: string): void;
 
-	log(...args: unknown[]): void {
-		this.#printConsole(console.log, null, chalk, args);
-	}
-
-	info(...args: unknown[]): void {
-		this.#printConsole(console.info, 'ℹ️', chalk.blueBright, args);
-	}
-
-	warn(...args: unknown[]): void {
-		this.#printConsole(console.warn, '⚠️', chalk.yellow, args);
-	}
-
-	error(...args: unknown[]): void {
-		this.#printConsole(console.error, '❌️', chalk.redBright, args);
-	}
+	abstract endGroup(): void;
 
 	group<T>(name: string, func: () => T): T {
-		this.#groups.push(name);
+		this.startGroup(name);
 		let promise;
 		try {
 			const res = func();
-			if ((promise = res instanceof Promise)) res.finally(() => this.#groups.pop());
+			if ((promise = res instanceof Promise))
+				return res.finally(() => this.endGroup()) as unknown as T;
 			return res;
 		} finally {
-			if (!promise) this.#groups.pop();
+			if (!promise) this.endGroup();
 		}
-	}
-
-	#printConsole(print: (msg?: unknown, ...args: unknown[]) => void, prefix: string | null, color: Chalk, args: unknown[]) {
-		if (prefix) args.unshift(color(prefix));
-		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
-		if (args.length)
-			print(typeof args[0] === 'string' ? '%s' : '%O', ...args.map(a => typeof a === 'string' ? color(a) : a));
 	}
 }
 
-export class TaggedLogger implements Logger {
+export class ConsoleLogger extends Logger {
 	readonly #groups: string[] = [];
-	readonly #logFn: (...args: unknown[]) => void;
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
+		if (!args.length) args.push('');
+		console[level](
+			  typeof args[0] === 'string' ? '%s' : '%O',
+			  ...args,
+		);
+	}
+
+	startGroup(name: string) {
+		this.#groups.push(name);
+	}
+
+	endGroup() {
+		this.#groups.pop();
+	}
+}
+
+export class ColoredLogger extends Logger {
+	readonly #log: Logger;
+	readonly #groups: string[] = [];
+
+	constructor(logger: Logger) {
+		super();
+		this.#log = logger;
+	}
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		const prefixes: { [level in LogLevel]?: string } = {
+			info: 'ℹ️',
+			warn: '⚠️',
+			error: '❌️',
+		};
+		const colors: { [level in LogLevel]?: Chalk }    = {
+			debug: chalk.gray,
+			info: chalk.blueBright,
+			warn: chalk.yellow,
+			error: chalk.redBright,
+		};
+
+		const color = colors[level] ?? chalk;
+
+		const prefix = prefixes[level];
+		if (prefix) args.unshift(color(prefix));
+		args = args.map(a => typeof a === 'string' ? color(a) : a);
+		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
+		this.#log.logLevel(level, ...args);
+	}
+
+	startGroup(name: string) {
+		this.#groups.push(name);
+	}
+
+	endGroup() {
+		this.#groups.pop();
+	}
+}
+
+export class PlainLogger extends Logger {
+	readonly #log: (...args: unknown[]) => void;
+	readonly #groups: string[] = [];
 
 	constructor(log: (...args: unknown[]) => void) {
-		this.#logFn = log;
+		super();
+		this.#log = log;
 	}
 
-	debug(...args: unknown[]): void {
-		this.#log(chalk.gray('[dbg]'), ...args);
-	}
-
-	log(...args: unknown[]): void {
-		this.#log('[log]', ...args);
-	}
-
-	info(...args: unknown[]): void {
-		this.#log(chalk.blueBright('[INFO]'), ...args);
-	}
-
-	warn(...args: unknown[]): void {
-		this.#log(chalk.yellow('[WARN]'), ...args);
-	}
-
-	error(...args: unknown[]): void {
-		this.#log(chalk.redBright('[ERROR]'), ...args);
-	}
-
-	group<T>(name: string, func: () => T): T {
-		this.#groups.push(name);
-		let promise;
-		try {
-			const res = func();
-			if ((promise = res instanceof Promise)) res.finally(() => this.#groups.pop());
-			return res;
-		} finally {
-			if (!promise) this.#groups.pop();
-		}
-	}
-
-	#log(...args: unknown[]) {
+	logLevel(level: LogLevel, ...args: unknown[]) {
 		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
-		this.#logFn(...args);
+		this.#log(...args);
+	}
+
+	startGroup(name: string) {
+		this.#groups.push(name);
+	}
+
+	endGroup() {
+		this.#groups.pop();
+	}
+}
+
+export class CountingLogger extends Logger {
+	readonly #log?: Logger;
+	#counts = {
+		debug: 0,
+		log: 0,
+		info: 0,
+		warn: 0,
+		error: 0,
+	};
+
+	constructor(logger?: Logger) {
+		super();
+		this.#log = logger;
+	}
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		++this.#counts[level];
+		this.#log?.logLevel(level, ...args);
+	}
+
+	startGroup(name: string) {
+		this.#log?.startGroup(name);
+	}
+
+	endGroup() {
+		this.#log?.endGroup();
+	}
+
+	count(level: LogLevel) {
+		return this.#counts[level];
+	}
+
+	reset() {
+		this.#counts = {
+			debug: 0,
+			log: 0,
+			info: 0,
+			warn: 0,
+			error: 0,
+		};
+	}
+}
+
+export class BufferingLogger extends Logger {
+	#msgs: { method: LogLevel | 'startGroup' | 'endGroup', args: unknown[] }[] = [];
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		this.#msgs.push({method: level, args});
+	}
+
+	startGroup(name: string) {
+		this.#msgs.push({method: 'startGroup', args: [name]});
+	}
+
+	endGroup() {
+		this.#msgs.push({method: 'endGroup', args: []});
+	}
+
+	clear() {
+		this.#msgs = [];
+	}
+
+	drainTo(logger: Logger) {
+		for (const {method, args} of this.#msgs)
+			(logger[method] as (...args: unknown[]) => void)(...args);
+		this.clear();
 	}
 }

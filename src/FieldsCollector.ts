@@ -8,7 +8,7 @@ import {DeepPartial, UnreachableCaseError} from 'ts-essentials';
 
 import {SelectorChain} from 'leak-detect-inject';
 import {addAll, AsBound, filterUniqBy, formatDuration, getRelativeUrl, populateDefaults, tryAdd} from './utils';
-import {Logger, TaggedLogger} from './logger';
+import {ColoredLogger, Logger, PlainLogger} from './logger';
 import {fillEmailField, fillPasswordField, submitField} from './formInteraction';
 import {
 	closeExtraPages,
@@ -45,7 +45,7 @@ export const enum GlobalNames {
 export class FieldsCollector extends BaseCollector {
 	static #doInjectFun: () => void;
 
-	#options: FieldsCollectorOptions;
+	readonly #options: FieldsCollectorOptions;
 	#log?: Logger;
 	#dataParams!: Parameters<typeof BaseCollector.prototype.getData>[0];
 	#initialUrl!: URL;
@@ -99,7 +99,7 @@ export class FieldsCollector extends BaseCollector {
 	override id() { return 'fields' as const; }
 
 	override init({log, url, context}: BaseCollector.CollectorInitOptions) {
-		this.#log ??= new TaggedLogger(log);
+		this.#log ??= new ColoredLogger(new PlainLogger(log));
 		this.#context    = context;
 		this.#headless   = context.browser().process()?.spawnargs.includes('--headless') ?? true;
 		this.#initialUrl = url;

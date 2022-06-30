@@ -19,7 +19,7 @@ import {
 	ReturnEvent,
 	SubmitEvent,
 } from '../../src/FieldsCollector';
-import {ConsoleLogger} from '../../src/logger';
+import {BufferingLogger, ColoredLogger, ConsoleLogger, CountingLogger, Logger} from '../../src/logger';
 import {CollectorData} from 'tracker-radar-collector/helpers/collectorsList';
 
 const serial = process.argv.includes('--serial');
@@ -44,25 +44,40 @@ void (async () => {
 		t.teardown(() => new Promise<void>((resolve, reject) =>
 			  server.close(err => err ? reject(err) : resolve())));
 
-		async function runCrawler(page: string, options: DeepPartial<FieldsCollectorOptions> = {}): Promise<FieldCollectorData> {
+		async function runCrawler(page: string, log: Logger, options: DeepPartial<FieldsCollectorOptions> = {}): Promise<FieldCollectorData> {
 			return ((await crawler(
 				  new URL(page, baseUrl),
 				  {
-					  log: console.log,
+					  log: log.log.bind(log),
 					  maxCollectionTimeMs: 120_000,
-					  headed: headed,
+					  headed,
 					  devtools: headed,
 					  collectors: [
-						  new FieldsCollector(options, new ConsoleLogger()),
+						  new FieldsCollector(options, log),
 					  ],
 				  },
 			)).data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldCollectorData }).fields;
 		}
 
-		//TODO check that no warnings/errors are generated
+		function test(name: string, fun: (t: Tap.Test, log: Logger) => PromiseLike<unknown> | unknown) {
+			const testLogger = serial ? new ColoredLogger(new ConsoleLogger()) : new BufferingLogger();
+			if (serial) testLogger.startGroup(name);
+			const countLogger = new CountingLogger(testLogger);
+
+			return t.test(name, async t => {
+				await fun(t, countLogger);
+				t.equal(countLogger.count('error'), 0, 'should not generate any errors');
+				t.equal(countLogger.count('warn'), 0, 'should not generate any warnings');
+				if (!t.passing() && testLogger instanceof BufferingLogger) {
+					const conLogger = new ConsoleLogger();
+					conLogger.group(name, () => testLogger.drainTo(new ColoredLogger(conLogger)));
+				}
+			});
+		}
+
 		return Promise.all([
-			t.test('for a simple form', async t => {
-				const result = await runCrawler('login_form.html');
+			test('for a simple form', async (t, log) => {
+				const result = await runCrawler('login_form.html', log);
 				if (!t.strictNotSame(result, {}, 'should return a result'))
 					t.bailout('collector returns an empty object');
 
@@ -95,14 +110,14 @@ void (async () => {
 						  'submit',
 					  ]);
 			}),
-			t.test('for a frame', async t => {
-				const result = await runCrawler('login_form_frame.html');
+			test('for a frame', async (t, log) => {
+				const result = await runCrawler('login_form_frame.html', log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
-			t.test('for a hidden popup', async t => {
-				const result       = await runCrawler('login_form_hidden.html');
+			test('for a hidden popup', async (t, log) => {
+				const result       = await runCrawler('login_form_hidden.html', log);
 				const popupOpenIdx = result.events.findIndex(ev =>
 					        ev instanceof ClickLinkEvent && ev.link.join().includes('popupLink')),
 				      fillIdx      = result.events.findIndex(ev => ev instanceof FillEvent);
@@ -113,8 +128,8 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
-			t.test('for a popup form', async t => {
-				const result = await runCrawler('login_form_popup.html');
+			test('for a popup form', async (t, log) => {
+				const result = await runCrawler('login_form_popup.html', log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
@@ -124,8 +139,8 @@ void (async () => {
 				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
 				t.ok(leak?.attrs, 'should have password leak element attrs set');
 			}),
-			t.test('for an open shadow form', async t => {
-				const result = await runCrawler('login_form_shadow.html');
+			test('for an open shadow form', async (t, log) => {
+				const result = await runCrawler('login_form_shadow.html', log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				const emailField    = result.fields.find(field => field.fieldType === 'email'),
 				      passwordField = result.fields.find(field => field.fieldType === 'password');
@@ -139,8 +154,8 @@ void (async () => {
 				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
 				t.ok(leak?.attrs, 'should have password leak element attrs set');
 			}),
-			t.test('for a closed shadow form', async t => {
-				const result = await runCrawler('login_form_shadow_closed.html');
+			test('for a closed shadow form', async (t, log) => {
+				const result = await runCrawler('login_form_shadow_closed.html', log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				const emailField    = result.fields.find(field => field.fieldType === 'email'),
 				      passwordField = result.fields.find(field => field.fieldType === 'password');
@@ -154,25 +169,25 @@ void (async () => {
 				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
 				t.ok(leak?.attrs, 'should have password leak element attrs set');
 			}),
-			t.test('for email input with type=text', async t => {
-				const result = await runCrawler('login_form_text_email.html');
+			test('for email input with type=text', async (t, log) => {
+				const result = await runCrawler('login_form_text_email.html', log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
-			t.test('for open shadow email input with type=text', async t => {
-				const result = await runCrawler('login_form_shadow_text_email.html');
+			test('for open shadow email input with type=text', async (t, log) => {
+				const result = await runCrawler('login_form_shadow_text_email.html', log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
-			t.test('for closed shadow email input with type=text', async t => {
-				const result = await runCrawler('login_form_shadow_closed_text_email.html');
+			test('for closed shadow email input with type=text', async (t, log) => {
+				const result = await runCrawler('login_form_shadow_closed_text_email.html', log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
-			t.test('for Facebook button leak', async t => {
+			test('for Facebook button leak', async (t, log) => {
 				const data = (await crawler(
 					  new URL('facebook_button_simulator.html', baseUrl),
 					  {
@@ -182,7 +197,7 @@ void (async () => {
 							  new FieldsCollector({
 								  fill: {submit: false},
 								  clickLinkCount: 0,
-							  }, new ConsoleLogger()),
+							  }, log),
 							  new RequestCollector(),
 						  ],
 					  },
@@ -192,8 +207,8 @@ void (async () => {
 				t.ok(data.requests!.find(r => r.url === new URL('facebook.html', baseUrl).href),
 					  'should click the added button and open \'Facebook\'');
 			}),
-			t.test('for multiple forms', async t => {
-				const result = await runCrawler('multiple_forms.html');
+			test('for multiple forms', async (t, log) => {
+				const result = await runCrawler('multiple_forms.html', log);
 				t.equal(result.fields.length, 2 + 3 + 2 + 1 * 2, 'should find 9 fields');
 				t.equal(result.fields.filter(f => f.filled).length, result.fields.length,
 					  'should fill all fields');
@@ -206,8 +221,8 @@ void (async () => {
 				t.ok(result.events.filter(ev => ev instanceof ReturnEvent).length >= 5 - 1,
 					  'should reload between submits');
 			}),
-			t.test('for login/register links opening on same page', async t => {
-				const result = await runCrawler('login_link.html');
+			test('for login/register links opening on same page', async (t, log) => {
+				const result = await runCrawler('login_link.html', log);
 				t.equal(result.links?.length, 2, 'should find the 2 links');
 				t.equal(result.events.filter(ev => ev instanceof ClickLinkEvent).length, 2,
 					  'should follow the 2 links');
@@ -216,8 +231,8 @@ void (async () => {
 					  'should submit 2 times');
 				t.equal(result.visitedTargets.length, 1, 'should log 1 visited target');
 			}),
-			t.test('for login/register links opening in new tabs', async t => {
-				const result = await runCrawler('login_link_blank.html');
+			test('for login/register links opening in new tabs', async (t, log) => {
+				const result = await runCrawler('login_link_blank.html', log);
 				t.equal(result.links?.length, 2, 'should find the 2 links');
 				t.equal(result.events.filter(ev => ev instanceof ClickLinkEvent).length, 2,
 					  'should follow the 2 links');

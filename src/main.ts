@@ -6,7 +6,7 @@ import {APICallCollector, crawler, RequestCollector} from 'tracker-radar-collect
 import yargs from 'yargs';
 
 import {FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
-import {ConsoleLogger} from './logger';
+import {ColoredLogger, ConsoleLogger} from './logger';
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 
@@ -61,7 +61,7 @@ async function main() {
 			  headed: args.headed,
 			  keepOpen: args.headed,
 			  collectors: [
-				  new FieldsCollector(options, new ConsoleLogger()),
+				  new FieldsCollector(options, new ColoredLogger(new ConsoleLogger())),
 				  new APICallCollector(breakpoints),
 				  new RequestCollector(),
 			  ],
