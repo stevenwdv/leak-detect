@@ -44,14 +44,19 @@ void (async () => {
 		t.teardown(() => new Promise<void>((resolve, reject) =>
 			  server.close(err => err ? reject(err) : resolve())));
 
+		const baseCrawlOptions = {
+			log: console.log,
+			maxCollectionTimeMs: 120_000,
+			headed,
+			devtools: headed,
+		};
+
 		async function runCrawler(page: string, log: Logger, options: DeepPartial<FieldsCollectorOptions> = {}): Promise<FieldCollectorData> {
 			return ((await crawler(
 				  new URL(page, baseUrl),
 				  {
+					  ...baseCrawlOptions,
 					  log: log.log.bind(log),
-					  maxCollectionTimeMs: 120_000,
-					  headed,
-					  devtools: headed,
 					  collectors: [
 						  new FieldsCollector(options, log),
 					  ],
@@ -191,8 +196,8 @@ void (async () => {
 				const data = (await crawler(
 					  new URL('facebook_button_simulator.html', baseUrl),
 					  {
-						  log: console.log,
-						  maxCollectionTimeMs: 120_000,
+						  ...baseCrawlOptions,
+						  log: log.log.bind(log),
 						  collectors: [
 							  new FieldsCollector({
 								  fill: {submit: false},
