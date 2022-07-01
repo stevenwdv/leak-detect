@@ -13,7 +13,7 @@ export function isOfType<Name extends string & keyof typeof import('puppeteer')>
 	return Object.getPrototypeOf(obj)?.constructor?.name === className;
 }
 
-export function getPageFromHandle(handle: JSHandle<Element>): Page | null {
+export function getPageFromHandle(handle: JSHandle): Page | null {
 	const frame = handle.executionContext().frame();
 	return frame ? getPageFromFrame(frame) : null;
 }

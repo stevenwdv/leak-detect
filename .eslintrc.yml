@@ -11,6 +11,7 @@ overrides:
       - eslint:recommended
       - plugin:@typescript-eslint/recommended
       - plugin:@typescript-eslint/recommended-requiring-type-checking
+      - plugin:eslint-comments/recommended
     rules:
       no-constant-condition:
         - error
@@ -26,3 +27,4 @@ overrides:
         - avoidEscape: true
       "@typescript-eslint/explicit-module-boundary-types": off
       "@typescript-eslint/no-non-null-assertion": off
+      eslint-comments/no-unused-disable: warn

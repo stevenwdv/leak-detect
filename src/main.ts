@@ -9,6 +9,7 @@ import {FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
 import {ColoredLogger, ConsoleLogger} from './logger';
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
+import {logError} from './utils';
 
 async function main() {
 	const args = yargs
@@ -19,7 +20,7 @@ async function main() {
 				    demandOption: true,
 			    })
 			    .option('config', {
-				    description: 'path to configuration file, see src/crawl-config.schema.json for syntax',
+				    description: 'path to configuration file for collector, see src/crawl-config.schema.json for syntax',
 				    type: 'string',
 				    normalize: true,
 			    })
@@ -27,6 +28,11 @@ async function main() {
 				    description: 'open a browser window',
 				    type: 'boolean',
 				    default: false,
+			    })
+			    .option('timeout', {
+				    description: 'timeout for crawl, in seconds',
+				    type: 'number',
+				    default: 120,
 			    })
 				.option('output', {
 					description: 'output file path',
@@ -57,7 +63,8 @@ async function main() {
 		  new URL(args.url),
 		  {
 			  log: console.log,
-			  maxCollectionTimeMs: 120_000,
+			  maxCollectionTimeMs: args.timeout * 1e3,
+			  throwCollectorErrors: true,
 			  headed: args.headed,
 			  keepOpen: args.headed,
 			  collectors: [
@@ -81,9 +88,6 @@ void (async () => {
 	try {
 		await main();
 	} catch (err) {
-		console.error(err);
-		if (err instanceof AggregateError)
-			for (const [index, inner] of err.errors.entries())
-				console.error(`[Inner error ${index + 1}/${err.errors.length}]`, inner);
+		logError(err);
 	}
 })();

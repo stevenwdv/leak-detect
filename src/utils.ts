@@ -9,6 +9,13 @@ export type AsBound<Constructor extends { prototype: object } & (abstract new (.
 	  ? (this: InstanceType<Constructor>, ...args: P) => R
 	  : Constructor['prototype'][MemberName]
 
+export function logError(err: unknown) {
+	console.error(err);
+	if (err instanceof AggregateError)
+		for (const [index, inner] of err.errors.entries())
+			console.error(`[Inner error ${index + 1}/${err.errors.length}]`, inner);
+}
+
 export function stripHash(url: string | URL): string {
 	return url.toString().match(/^[^#]*/)![0];
 }

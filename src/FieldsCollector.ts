@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import {BrowserContext, Frame, Page} from 'puppeteer';
+import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 import {groupBy} from 'ramda';
 import * as tldts from 'tldts';
 import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
@@ -131,6 +131,7 @@ export class FieldsCollector extends BaseCollector {
 
 			await evaluateOnAll(FieldsCollector.#doInjectFun);
 
+			// May not catch all, as scripts may have already run
 			if (this.#options.disableClosedShadowDom)
 				await evaluateOnAll(() => {
 					try {
@@ -229,7 +230,7 @@ export class FieldsCollector extends BaseCollector {
 		const page     = this.#page;
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
 		if (!linkInfo) throw new Error('could not find link element anymore');
-		await this.#click(linkInfo);
+		await this.#click(linkInfo.handle);
 		await this.#waitForNavigation(page.mainFrame(), this.#options.timeoutMs.followLink);
 	}
 
@@ -251,10 +252,10 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	async #click(link: ElementInfo) {
-		await getPageFromHandle(link.handle)!.bringToFront();
+	async #click(link: ElementHandle<Element>) {
+		await getPageFromHandle(link)!.bringToFront();
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
-		await link.handle.evaluate(el => {
+		await link.evaluate(el => {
 			el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
 			if (el instanceof HTMLElement) el.click();
 			else el.dispatchEvent(new MouseEvent('click', {view: window, bubbles: true, cancelable: true}));
@@ -648,6 +649,7 @@ export interface FieldsCollectorOptions {
 	/**
 	 * Transform calls to attach closed ShadowRoots into calls to attach open ones,
 	 * to enable the crawler to search for fields etc. there.
+	 * (May not always work.)
 	 * @default true
 	 */
 	disableClosedShadowDom: boolean;
