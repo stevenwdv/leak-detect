@@ -69,24 +69,12 @@
                     "type": "array"
                 },
                 "button": {
-                    "description": "Defaults to 'primary' if the device type is a mouse.",
-                    "enum": [
-                        "auxiliary",
-                        "back",
-                        "forward",
-                        "primary",
-                        "secondary"
-                    ],
-                    "type": "string"
+                    "$ref": "#/definitions/PointerButtonType",
+                    "description": "Defaults to 'primary' if the device type is a mouse."
                 },
                 "deviceType": {
-                    "description": "Pointer type for the event. Defaults to 'mouse'.",
-                    "enum": [
-                        "mouse",
-                        "pen",
-                        "touch"
-                    ],
-                    "type": "string"
+                    "$ref": "#/definitions/PointerDeviceType",
+                    "description": "Pointer type for the event. Defaults to 'mouse'."
                 },
                 "duration": {
                     "description": "Delay (in ms) between the mouse up and mouse down of the click. Defaults to\n50ms.",
@@ -184,24 +172,12 @@
                     "type": "array"
                 },
                 "button": {
-                    "description": "Defaults to 'primary' if the device type is a mouse.",
-                    "enum": [
-                        "auxiliary",
-                        "back",
-                        "forward",
-                        "primary",
-                        "secondary"
-                    ],
-                    "type": "string"
+                    "$ref": "#/definitions/PointerButtonType",
+                    "description": "Defaults to 'primary' if the device type is a mouse."
                 },
                 "deviceType": {
-                    "description": "Pointer type for the event. Defaults to 'mouse'.",
-                    "enum": [
-                        "mouse",
-                        "pen",
-                        "touch"
-                    ],
-                    "type": "string"
+                    "$ref": "#/definitions/PointerDeviceType",
+                    "description": "Pointer type for the event. Defaults to 'mouse'."
                 },
                 "frame": {
                     "description": "Defaults to main frame",
@@ -750,6 +726,24 @@
             ],
             "type": "object"
         },
+        "PointerButtonType": {
+            "enum": [
+                "auxiliary",
+                "back",
+                "forward",
+                "primary",
+                "secondary"
+            ],
+            "type": "string"
+        },
+        "PointerDeviceType": {
+            "enum": [
+                "mouse",
+                "pen",
+                "touch"
+            ],
+            "type": "string"
+        },
         "PuppeteerReplayInteractChain": {
             "additionalProperties": false,
             "properties": {
@@ -1164,7 +1158,7 @@
         "clickLinkCount": {
             "description": "Maximum number of links to click on the landing page, can be 0",
             "minimum": 0,
-            "type": "number"
+            "type": "integer"
         },
         "disableClosedShadowDom": {
             "default": true,
