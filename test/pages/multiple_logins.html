@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Multiple login options</title>
+</head>
+<body>
+Welcome!
+
+<button onclick="loginChoice.showModal()">Login</button>
+
+<dialog id="loginChoice">
+	<a href="javascript:'Google login page placeholder'">Login via Google</a><br/>
+	<button onclick="loginEmail.showModal()">Login via email</button>
+</dialog>
+
+<dialog id="loginEmail">
+	<form action="logged_in.html">
+		<input name="email" placeholder="email" type="email"/>
+		<input name="password" placeholder="password" type="password"/>
+		<button type="submit">Login</button>
+	</form>
+</dialog>
+
+</body>
+</html>

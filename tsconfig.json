@@ -10,6 +10,7 @@
 		"noImplicitOverride": true,
 		"noImplicitReturns": true,
 		"strict": true,
+		"exactOptionalPropertyTypes": true,
 		"forceConsistentCasingInFileNames": true,
 		"noEmit": true,
 		"outDir": "ts-out",

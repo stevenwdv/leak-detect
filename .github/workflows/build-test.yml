@@ -18,7 +18,7 @@ jobs:
       - name: Check if crawl-config JSON schema is up-to-date
         run: |
           npm run generate-schema
-          git diff --exit-code -s -- ./src/crawl-config.schema.json
+          git diff --exit-code --color -- ./src/crawl-config.schema.json
 
   test:
     name: Test

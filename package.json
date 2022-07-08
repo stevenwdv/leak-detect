@@ -8,7 +8,7 @@
 		"start": "node --require ts-node/register ./src/main.ts",
 		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint .",
 		"lint-all": "tsc --noEmit --emitDeclarationOnly false && eslint . && npm -w inject run lint && cd ./test/ && tsc --noEmit --emitDeclarationOnly false && eslint .",
-		"generate-schema": "npx typescript-json-schema ./tsconfig.json FieldsCollectorOptions --ignoreErrors --noExtraProps --strictNullChecks --required false --out ./src/crawl-config.schema.json",
+		"generate-schema": "npx typescript-json-schema ./tsconfig.json FieldsCollectorOptions --ignoreErrors --noExtraProps --strictNullChecks --required true --out ./src/crawl-config.schema.json",
 		"test-server": "http-server ./test/pages/",
 		"test": "tap"
 	},
@@ -16,9 +16,10 @@
 		"inject"
 	],
 	"dependencies": {
+		"@puppeteer/replay": "^0.5.1",
 		"chalk": "^4.1.2",
 		"jsonschema": "^1.4.1",
-		"puppeteer": "^15.1.1",
+		"puppeteer": "^15.3.2",
 		"ramda": "^0.28.0",
 		"tldts": "^5.7.82",
 		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#32a9d05e",

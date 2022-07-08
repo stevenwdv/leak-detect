@@ -37,7 +37,7 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 	return links;
 }
 
-async function findLoginLinksByCoords(frame: Frame): Promise<ElementHandle<Element>[]> {
+async function findLoginLinksByCoords(frame: Frame): Promise<ElementHandle[]> {
 	const listHandle = await frame.evaluateHandle(() => {
 		const MAX_COORD_BASED_LINKS = 5;
 		const MEDIAN_LOGIN_LINK_X   = 1113,
@@ -59,7 +59,7 @@ async function findLoginLinksByCoords(frame: Frame): Promise<ElementHandle<Eleme
 	return unwrapHandle(listHandle);
 }
 
-export async function findLoginLinks(frame: Frame, exactMatch = false): Promise<ElementHandle<Element>[]> {
+export async function findLoginLinks(frame: Frame, exactMatch = false): Promise<ElementHandle[]> {
 	const loginRegexSrc = exactMatch ? combinedLoginLinkRegexExactSrc : combinedLoginLinkRegexLooseSrc;
 	const listHandle    = await frame.evaluateHandle((loginRegexSrc: string) => {
 		const loginRegex  = new RegExp(loginRegexSrc, 'i');

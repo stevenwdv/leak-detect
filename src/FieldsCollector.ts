@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 
+import {createRunner, PuppeteerRunnerExtension} from '@puppeteer/replay';
 import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 import {groupBy} from 'ramda';
 import * as tldts from 'tldts';
 import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
-import {DeepPartial, UnreachableCaseError} from 'ts-essentials';
+import {DeepRequired, UnreachableCaseError} from 'ts-essentials';
 
 import {SelectorChain} from 'leak-detect-inject';
 import {addAll, AsBound, filterUniqBy, formatDuration, getRelativeUrl, populateDefaults, tryAdd} from './utils';
@@ -16,6 +17,7 @@ import {
 	ElementInfo,
 	FathomElementAttrs,
 	FieldElementAttrs,
+	formSelectorChain,
 	getElementAttrs,
 	getElementBySelectorChain,
 	getElementInfoFromAttrs,
@@ -45,8 +47,8 @@ export const enum GlobalNames {
 export class FieldsCollector extends BaseCollector {
 	static #doInjectFun: () => void;
 
-	readonly #options: FieldsCollectorOptions;
-	#log?: Logger;
+	readonly #options: FullFieldsCollectorOptions;
+	#log: Logger | undefined;
 	#dataParams!: Parameters<typeof BaseCollector.prototype.getData>[0];
 	#initialUrl!: URL;
 	#context!: BrowserContext;
@@ -61,9 +63,9 @@ export class FieldsCollector extends BaseCollector {
 	#passwordLeaks: PasswordLeak[]   = [];
 	#visitedTargets: VisitedTarget[] = [];
 
-	constructor(options?: DeepPartial<FieldsCollectorOptions>, logger?: Logger) {
+	constructor(options?: FieldsCollectorOptions, logger?: Logger) {
 		super();
-		this.#options = populateDefaults<FieldsCollectorOptions>(options ?? {}, defaultOptions);
+		this.#options = populateDefaults<FullFieldsCollectorOptions>(options ?? {}, defaultOptions);
 
 		FieldsCollector.#loadInjectScript();
 		this.#log = logger;
@@ -162,6 +164,47 @@ export class FieldsCollector extends BaseCollector {
 		// Search for fields on the landing page(s)
 		const fields = await this.#processFieldsOnAllPages();
 
+		for (const [nChain, chain] of this.#options.interactChains.entries()) {
+			try {
+				this.#log?.log(`starting click chain ${nChain + 1}${
+					  chain.type === 'puppeteer-replay' ? `: ${chain.flow.title}` : ''}`);
+				this.#events.push(new ReturnEvent(true));
+				await this.#goto(this.#page.mainFrame(), this.#dataParams.finalUrl, this.#options.timeoutMs.reload);
+				await this.#closeExtraPages();
+
+				switch (chain.type) {
+					case 'js-path-click':
+						for (const [nElem, elemPath] of chain.paths.entries()) {
+							const elem = await unwrapHandle(await this.#page.evaluateHandle(
+								  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+								  Function(`return (${elemPath});`) as () => Element | null));
+							if (!elem) throw new Error(`element for click chain not found: ${elemPath}`);
+							const selector = await formSelectorChain(elem);
+
+							this.#log?.log(`clicking element ${nElem + 1}/${chain.paths.length}`, selector.join('>>>'));
+							this.#events.push(new ClickLinkEvent(selector, 'manual'));
+							await this.#click(elem);
+							await this.#sleep(this.#options.sleepMs?.postNavigate);
+						}
+						break;
+					case 'puppeteer-replay': {
+						const flow       = chain.flow;
+						const noNavSteps = flow.steps.filter(step => step.type !== 'navigate');
+						if (noNavSteps.length < flow.steps.length)
+							this.#log?.info(`ignoring ${flow.steps.length - noNavSteps.length} navigate steps`);
+						const flowRunner = await createRunner({...flow, steps: noNavSteps},
+							  new PuppeteerRunnerExtension(this.#context.browser(), this.#page));
+						await flowRunner.run();
+						break;
+					}
+				}
+
+				fields.push(...await this.#processFieldsOnAllPages());
+			} catch (err) {
+				this.#log?.warn('failed to inspect page for click chain', chain, err);
+			}
+		}
+
 		// Search for fields on linked pages
 		let links = null;
 		if (this.#options.clickLinkCount
@@ -226,7 +269,7 @@ export class FieldsCollector extends BaseCollector {
 
 	async #followLink(link: ElementAttrs) {
 		this.#log?.log('following link', link.selectorChain.join('>>>'));
-		this.#events.push(new ClickLinkEvent(link.selectorChain));
+		this.#events.push(new ClickLinkEvent(link.selectorChain, 'auto'));
 		const page     = this.#page;
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
 		if (!linkInfo) throw new Error('could not find link element anymore');
@@ -252,7 +295,7 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	async #click(link: ElementHandle<Element>) {
+	async #click(link: ElementHandle) {
 		await getPageFromHandle(link)!.bringToFront();
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
 		await link.evaluate(el => {
@@ -541,12 +584,13 @@ export class FieldsCollector extends BaseCollector {
 			} catch (err) {
 				this.#log?.warn('failed to get attributes for password field', leak.selector.join('>>>'), err);
 			}
-			return {
+			const fullLeak: PasswordLeak = {
 				time: Date.now(),
-				frameStack: !attrs ? getFrameStack(frame).map(f => f.url()) : undefined,
-				attrs,
 				...leak,
 			};
+			if (attrs) fullLeak.attrs = attrs;
+			else fullLeak.frameStack = getFrameStack(frame).map(f => f.url());
+			return fullLeak;
 		})));
 	}
 
@@ -580,41 +624,58 @@ export class FieldsCollector extends BaseCollector {
 // noinspection JSClassNamingConvention
 type integer = number;
 
+// For some reason @puppeteer/replay doesn't export this
+/** &#64;puppeteer/replay (Chrome DevTools) flow */
+type PuppeteerReplayUserFlow = Parameters<typeof createRunner>[0];
+
+export interface JSPathClickInteractChain {
+	type: 'js-path-click';
+	/** JavaScript expressions returning elements on page to click in order */
+	paths: string[];
+}
+
+export interface PuppeteerReplayInteractChain {
+	type: 'puppeteer-replay';
+	flow: PuppeteerReplayUserFlow;
+}
+
+export type InteractChain = JSPathClickInteractChain | PuppeteerReplayInteractChain;
+
 export interface FieldsCollectorOptions {
 	/** Timeouts in milliseconds */
-	timeoutMs: {
+	timeoutMs?: {
 		/** Page reload timeout (e.g. after submit)
 		 * @minimum 0 */
-		reload: number;
+		reload?: number;
 		/** Timeout waiting for navigation after following a link
 		 * @minimum 0 */
-		followLink: number;
+		followLink?: number;
 		/** Timeout waiting for navigation after submitting a field
 		 * @minimum 0 */
-		submitField: number;
+		submitField?: number;
 	};
 	/** Intentional delays in milliseconds, or null to disable all delays */
-	sleepMs: {
+	sleepMs?: {
 		/** Delay after filling some fields (in a form)
 		 * @minimum 0 */
-		postFill: number;
+		postFill?: number;
 		/** Delay after adding & clicking Facebook button
 		 * @minimum 0 */
-		postFacebookButtonClick: number;
+		postFacebookButtonClick?: number;
 		/** Delay after navigating to some page
 		 * @minimum 0 */
-		postNavigate: number;
+		postNavigate?: number;
 		/** Field fill-related delays */
-		fill: {
+		fill?: {
 			/** Time between mouse down & mouse up when clicking a field
 			 * @minimum 0 */
-			clickDwell: number;
+			clickDwell?: number;
 			/** Maximum time between key down & key up when typing in a field
 			 * @minimum 0 */
-			keyDwell: number;
+			keyDwell?: number;
 			/** Maximum time between keystrokes when typing in a field
 			 * @minimum 0 */
-			betweenKeys: number;
+			betweenKeys?: number;
 		};
 	} | null;
 	/**
@@ -622,29 +683,29 @@ export interface FieldsCollectorOptions {
 	 * Specify "pages" to only look at top-level URLs.
 	 * @default "frames"
 	 */
-	skipExternal: 'frames' | 'pages' | false;
+	skipExternal?: 'frames' | 'pages' | false;
 	/** Maximum number of links to click on the landing page, can be 0
 	 * @minimum 0 */
-	clickLinkCount: integer;
+	clickLinkCount?: integer;
 	/**
 	 * Whether to stop crawl early.
 	 * Specify "first-page-with-form" to stop after the first page with a form
 	 * (after filling all forms on that page)
 	 * @default false
 	 */
-	stopEarly: 'first-page-with-form' | false;
+	stopEarly?: 'first-page-with-form' | false;
 	/** Field fill-related settings */
-	fill: {
+	fill?: {
 		/** Email address to fill in ("domainname+" is prepended to this) */
-		emailBase: string;
+		emailBase?: string;
 		/** Password to fill in */
-		password: string;
+		password?: string;
 		/** Try to submit forms?
 		 * @default true */
-		submit: boolean;
+		submit?: boolean;
 		/** Add and click a dummy button to detect Facebook leaks
 		 * @default true */
-		addFacebookButton: boolean;
+		addFacebookButton?: boolean;
 	};
 	/**
 	 * Transform calls to attach closed ShadowRoots into calls to attach open ones,
@@ -652,10 +713,15 @@ export interface FieldsCollectorOptions {
 	 * (May not always work.)
 	 * @default true
 	 */
-	disableClosedShadowDom: boolean;
+	disableClosedShadowDom?: boolean;
+	/** Extra things to do to find forms */
+	interactChains?: InteractChain[];
 }
 
-const defaultOptions: FieldsCollectorOptions = {
+type FullFieldsCollectorOptions = DeepRequired<Omit<FieldsCollectorOptions, 'interactChains'>>
+	  & Required<Pick<FieldsCollectorOptions, 'interactChains'>>;
+
+const defaultOptions: FullFieldsCollectorOptions = {
 	timeoutMs: {
 		reload: 2_500,
 		followLink: 5_000,
@@ -681,6 +747,7 @@ const defaultOptions: FieldsCollectorOptions = {
 		addFacebookButton: true,
 	},
 	disableClosedShadowDom: true,
+	interactChains: [],
 };
 
 export interface PagePasswordLeak {
@@ -736,7 +803,7 @@ export class ReturnEvent extends FieldCollectorEvent {
 
 // noinspection JSUnusedGlobalSymbols
 export class ClickLinkEvent extends FieldCollectorEvent {
-	constructor(public readonly link: SelectorChain) {
+	constructor(public readonly link: SelectorChain, public readonly linkType: 'auto' | 'manual') {
 		super('link');
 	}
 }

@@ -118,7 +118,7 @@ export class PlainLogger extends Logger {
 }
 
 export class CountingLogger extends Logger {
-	readonly #log?: Logger;
+	readonly #log: Logger | undefined;
 	#counts = {
 		debug: 0,
 		log: 0,

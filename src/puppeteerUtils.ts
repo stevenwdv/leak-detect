@@ -1,4 +1,6 @@
 import {ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
+import {Frame as InternalFrame} from 'puppeteer/lib/cjs/puppeteer/common/FrameManager';
+import {Page as InternalPage} from 'puppeteer/lib/cjs/puppeteer/common/Page';
 import {Protocol} from 'devtools-protocol';
 import {IsTuple} from 'ts-essentials';
 import TypedArray = NodeJS.TypedArray;
@@ -19,7 +21,9 @@ export function getPageFromHandle(handle: JSHandle): Page | null {
 }
 
 export function getPageFromFrame(frame: Frame): Page {
-	return frame._frameManager.page();  //XXX Replace with stable version if ever available
+	//XXX Replace with stable version if ever available
+	// See https://github.com/puppeteer/puppeteer/issues/8654
+	return (frame as Frame & InternalFrame)._frameManager.page() as Page & InternalPage;
 }
 
 /** @return Stack starting with this frame, going up */
@@ -69,42 +73,42 @@ function valueFromRemoteObject(obj: Protocol.Runtime.RemoteObject): unknown {
  */
 export async function unwrapHandleEx<T>(handle: JSHandle<T>, shouldUnwrap: (className: string) => boolean = className => ['Object', 'Proxy'].includes(className)):
 	  Promise<UnwrappedHandleEx<T>> {
-	//XXX Replace _remoteObject with stable version if ever available
+	const remoteObject = handle.remoteObject();
 
 	// Leave functions & symbols wrapped
-	if (['function', 'symbol'].includes(handle._remoteObject.type))
+	if (['function', 'symbol'].includes(remoteObject.type))
 		return handle as UnwrappedHandleEx<T>;
 
-	if (handle._remoteObject.type === 'object') {
-		if ([undefined, 'proxy'].includes(handle._remoteObject.subtype)) {
-			if (shouldUnwrap(handle._remoteObject.className!))
+	if (remoteObject.type === 'object') {
+		if ([undefined, 'proxy'].includes(remoteObject.subtype)) {
+			if (shouldUnwrap(remoteObject.className!))
 				return Object.fromEntries(await Promise.all([...await handle.getProperties()]
 					  .map(async ([k, v]) => [k, await unwrapHandleEx(v, shouldUnwrap)]))) as UnwrappedHandleEx<T>;
 		} else {
-			if (handle._remoteObject.subtype === 'null')
+			if (remoteObject.subtype === 'null')
 				return null as UnwrappedHandleEx<T>;
-			if (handle._remoteObject.subtype === 'array')
+			if (remoteObject.subtype === 'array')
 				return await Promise.all([...await handle.getProperties()]
 					  .map(async ([, v]) => await unwrapHandleEx(v, shouldUnwrap))) as UnwrappedHandleEx<T>;
 		}
 		return handle as UnwrappedHandleEx<T>;
 
 	} else  // Return other types such as numbers, booleans, bigints, etc. unwrapped
-		return (handle._remoteObject.type === 'undefined'
+		return (remoteObject.type === 'undefined'
 			  ? undefined
-			  : valueFromRemoteObject(handle._remoteObject)
+			  : valueFromRemoteObject(remoteObject)
 			  ?? await handle.jsonValue()) as UnwrappedHandleEx<T>;
 }
 
 export type UnwrappedHandle<T> = T extends string | boolean | number | null | undefined | bigint
 	  ? T
-	  : T extends Element
+	  : T extends Node
 			? ElementHandle<T>
 			: T extends (infer V)[]
 				  ? T extends IsTuple<T>
 						? { [K in keyof T]: UnwrappedHandle<T[K]> }
 						: UnwrappedHandle<V>[]
-				  : T extends Node | RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
+				  : T extends RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
 						| Iterator<unknown, never, never> | Error | Promise<unknown> | TypedArray | ArrayBuffer | DataView
 						// eslint-disable-next-line @typescript-eslint/ban-types
 						| Function | symbol
@@ -115,13 +119,13 @@ export type UnwrappedHandle<T> = T extends string | boolean | number | null | un
 
 export type UnwrappedHandleEx<T> = T extends string | boolean | number | null | undefined | bigint
 	  ? T
-	  : T extends Element
+	  : T extends Node
 			? ElementHandle<T>
 			: T extends (infer V)[]
 				  ? T extends IsTuple<T>
 						? { [K in keyof T]: UnwrappedHandleEx<T[K]> }
 						: UnwrappedHandleEx<V>[]
-				  : T extends Node | RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
+				  : T extends RegExp | Date | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
 						| Iterator<unknown, never, never> | Error | Promise<unknown> | TypedArray | ArrayBuffer | DataView
 						// eslint-disable-next-line @typescript-eslint/ban-types
 						| Function | symbol

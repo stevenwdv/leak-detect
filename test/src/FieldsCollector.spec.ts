@@ -5,7 +5,6 @@ import {AddressInfo} from 'node:net';
 
 import {createServer} from 'http-server';
 import t from 'tap';
-import {DeepPartial} from 'ts-essentials';
 
 import {crawler, RequestCollector} from 'tracker-radar-collector';
 
@@ -40,18 +39,18 @@ void (async () => {
 					.once('error', reject);
 		  });
 
-	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 20, buffered: true}, t => {
+	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 30, buffered: true}, t => {
 		t.teardown(() => new Promise<void>((resolve, reject) =>
 			  server.close(err => err ? reject(err) : resolve())));
 
 		const baseCrawlOptions = {
-			log: console.log,
+			log() {throw 'log unspecified';},
 			maxCollectionTimeMs: 120_000,
 			headed,
 			devtools: headed,
 		};
 
-		async function runCrawler(page: string, log: Logger, options: DeepPartial<FieldsCollectorOptions> = {}): Promise<FieldCollectorData> {
+		async function runCrawler(page: string, log: Logger, options: FieldsCollectorOptions = {}): Promise<FieldCollectorData> {
 			return ((await crawler(
 				  new URL(page, baseUrl),
 				  {
@@ -250,6 +249,87 @@ void (async () => {
 				t.ok(result.visitedTargets.find(t => t.url === new URL('login_form.html?register', baseUrl).href),
 					  'should log visited target login_form.html?register');
 			}),
-		]) as Promise<unknown> as Promise<void>;
+			test('with manual JS click chain', async (t, log) => {
+				const result      = await runCrawler('multiple_logins.html', log, {
+					interactChains: [{
+						type: 'js-path-click',
+						paths: [
+							'document.querySelector("body > button")',
+							'document.querySelector("#loginChoice > button")',
+						],
+					}],
+				});
+				const clickEvents = result.events.filter(ev => ev instanceof ClickLinkEvent
+					  && ev.linkType === 'manual');
+				t.equal(clickEvents.length, 2, 'should click 2 buttons');
+
+				t.equal(result.fields.length, 2, 'should find 2 fields');
+				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
+				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
+
+				const fillEvent = result.events.find(ev => ev instanceof FillEvent);
+				t.ok(fillEvent, 'should fill fields');
+				t.ok(fillEvent?.time ?? -Infinity > clickEvents.reduce((max, ev) => Math.max(max, ev.time), -Infinity),
+					  'should fill fields after clicking buttons');
+			}),
+			test('with manual @puppeteer/replay click flow', async (t, log) => {
+				const result = await runCrawler('multiple_logins.html', log, {
+					interactChains: [{
+						type: 'puppeteer-replay',
+						flow: {
+							'title': 'Click 2 buttons',
+							'steps': [
+								{
+									'type': 'setViewport',
+									'width': 981,
+									'height': 753,
+									'deviceScaleFactor': 1,
+									'isMobile': false,
+									'hasTouch': false,
+									'isLandscape': false,
+								},
+								{
+									'type': 'navigate',
+									'url': 'http://localhost:63342/leak-detection.iml/multiple_logins.html?_ijt=5qqm8danufcomaqgf1hnc70m70&_ij_reload=RELOAD_ON_SAVE',
+									'assertedEvents': [
+										{
+											'type': 'navigation',
+											'url': 'http://localhost:63342/leak-detection.iml/multiple_logins.html?_ijt=5qqm8danufcomaqgf1hnc70m70&_ij_reload=RELOAD_ON_SAVE',
+											'title': 'Multiple login options',
+										},
+									],
+								},
+								{
+									'type': 'click',
+									'target': 'main',
+									'selectors': [
+										['aria/Login'],
+										['body > button'],
+									],
+									'offsetY': 13,
+									'offsetX': 18.650001525878906,
+								},
+								{
+									'type': 'click',
+									'target': 'main',
+									'selectors': [
+										['aria/Login via email'],
+										['#loginChoice > button'],
+									],
+									'offsetY': 7,
+									'offsetX': 50.637481689453125,
+								},
+							],
+						},
+					}],
+				});
+
+				t.equal(result.fields.length, 2, 'should find 2 fields');
+				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
+				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
+
+				t.ok(result.events.find(ev => ev instanceof FillEvent), 'should fill fields');
+			}),
+		]) as Promise<unknown> as Promise<void> /* workaround: @types/tap is incorrect */;
 	});
 })();

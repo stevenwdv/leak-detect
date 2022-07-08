@@ -22,16 +22,20 @@ export function getElemIdentifier(elem: ElementAttrs | ElementInfo): string {
 
 export async function getElementInfoFromAttrs(attrs: ElementAttrs, frame: Frame): Promise<ElementInfo | null> {
 	const handle = (await getElementBySelectorChain(attrs.selectorChain, frame))?.elem;
-	return (handle ?? null) && {handle: handle as ElementHandle<Element>, attrs};
+	return (handle ?? null) && {handle: handle as ElementHandle, attrs};
 }
 
 export async function getElementBySelectorChain(selector: SelectorChain, frame: Frame):
-	  Promise<{ elem: ElementHandle<Element>, unique: boolean } | null> {
+	  Promise<{ elem: ElementHandle, unique: boolean } | null> {
 	return await unwrapHandle(await frame.evaluateHandle(
 		  (selector: SelectorChain) => window[GlobalNames.INJECTED]!.getElementBySelectorChain(selector), selector));
 }
 
-export async function getElementAttrs(handle: ElementHandle<Element>): Promise<ElementAttrs> {
+export function formSelectorChain(handle: ElementHandle): Promise<SelectorChain> {
+	return handle.evaluate(el => window[GlobalNames.INJECTED]!.formSelectorChain(el));
+}
+
+export async function getElementAttrs(handle: ElementHandle): Promise<ElementAttrs> {
 	const inView         = await handle.isIntersectingViewport();
 	const boundingBox    = await handle.boundingBox();
 	const elAttrsPartial = await handle.evaluate(el => {
