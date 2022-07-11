@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import consumers from 'node:stream/consumers';
 
 import jsonschema from 'jsonschema';
-import {APICallCollector, crawler, RequestCollector} from 'tracker-radar-collector';
+import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracker-radar-collector';
 import yargs from 'yargs';
 
 import {FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
@@ -20,9 +20,19 @@ async function main() {
 				    demandOption: true,
 			    })
 			    .option('config', {
-				    description: 'path to configuration file for collector, see src/crawl-config.schema.json for syntax',
+				    description: 'path to configuration file for fields collector, see src/crawl-config.schema.json for syntax',
 				    type: 'string',
 				    normalize: true,
+			    })
+			    .option('api-calls', {
+				    description: 'enable API call breakpoints collector to track field value sniffs',
+				    type: 'boolean',
+				    default: true,
+			    })
+			    .option('requests', {
+				    description: 'enable requests collector',
+				    type: 'boolean',
+				    default: true,
 			    })
 			    .option('headed', {
 				    description: 'open a browser window',
@@ -65,6 +75,19 @@ async function main() {
 		console.debug('loaded config: %o', options);
 	}
 
+	const collectors: BaseCollector[] = [
+		new FieldsCollector(options, new ColoredLogger(new ConsoleLogger())),
+	];
+	if (args.apiCalls) collectors.push(
+		  new APICallCollector(args.headed && args.devtools
+				? breakpoints
+				: breakpoints.map(b => ({
+					...b,
+					props: b.props.map(p => ({...p, pauseDebugger: false})),
+					methods: b.methods.map(m => ({...m, pauseDebugger: false})),
+				}))));
+	if (args.requests) collectors.push(new RequestCollector());
+
 	const result = await crawler(
 		  new URL(args.url),
 		  {
@@ -74,17 +97,7 @@ async function main() {
 			  headed: args.headed,
 			  keepOpen: args.headed,
 			  devtools: args.devtools,
-			  collectors: [
-				  new FieldsCollector(options, new ColoredLogger(new ConsoleLogger())),
-				  new APICallCollector(args.headed && args.devtools
-						? breakpoints
-						: breakpoints.map(b => ({
-							...b,
-							props: b.props.map(p => ({...p, pauseDebugger: false})),
-							methods: b.methods.map(m => ({...m, pauseDebugger: false})),
-						}))),
-				  new RequestCollector(),
-			  ],
+			  collectors,
 		  },
 	);
 	if (args.output) {
