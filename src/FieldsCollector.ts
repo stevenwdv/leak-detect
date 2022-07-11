@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 
 import {createRunner, PuppeteerRunnerExtension} from '@puppeteer/replay';
 import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
@@ -87,13 +89,14 @@ export class FieldsCollector extends BaseCollector {
 					  'you should probably run `npm run pack` in the `inject` folder');
 			const injectSrc = fs.readFileSync('./inject/dist/bundle.js', 'utf8');
 			// eslint-disable-next-line @typescript-eslint/no-implied-eval
-			return Function(`try {
-				window["${GlobalNames.INJECTED}"] ??= (() => {
+			return Function(/*language=JavaScript*/ `try {
+				window[${JSON.stringify(GlobalNames.INJECTED)}] ??= (() => {
 					${injectSrc};
+					// noinspection JSUnresolvedVariable
 					return leakDetectToBeInjected;
 				})();
 			} catch (err) {
-				window["${GlobalNames.ERROR_CALLBACK}"](String(err), err instanceof Error && err.stack || Error().stack);
+				window[${JSON.stringify(GlobalNames.ERROR_CALLBACK)}](String(err), err instanceof Error && err.stack || Error().stack);
 			}`) as () => void;
 		})();
 	}
@@ -103,7 +106,7 @@ export class FieldsCollector extends BaseCollector {
 	override init({log, url, context}: BaseCollector.CollectorInitOptions) {
 		this.#log ??= new ColoredLogger(new PlainLogger(log));
 		this.#context    = context;
-		this.#headless   = context.browser().process()?.spawnargs.includes('--headless') ?? true;
+		this.#headless   = context.browser().process()?.spawnargs.includes('--headless') ?? true; //TODO improve
 		this.#initialUrl = url;
 		this.#siteDomain = tldts.getDomain(url.href);
 
@@ -125,7 +128,7 @@ export class FieldsCollector extends BaseCollector {
 
 			await exposeFunction(newPage, GlobalNames.ERROR_CALLBACK, this.#errorCallback.bind(this));
 
-			async function evaluateOnAll(pageFunction: (...args: never) => void) {
+			async function evaluateOnAll(pageFunction: () => void) {
 				// Add on new & existing frames
 				await newPage.evaluateOnNewDocument(pageFunction);
 				await Promise.all(await Promise.all(newPage.frames().map(frame => frame.evaluate(pageFunction))));
@@ -150,16 +153,20 @@ export class FieldsCollector extends BaseCollector {
 						window[GlobalNames.ERROR_CALLBACK]!(String(err), err instanceof Error && err.stack || Error().stack!);
 					}
 				});
+
+			newPage.once('load', () => void this.#screenshot(newPage, 'new-page'));
 		}
 	}
 
 	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldCollectorData> {
 		this.#dataParams = options;
 
-		if (this.#siteDomain === null && this.#initialUrl?.hostname !== 'localhost') {
+		if (this.#siteDomain === null && this.#initialUrl.hostname !== 'localhost') {
 			this.#log?.warn('URL has no domain with public suffix, will skip this page');
 			return {};
 		}
+
+		await this.#screenshot(this.#page, 'loaded');
 
 		// Search for fields on the landing page(s)
 		const fields = await this.#processFieldsOnAllPages();
@@ -178,7 +185,10 @@ export class FieldsCollector extends BaseCollector {
 							const elem = await unwrapHandle(await this.#page.evaluateHandle(
 								  // eslint-disable-next-line @typescript-eslint/no-implied-eval
 								  Function(`return (${elemPath});`) as () => Element | null));
-							if (!elem) throw new Error(`element for click chain not found: ${elemPath}`);
+							if (!elem) {
+								// noinspection ExceptionCaughtLocallyJS
+								throw new Error(`element for click chain not found: ${elemPath}`);
+							}
 							const selector = await formSelectorChain(elem);
 
 							this.#log?.log(`clicking element ${nElem + 1}/${chain.paths.length}`, selector.join('>>>'));
@@ -199,6 +209,7 @@ export class FieldsCollector extends BaseCollector {
 					}
 				}
 
+				await this.#screenshot(this.#page, 'interact-chain-executed');
 				fields.push(...await this.#processFieldsOnAllPages());
 			} catch (err) {
 				this.#log?.warn('failed to inspect page for click chain', chain, err);
@@ -274,7 +285,8 @@ export class FieldsCollector extends BaseCollector {
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
 		if (!linkInfo) throw new Error('could not find link element anymore');
 		await this.#click(linkInfo.handle);
-		await this.#waitForNavigation(page.mainFrame(), this.#options.timeoutMs.followLink);
+		const opened = await this.#waitForNavigation(page.mainFrame(), this.#options.timeoutMs.followLink);
+		await this.#screenshot(opened ? getPageFromFrame(opened) : page, 'link-clicked');
 	}
 
 	async #goto(frame: Frame, url: string, minTimeoutMs: number) {
@@ -305,27 +317,28 @@ export class FieldsCollector extends BaseCollector {
 		});
 	}
 
-	async #waitForNavigation(frame: Frame, minTimeoutMs: number) {
+	async #waitForNavigation(frame: Frame, minTimeoutMs: number): Promise<Frame | null> {
 		const maxWaitTimeMs = Math.max(minTimeoutMs,
 			  this.#dataParams.pageLoadDurationMs * 2);
 
 		this.#log?.debug(`waiting for navigation from ${frame.url()}`);
 		try {
-			const prePages = new Set(await this.#context.pages());
-			const msg      = await Promise.race([
+			const prePages      = new Set(await this.#context.pages());
+			const {msg, target} = await Promise.race([
 				frame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'})
-					  .then(() => `navigated to ${frame.url()}`),
+					  .then(() => ({msg: `navigated to ${frame.url()}`, target: frame})),
 				this.#context.waitForTarget(
 					  async target => target.type() === 'page' && !prePages.has((await target.page())!),
 					  {timeout: maxWaitTimeMs})
-					  .then(page => `opened ${page.url()}`),
+					  .then(async page => ({msg: `opened ${page.url()}`, target: (await page.page())!.mainFrame()})),
 			]);
 			this.#log?.log(msg);
 			await this.#sleep(this.#options.sleepMs?.postNavigate);
+			return target;
 		} catch (err) {
 			if (isOfType(err, 'TimeoutError')) {
 				this.#log?.log('navigation timeout exceeded (will continue)');
-				return;
+				return null;
 			}
 			throw err;
 		}
@@ -344,7 +357,7 @@ export class FieldsCollector extends BaseCollector {
 	async #processFieldsRecursive(page: Page): Promise<FieldElementAttrs[] | null> {
 		const pageUrl = page.url();
 		return this.#group(pageUrl, async () => {
-			if (this.#options.skipExternal && tldts.getDomain(page.url()) !== this.#siteDomain!) {
+			if (this.#options.skipExternal && tldts.getDomain(page.url()) !== this.#siteDomain) {
 				this.#log?.log('skipping external page');
 				return null;
 			}
@@ -401,6 +414,7 @@ export class FieldsCollector extends BaseCollector {
 						if (!field) return null;
 
 						await this.#fillFields(formFields);
+						await this.#screenshot(getPageFromFrame(frame), 'filled');
 
 						await this.#sleep(this.#options.sleepMs?.postFill);
 
@@ -410,8 +424,9 @@ export class FieldsCollector extends BaseCollector {
 						this.#events.push(new SubmitEvent(field.attrs.selectorChain));
 						if (await submitField(field, this.#options.sleepMs?.fill?.clickDwell ?? 0, this.#log)) {
 							field.attrs.submitted = true;
-							await this.#waitForNavigation(field.handle.executionContext().frame()!,
+							const opened          = await this.#waitForNavigation(field.handle.executionContext().frame()!,
 								  this.#options.timeoutMs.submitField); //TODO what if parent navigates?
+							await this.#screenshot(getPageFromFrame(opened ?? frame), 'submitted');
 						}
 						if (formSelector) addAll(this.#processedFields, formFields.map(getElemIdentifier));
 						else this.#processedFields.add(getElemIdentifier(field));
@@ -428,11 +443,18 @@ export class FieldsCollector extends BaseCollector {
 				if (res) return res;
 			}
 			return {fields: [], done: true};
+
 		} else {
-			await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
-			if (this.#options.fill.addFacebookButton) {
-				await this.#clickFacebookButton(frame);
-				await this.#sleep(this.#options.sleepMs?.postFacebookButtonClick);
+			if (frameFields.length) {
+				await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
+				await this.#screenshot(getPageFromFrame(frame), 'filled');
+
+				await this.#sleep(this.#options.sleepMs?.postFill);
+
+				if (this.#options.fill.addFacebookButton) {
+					await this.#clickFacebookButton(frame);
+					await this.#sleep(this.#options.sleepMs?.postFacebookButtonClick);
+				}
 			}
 			return {fields: frameFields.map(f => f.attrs), done: true};
 		}
@@ -446,7 +468,7 @@ export class FieldsCollector extends BaseCollector {
 
 		this.#log?.debug('finding fields');
 		const url = frame.url();
-		if (this.#options.skipExternal === 'frames' && tldts.getDomain(url) !== this.#siteDomain!) {
+		if (this.#options.skipExternal === 'frames' && tldts.getDomain(url) !== this.#siteDomain) {
 			this.#log?.log('skipping external frame');
 			return null;
 		}
@@ -613,10 +635,28 @@ export class FieldsCollector extends BaseCollector {
 		this.#log?.error('error in background page script:', message, stack);
 	}
 
-	async #sleep(ms: number | undefined): Promise<void> {
+	async #sleep(ms: number | undefined) {
 		if (ms) {
 			this.#log?.debug('💤');
-			return new Promise(resolve => setTimeout(resolve, ms));
+			return new Promise<void>(resolve => setTimeout(resolve, ms));
+		}
+	}
+
+	async #screenshot(page: Page, trigger: ScreenshotTrigger) {
+		const opts = this.#options.screenshot;
+		if (!opts) return;
+		if (opts.triggers === true || opts.triggers?.includes(trigger)) {
+			const img = await page.screenshot() as Buffer;
+			if (typeof opts.target === 'string') {
+				const name = `${Date.now()}-${trigger}.png`;
+				this.#log?.debug('📸', name);
+				const dirPath = path.join(opts.target, this.#siteDomain ?? this.#initialUrl.hostname);
+				await fsp.mkdir(dirPath, {recursive: true});
+				await fsp.writeFile(path.join(dirPath, name), img);
+			} else {
+				this.#log?.debug('📸', trigger);
+				await opts.target(img, trigger);
+			}
 		}
 	}
 }
@@ -684,7 +724,7 @@ export interface FieldsCollectorOptions {
 	 * @default "frames"
 	 */
 	skipExternal?: 'frames' | 'pages' | false;
-	/** Maximum number of links to click on the landing page, can be 0
+	/** Maximum number of links to click automatically on the landing page, can be 0
 	 * @minimum 0 */
 	clickLinkCount?: integer;
 	/**
@@ -716,12 +756,40 @@ export interface FieldsCollectorOptions {
 	disableClosedShadowDom?: boolean;
 	/** Extra things to do to find forms */
 	interactChains?: InteractChain[];
+	/**
+	 * Options for making screenshots after certain actions.
+	 * null to disable.
+	 * @default null
+	 */
+	screenshot?: {
+		/**
+		 * Triggers for making screenshots, or true to enable all triggers
+		 */
+		triggers: ScreenshotTrigger[] | true;
+		/**
+		 * Folder to place screenshots in (under subfolder with domain name),
+		 * or callback for created screenshots (JS-only)
+		 * @TJS-type string
+		 */
+		target: string | ((img: Buffer, trigger: ScreenshotTrigger) => PromiseLike<void> | void);
+	} | null;
 }
 
-type FullFieldsCollectorOptions = DeepRequired<Omit<FieldsCollectorOptions, 'interactChains'>>
+/**
+ * new-page is triggered when a new page has fully loaded
+ */
+export type ScreenshotTrigger =
+	  | 'loaded'
+	  | 'filled'
+	  | 'submitted'
+	  | 'link-clicked'
+	  | 'interact-chain-executed'
+	  | 'new-page';
+
+export type FullFieldsCollectorOptions = DeepRequired<Omit<FieldsCollectorOptions, 'interactChains'>>
 	  & Required<Pick<FieldsCollectorOptions, 'interactChains'>>;
 
-const defaultOptions: FullFieldsCollectorOptions = {
+export const defaultOptions: FullFieldsCollectorOptions = {
 	timeoutMs: {
 		reload: 2_500,
 		followLink: 5_000,
@@ -748,6 +816,7 @@ const defaultOptions: FullFieldsCollectorOptions = {
 	},
 	disableClosedShadowDom: true,
 	interactChains: [],
+	screenshot: null,
 };
 
 export interface PagePasswordLeak {

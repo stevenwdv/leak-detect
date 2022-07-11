@@ -106,7 +106,8 @@ export function formatDuration(ms: number): string {
 export function populateDefaults<T>(obj: DeepPartial<T>, defaults: T): T {
 	const objMap      = obj as { [key in string]?: unknown },
 	      defaultsMap = defaults as { [key in string]?: unknown };
-	if (obj && Object.getPrototypeOf(obj) === Object.prototype) {
+	if (obj && defaults && typeof obj === 'object' && typeof defaults === 'object'
+		  && Object.getPrototypeOf(obj) === Object.prototype) {
 		for (const key of Object.keys(defaults))
 			if (objMap[key] === undefined) objMap[key] = defaultsMap[key];
 			else populateDefaults(objMap[key], defaultsMap[key]);

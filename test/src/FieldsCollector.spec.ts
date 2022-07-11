@@ -16,6 +16,7 @@ import {
 	FieldsCollectorOptions,
 	FillEvent,
 	ReturnEvent,
+	ScreenshotTrigger,
 	SubmitEvent,
 } from '../../src/FieldsCollector';
 import {BufferingLogger, ColoredLogger, ConsoleLogger, CountingLogger, Logger} from '../../src/logger';
@@ -81,7 +82,13 @@ void (async () => {
 
 		return Promise.all([
 			test('for a simple form', async (t, log) => {
-				const result = await runCrawler('login_form.html', log);
+				const screenshots: ScreenshotTrigger[] = [];
+				const result                           = await runCrawler('login_form.html', log, {
+					screenshot: {
+						target(_, trigger) {screenshots.push(trigger);},
+						triggers: ['loaded', 'filled', 'submitted'],
+					},
+				});
 				if (!t.strictNotSame(result, {}, 'should return a result'))
 					t.bailout('collector returns an empty object');
 
@@ -113,6 +120,8 @@ void (async () => {
 						  'fb-button',
 						  'submit',
 					  ]);
+
+				t.strictSame(screenshots, ['loaded', 'filled', 'submitted'], 'should make the right screenshots');
 			}),
 			test('for a frame', async (t, log) => {
 				const result = await runCrawler('login_form_frame.html', log);
@@ -236,7 +245,13 @@ void (async () => {
 				t.equal(result.visitedTargets.length, 1, 'should log 1 visited target');
 			}),
 			test('for login/register links opening in new tabs', async (t, log) => {
-				const result = await runCrawler('login_link_blank.html', log);
+				const screenshots: ScreenshotTrigger[] = [];
+				const result                           = await runCrawler('login_link_blank.html', log, {
+					screenshot: {
+						target(_, trigger) {screenshots.push(trigger);},
+						triggers: ['new-page', 'filled', 'submitted', 'link-clicked'],
+					},
+				});
 				t.equal(result.links?.length, 2, 'should find the 2 links');
 				t.equal(result.events.filter(ev => ev instanceof ClickLinkEvent).length, 2,
 					  'should follow the 2 links');
@@ -248,6 +263,15 @@ void (async () => {
 					  'should log visited target login_form.html');
 				t.ok(result.visitedTargets.find(t => t.url === new URL('login_form.html?register', baseUrl).href),
 					  'should log visited target login_form.html?register');
+
+				// new-page load may be fired after other screenshots sometimes
+				t.strictSame(screenshots.filter(t => t !== 'new-page'), [
+						  'link-clicked', 'filled', 'submitted',
+						  'link-clicked', 'filled', 'submitted',
+					  ],
+					  'should make the right screenshots');
+				t.equal(screenshots.filter(t => t === 'new-page').length, 3,
+					  'should make 3 new-page screenshots');
 			}),
 			test('for login form and linked form', async (t, log) => {
 				const result = await runCrawler('login_form_and_link.html', log);
@@ -282,7 +306,8 @@ void (async () => {
 					  'should fill fields after clicking buttons');
 			}),
 			test('with manual @puppeteer/replay click flow', async (t, log) => {
-				const result = await runCrawler('multiple_logins.html', log, {
+				const screenshots: ScreenshotTrigger[] = [];
+				const result                           = await runCrawler('multiple_logins.html', log, {
 					interactChains: [{
 						type: 'puppeteer-replay',
 						flow: {
@@ -331,6 +356,10 @@ void (async () => {
 							],
 						},
 					}],
+					screenshot: {
+						target(_, trigger) {screenshots.push(trigger);},
+						triggers: ['loaded', 'interact-chain-executed', 'filled', 'submitted', 'link-clicked'],
+					},
 				});
 
 				t.equal(result.fields.length, 2, 'should find 2 fields');
@@ -338,6 +367,9 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 
 				t.ok(result.events.find(ev => ev instanceof FillEvent), 'should fill fields');
+
+				t.strictSame(screenshots, ['loaded', 'interact-chain-executed', 'filled', 'submitted', 'link-clicked'],
+					  'should make the right screenshots');
 			}),
 		]) as Promise<unknown> as Promise<void> /* workaround: @types/tap is incorrect */;
 	});

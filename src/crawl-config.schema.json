@@ -1156,7 +1156,7 @@
     },
     "properties": {
         "clickLinkCount": {
-            "description": "Maximum number of links to click on the landing page, can be 0",
+            "description": "Maximum number of links to click automatically on the landing page, can be 0",
             "minimum": 0,
             "type": "integer"
         },
@@ -1203,6 +1203,55 @@
                 ]
             },
             "type": "array"
+        },
+        "screenshot": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "target": {
+                            "description": "Folder to place screenshots in (under subfolder with domain name),\nor callback for created screenshots (JS-only)",
+                            "type": "string"
+                        },
+                        "triggers": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "description": "new-page is triggered when a new page has fully loaded",
+                                        "enum": [
+                                            "filled",
+                                            "interact-chain-executed",
+                                            "link-clicked",
+                                            "loaded",
+                                            "new-page",
+                                            "submitted"
+                                        ],
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "enum": [
+                                        true
+                                    ],
+                                    "type": "boolean"
+                                }
+                            ],
+                            "description": "Triggers for making screenshots, or true to enable all triggers"
+                        }
+                    },
+                    "required": [
+                        "target",
+                        "triggers"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "Options for making screenshots after certain actions.\nnull to disable."
         },
         "skipExternal": {
             "default": "frames",
