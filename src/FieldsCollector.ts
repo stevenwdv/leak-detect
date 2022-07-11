@@ -408,7 +408,7 @@ export class FieldsCollector extends BaseCollector {
 							await this.#clickFacebookButton(frame);
 
 						this.#events.push(new SubmitEvent(field.attrs.selectorChain));
-						if (await submitField(field, this.#options.sleepMs?.fill.clickDwell ?? 0, this.#log)) {
+						if (await submitField(field, this.#options.sleepMs?.fill?.clickDwell ?? 0, this.#log)) {
 							field.attrs.submitted = true;
 							await this.#waitForNavigation(field.handle.executionContext().frame()!,
 								  this.#options.timeoutMs.submitField); //TODO what if parent navigates?
@@ -665,7 +665,7 @@ export interface FieldsCollectorOptions {
 		/** Delay after navigating to some page
 		 * @minimum 0 */
 		postNavigate?: number;
-		/** Field fill-related delays */
+		/** Field fill-related delays, or null to disable these delays */
 		fill?: {
 			/** Time between mouse down & mouse up when clicking a field
 			 * @minimum 0 */
@@ -676,7 +676,7 @@ export interface FieldsCollectorOptions {
 			/** Maximum time between keystrokes when typing in a field
 			 * @minimum 0 */
 			betweenKeys?: number;
-		};
+		} | null;
 	} | null;
 	/**
 	 * Whether to skip external sites.

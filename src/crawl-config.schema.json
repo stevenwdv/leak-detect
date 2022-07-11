@@ -1219,26 +1219,33 @@
                     "additionalProperties": false,
                     "properties": {
                         "fill": {
-                            "additionalProperties": false,
-                            "description": "Field fill-related delays",
-                            "properties": {
-                                "betweenKeys": {
-                                    "description": "Maximum time between keystrokes when typing in a field",
-                                    "minimum": 0,
-                                    "type": "number"
+                            "anyOf": [
+                                {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "betweenKeys": {
+                                            "description": "Maximum time between keystrokes when typing in a field",
+                                            "minimum": 0,
+                                            "type": "number"
+                                        },
+                                        "clickDwell": {
+                                            "description": "Time between mouse down & mouse up when clicking a field",
+                                            "minimum": 0,
+                                            "type": "number"
+                                        },
+                                        "keyDwell": {
+                                            "description": "Maximum time between key down & key up when typing in a field",
+                                            "minimum": 0,
+                                            "type": "number"
+                                        }
+                                    },
+                                    "type": "object"
                                 },
-                                "clickDwell": {
-                                    "description": "Time between mouse down & mouse up when clicking a field",
-                                    "minimum": 0,
-                                    "type": "number"
-                                },
-                                "keyDwell": {
-                                    "description": "Maximum time between key down & key up when typing in a field",
-                                    "minimum": 0,
-                                    "type": "number"
+                                {
+                                    "type": "null"
                                 }
-                            },
-                            "type": "object"
+                            ],
+                            "description": "Field fill-related delays, or null to disable these delays"
                         },
                         "postFacebookButtonClick": {
                             "description": "Delay after adding & clicking Facebook button",
