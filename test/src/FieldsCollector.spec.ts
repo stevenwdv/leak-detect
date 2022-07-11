@@ -249,6 +249,15 @@ void (async () => {
 				t.ok(result.visitedTargets.find(t => t.url === new URL('login_form.html?register', baseUrl).href),
 					  'should log visited target login_form.html?register');
 			}),
+			test('for login form and linked form', async (t, log) => {
+				const result = await runCrawler('login_form_and_link.html', log);
+				t.equal(result.links?.length, 1, 'should find 1 link');
+				t.equal(result.events.filter(ev => ev instanceof ClickLinkEvent).length, 1,
+					  'should follow the link');
+				t.equal(result.fields.length, 4, 'should find 4 fields');
+				t.equal(result.events.filter(ev => ev instanceof SubmitEvent).length, 2,
+					  'should submit 2 times');
+			}),
 			test('with manual JS click chain', async (t, log) => {
 				const result      = await runCrawler('multiple_logins.html', log, {
 					interactChains: [{
