@@ -6,7 +6,9 @@ export const breakpoints: import('tracker-radar-collector').breakpoints.Breakpoi
 				name: 'value',
 				test: 'const e = document.createElement("input"); e.value;',
 				saveArguments: true,
-				condition: '["email", "password", "text"].includes(this.type)',
+				fullStack: true,
+				condition: (elem: HTMLInputElement) => ['email', 'password', 'text'].includes(elem.type),
+				pauseDebugger: true,
 				customCapture: (elem: HTMLInputElement) => ({
 					time: Date.now(),
 					value: elem.value,

@@ -29,12 +29,18 @@ async function main() {
 				    type: 'boolean',
 				    default: false,
 			    })
+			    .option('devtools', {
+				    description: 'open developer tools',
+				    type: 'boolean',
+				    default: false,
+			    })
 			    .option('timeout', {
 				    description: 'timeout for crawl, in seconds',
 				    type: 'number',
 				    default: 120,
 			    })
 				.option('output', {
+					alias: 'out',
 					description: 'output file path',
 					type: 'string',
 					normalize: true,
@@ -56,7 +62,7 @@ async function main() {
 		if (res.errors.length)
 			throw new AggregateError(res.errors.map(err => err.stack /*actually more like message*/),
 				  'config file validation failed');
-		console.log('loaded config: %o', options);
+		console.debug('loaded config: %o', options);
 	}
 
 	const result = await crawler(
@@ -67,9 +73,16 @@ async function main() {
 			  throwCollectorErrors: true,
 			  headed: args.headed,
 			  keepOpen: args.headed,
+			  devtools: args.devtools,
 			  collectors: [
 				  new FieldsCollector(options, new ColoredLogger(new ConsoleLogger())),
-				  new APICallCollector(breakpoints),
+				  new APICallCollector(args.headed && args.devtools
+						? breakpoints
+						: breakpoints.map(b => ({
+							...b,
+							props: b.props.map(p => ({...p, pauseDebugger: false})),
+							methods: b.methods.map(m => ({...m, pauseDebugger: false})),
+						}))),
 				  new RequestCollector(),
 			  ],
 		  },
@@ -84,10 +97,4 @@ async function main() {
 	}
 }
 
-void (async () => {
-	try {
-		await main();
-	} catch (err) {
-		logError(err);
-	}
-})();
+void main().catch(logError);
