@@ -35,9 +35,9 @@ async function main() {
 				    default: false,
 			    })
 			    .option('timeout', {
-				    description: 'timeout for crawl, in seconds',
+				    description: 'timeout for crawl, in seconds, or 0 to disable',
 				    type: 'number',
-				    default: 120,
+				    default: 0,
 			    })
 				.option('output', {
 					alias: 'out',
