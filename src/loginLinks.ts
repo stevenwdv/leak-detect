@@ -10,12 +10,13 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 	const seenSelectors                          = new Set<string>();
 
 	async function addNew(elems: ElementHandle[], matchType: LinkMatchType) {
-		const infos = filterUniqBy(await Promise.all(elems.map(async handle => ({
-			handle, attrs: {
-				...await getElementAttrs(handle),
-				linkMatchType: matchType,
-			},
-		}))), seenSelectors, ({attrs: {selectorChain}}) => selectorChain.join('>>>'));
+		const infos = filterUniqBy((await Promise.all(elems.map(async handle => ({
+				  handle, attrs: {
+					  ...await getElementAttrs(handle),
+					  linkMatchType: matchType,
+				  },
+			  })))).filter(info => info.attrs.visible),
+			  seenSelectors, ({attrs: {selectorChain}}) => selectorChain.join('>>>'));
 
 		function isButtonOrLink(tagName: string) {
 			return ['BUTTON', 'A'].includes(tagName);
@@ -67,15 +68,15 @@ export async function findLoginLinks(frame: Frame, exactMatch = false): Promise<
 
 		// noinspection JSDeprecatedSymbols For SVGElement#className
 		return allElements.filter(el => (
+			  [...el.childNodes].find(n => n instanceof Text && loginRegex.test(n.nodeValue!)) ||
+			  el.ariaLabel && loginRegex.test(el.ariaLabel) ||
+			  loginRegex.test(el.id) ||
+			  el.getAttribute('name')?.match(loginRegex) ||
 			  el instanceof HTMLElement && (
-					loginRegex.test(el.innerText) ||
 					loginRegex.test(el.title) ||
 					(el instanceof HTMLAnchorElement || el instanceof HTMLAreaElement) && loginRegex.test(el.href)
 			  ) ||
 			  el instanceof SVGAElement && loginRegex.test(el.href.baseVal) ||
-			  el.ariaLabel && loginRegex.test(el.ariaLabel) ||
-			  loginRegex.test(el.id) ||
-			  el.getAttribute('name')?.match(loginRegex) ||
 			  (el instanceof SVGElement && el.className instanceof SVGAnimatedString
 					? loginRegex.test(el.className.baseVal) : loginRegex.test(el.className))
 		));
