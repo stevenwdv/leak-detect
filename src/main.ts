@@ -1,6 +1,8 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import consumers from 'node:stream/consumers';
 
+import yaml from 'js-yaml';
 import jsonschema from 'jsonschema';
 import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracker-radar-collector';
 import yargs from 'yargs';
@@ -20,7 +22,7 @@ async function main() {
 				    demandOption: true,
 			    })
 			    .option('config', {
-				    description: 'path to configuration file for fields collector, see src/crawl-config.schema.json for syntax',
+				    description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
 				    type: 'string',
 				    normalize: true,
 			    })
@@ -49,25 +51,38 @@ async function main() {
 				    type: 'number',
 				    default: 0,
 			    })
-				.option('output', {
-					alias: 'out',
-					description: 'output file path',
-					type: 'string',
-					normalize: true,
-				}))
+			    .option('output', {
+				    alias: 'out',
+				    description: 'output file path',
+				    type: 'string',
+				    normalize: true,
+			    }))
 		  .demandCommand()
 		  .strict()
 		  .parseSync();
 
-	const options = args.config
-		  ? await consumers.json(fs.createReadStream(args.config))
-				.catch(reason => {
-					console.error('error parsing config file');
-					return Promise.reject(reason);
-				}) as FieldsCollectorOptions
-		  : {};
+	let options: FieldsCollectorOptions = {};
+	if (args.config !== undefined) {
+		const extension = path.extname(args.config).toLowerCase();
+		switch (extension) {
+			case '.json':
+				options = await consumers.json(fs.createReadStream(args.config))
+					  .catch(reason => {
+						  console.error('error parsing config file');
+						  return Promise.reject(reason);
+					  }) as FieldsCollectorOptions;
+				break;
+			case '.yml':
+			case '.yaml':
+				options = yaml.load(fs.readFileSync(args.config, {encoding: 'utf8'}), {
+					filename: path.basename(args.config),
+					onWarning: console.warn,
+				}) as FieldsCollectorOptions;
+				break;
+			default:
+				throw new Error(`unknown config file extension: ${extension || '<none>'}`);
+		}
 
-	if (args.config) {
 		const res = new jsonschema.Validator().validate(options, configSchema);
 		if (res.errors.length)
 			throw new AggregateError(res.errors.map(err => err.stack /*actually more like message*/),
