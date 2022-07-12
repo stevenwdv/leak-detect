@@ -1,4 +1,5 @@
 import chalk, {Chalk} from 'chalk';
+import {ValueOf} from 'ts-essentials';
 
 export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
 
@@ -145,8 +146,10 @@ export class CountingLogger extends Logger {
 		this.#log?.endGroup();
 	}
 
-	count(level: LogLevel) {
-		return this.#counts[level];
+	count(level?: LogLevel) {
+		return level
+			  ? this.#counts[level]
+			  : Object.values(this.#counts).reduce((sum, c) => sum + c, 0);
 	}
 
 	reset() {
@@ -157,6 +160,33 @@ export class CountingLogger extends Logger {
 			warn: 0,
 			error: 0,
 		};
+	}
+}
+
+export class FilteringLogger extends Logger {
+	readonly #log: Logger;
+	#level: ValueOf<typeof logLevelOrder>;
+
+	constructor(logger: Logger, level: LogLevel = 'debug') {
+		super();
+		this.#log   = logger;
+		this.#level = logLevelOrder[level];
+	}
+
+	get level() {return logLevels[this.#level];}
+
+	set level(level) {this.#level = logLevelOrder[level];}
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		if (logLevelOrder[level] >= this.#level) this.#log.logLevel(level, ...args);
+	}
+
+	startGroup(name: string) {
+		this.#log.startGroup(name);
+	}
+
+	endGroup() {
+		this.#log.endGroup();
 	}
 }
 
@@ -185,3 +215,13 @@ export class BufferingLogger extends Logger {
 		this.clear();
 	}
 }
+
+export const logLevels = ['debug', 'log', 'info', 'warn', 'error'] as const;
+
+const logLevelOrder = {
+	debug: 0,
+	log: 1,
+	info: 2,
+	warn: 3,
+	error: 4,
+} as const;

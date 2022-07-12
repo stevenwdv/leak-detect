@@ -8,7 +8,7 @@ import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracke
 import yargs from 'yargs';
 
 import {FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
-import {ColoredLogger, ConsoleLogger} from './logger';
+import {ColoredLogger, ConsoleLogger, FilteringLogger, Logger, LogLevel, logLevels} from './logger';
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {logError} from './utils';
@@ -25,6 +25,10 @@ async function main() {
 				    description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
 				    type: 'string',
 				    normalize: true,
+			    })
+			    .option('log-level', {
+				    description: `log level for crawl; one of ${logLevels.join(', ')}`,
+				    type: 'string',
 			    })
 			    .option('api-calls', {
 				    description: 'enable API call breakpoints collector to track field value sniffs',
@@ -90,8 +94,14 @@ async function main() {
 		console.debug('loaded config: %o', options);
 	}
 
+	let logger: Logger = new ColoredLogger(new ConsoleLogger());
+	if (args.logLevel)
+		if ((logLevels as readonly string[]).includes(args.logLevel))
+			logger = new FilteringLogger(logger, args.logLevel as LogLevel);
+		else throw new Error(`invalid log level: ${args.logLevel}`);
+
 	const collectors: BaseCollector[] = [
-		new FieldsCollector(options, new ColoredLogger(new ConsoleLogger())),
+		new FieldsCollector(options, logger),
 	];
 	if (args.apiCalls) collectors.push(
 		  new APICallCollector(args.headed && args.devtools
@@ -106,7 +116,7 @@ async function main() {
 	const result = await crawler(
 		  new URL(args.url),
 		  {
-			  log: console.log,
+			  log: logger.log.bind(logger),
 			  maxCollectionTimeMs: args.timeout * 1e3,
 			  throwCollectorErrors: true,
 			  headed: args.headed,
