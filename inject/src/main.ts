@@ -1,8 +1,7 @@
 // noinspection JSUnusedGlobalSymbols
 
 import {detectEmailInputs as _detectEmailInputs} from './email_detector';
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore Fathom has no type declarations
+// @ts-expect-error Fathom has no type declarations
 import {utils} from 'fathom-web';
 
 export const detectEmailInputs = _detectEmailInputs as (domRoot: Element) => Generator<FathomResult, void, undefined>;
@@ -111,12 +110,13 @@ export function getElementBySelectorChain(selectorChain: SelectorChain, referenc
 	if (!selectorChain.length) return reference instanceof Element ? {elem: reference, unique} : null;
 	for (const [i, selector] of selectorChain.entries()) {
 		const matches = reference.querySelectorAll(selector);
-		if (!matches.length) return null;
+		const [match] = matches;
+		if (!match) return null;
 		if (i + 1 < selectorChain.length) {
-			const shadow = matches[0].shadowRoot;
+			const shadow = match.shadowRoot;
 			if (!shadow) return null;
 			reference = shadow;
-		} else reference = matches[0];
+		} else reference = match;
 		unique &&= matches.length === 1;
 	}
 	return {elem: reference as Element, unique};

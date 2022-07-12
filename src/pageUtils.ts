@@ -2,7 +2,7 @@ import {SelectorChain} from 'leak-detect-inject';
 import {BoundingBox, BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 
 import {stripHash} from './utils';
-import {GlobalNames} from './FieldsCollector';
+import {PageVars} from './FieldsCollector';
 import {getFrameStack, unwrapHandle} from './puppeteerUtils';
 
 /**
@@ -17,22 +17,26 @@ export async function closeExtraPages(context: BrowserContext, keep: Set<Page>):
 /** Get a string which should uniquely identify an element across pages  */
 export function getElemIdentifier(elem: ElementAttrs | ElementInfo): string {
 	const attrs = 'attrs' in elem ? elem.attrs : elem;
-	return `${stripHash(attrs.frameStack[0])} ${attrs.selectorChain.join('>>>')}`;
+	return `${stripHash(attrs.frameStack[0]!)} ${selectorStr(attrs.selectorChain)}`;
+}
+
+export function selectorStr(selectorChain: SelectorChain): string {
+	return selectorChain.join('>>>');
 }
 
 export async function getElementInfoFromAttrs(attrs: ElementAttrs, frame: Frame): Promise<ElementInfo | null> {
 	const handle = (await getElementBySelectorChain(attrs.selectorChain, frame))?.elem;
-	return (handle ?? null) && {handle: handle as ElementHandle, attrs};
+	return handle ? {handle, attrs} : null;
 }
 
 export async function getElementBySelectorChain(selector: SelectorChain, frame: Frame):
 	  Promise<{ elem: ElementHandle, unique: boolean } | null> {
 	return await unwrapHandle(await frame.evaluateHandle(
-		  (selector: SelectorChain) => window[GlobalNames.INJECTED]!.getElementBySelectorChain(selector), selector));
+		  (selector: SelectorChain) => window[PageVars.INJECTED].getElementBySelectorChain(selector), selector));
 }
 
 export function formSelectorChain(handle: ElementHandle): Promise<SelectorChain> {
-	return handle.evaluate(el => window[GlobalNames.INJECTED]!.formSelectorChain(el));
+	return handle.evaluate(el => window[PageVars.INJECTED].formSelectorChain(el));
 }
 
 export async function getElementAttrs(handle: ElementHandle): Promise<ElementAttrs> {
@@ -51,12 +55,12 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 			href: el.getAttribute('href'),
 			ariaLabel: el.ariaLabel,
 			placeholder: el.getAttribute('placeholder'),
-			form: form ? window[GlobalNames.INJECTED]!.formSelectorChain(form) : null,
+			form: form ? window[PageVars.INJECTED].formSelectorChain(form) : null,
 
-			onTop: window[GlobalNames.INJECTED]!.isOnTop(el),
-			visible: window[GlobalNames.INJECTED]!.isVisible(el),
+			onTop: window[PageVars.INJECTED].isOnTop(el),
+			visible: window[PageVars.INJECTED].isVisible(el),
 
-			selectorChain: window[GlobalNames.INJECTED]!.formSelectorChain(el),
+			selectorChain: window[PageVars.INJECTED].formSelectorChain(el),
 		};
 	});
 	return {

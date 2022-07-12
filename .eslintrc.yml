@@ -9,8 +9,10 @@ overrides:
       project: ./tsconfig.json
     extends:
       - eslint:recommended
+      - plugin:@typescript-eslint/eslint-recommended
       - plugin:@typescript-eslint/recommended
       - plugin:@typescript-eslint/recommended-requiring-type-checking
+      - plugin:@typescript-eslint/strict
       - plugin:eslint-comments/recommended
     rules:
       no-constant-condition:
@@ -27,4 +29,7 @@ overrides:
         - avoidEscape: true
       "@typescript-eslint/explicit-module-boundary-types": off
       "@typescript-eslint/no-non-null-assertion": off
+      "@typescript-eslint/no-unnecessary-condition":
+        - warn
+        - allowConstantLoopConditions: true
       eslint-comments/no-unused-disable: warn

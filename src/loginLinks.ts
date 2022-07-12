@@ -1,6 +1,6 @@
 import {ElementHandle, Frame} from 'puppeteer';
 import {filterUniqBy} from './utils';
-import {ElementInfo, getElementAttrs, LinkElementAttrs, LinkMatchType} from './pageUtils';
+import {ElementInfo, getElementAttrs, LinkElementAttrs, LinkMatchType, selectorStr} from './pageUtils';
 import {unwrapHandle} from './puppeteerUtils';
 
 /** Does not search in Shadow DOM */
@@ -16,7 +16,7 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 					  linkMatchType: matchType,
 				  },
 			  })))).filter(info => info.attrs.visible),
-			  seenSelectors, ({attrs: {selectorChain}}) => selectorChain.join('>>>'));
+			  seenSelectors, ({attrs: {selectorChain}}) => selectorStr(selectorChain));
 
 		function isButtonOrLink(tagName: string) {
 			return ['BUTTON', 'A'].includes(tagName);

@@ -17,7 +17,7 @@ export function logError(err: unknown) {
 }
 
 export function stripHash(url: string | URL): string {
-	return url.toString().match(/^[^#]*/)![0];
+	return url.toString().match(/^[^#]*/)![0]!;
 }
 
 /**
@@ -107,7 +107,8 @@ export function populateDefaults<T>(obj: DeepPartial<T>, defaults: T): T {
 	const objMap      = obj as { [key in string]?: unknown },
 	      defaultsMap = defaults as { [key in string]?: unknown };
 	if (obj && defaults && typeof obj === 'object' && typeof defaults === 'object'
-		  && Object.getPrototypeOf(obj) === Object.prototype) {
+		  && Object.getPrototypeOf(obj) === Object.prototype
+		  && !(defaults instanceof Array)) {
 		for (const key of Object.keys(defaults))
 			if (objMap[key] === undefined) objMap[key] = defaultsMap[key];
 			else populateDefaults(objMap[key], defaultsMap[key]);

@@ -7,6 +7,7 @@ import {createServer} from 'http-server';
 import t from 'tap';
 
 import {crawler, RequestCollector} from 'tracker-radar-collector';
+import {CrawlOptions} from 'tracker-radar-collector/crawler';
 
 import {
 	ClickLinkEvent,
@@ -44,15 +45,17 @@ void (async () => {
 		t.teardown(() => new Promise<void>((resolve, reject) =>
 			  server.close(err => err ? reject(err) : resolve())));
 
-		const baseCrawlOptions = {
-			log() {throw 'log unspecified';},
+		const baseCrawlOptions: CrawlOptions = {
+			log() {throw new Error('log unspecified');},
 			maxCollectionTimeMs: 120_000,
 			headed,
 			devtools: headed,
+			throwCollectorErrors: true,
 		};
 
-		async function runCrawler(page: string, log: Logger, options: FieldsCollectorOptions = {}): Promise<FieldCollectorData> {
-			return ((await crawler(
+		async function runCrawler(
+			  page: string, log: Logger, options: FieldsCollectorOptions = {}): Promise<FieldCollectorData> {
+			const result = await crawler(
 				  new URL(page, baseUrl),
 				  {
 					  ...baseCrawlOptions,
@@ -61,7 +64,9 @@ void (async () => {
 						  new FieldsCollector(options, log),
 					  ],
 				  },
-			)).data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldCollectorData }).fields;
+			);
+			if (result.timeout) throw new Error('TRC detected timeout');
+			return (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldCollectorData }).fields;
 		}
 
 		function test(name: string, fun: (t: Tap.Test, log: Logger) => PromiseLike<unknown> | unknown) {
@@ -91,6 +96,7 @@ void (async () => {
 				});
 				if (!t.strictNotSame(result, {}, 'should return a result'))
 					t.bailout('collector returns an empty object');
+				t.strictSame(result.errors, [], 'should not generate any errors');
 
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 

@@ -1,7 +1,6 @@
 import {ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
 import {Frame as InternalFrame} from 'puppeteer/lib/cjs/puppeteer/common/FrameManager';
 import {Page as InternalPage} from 'puppeteer/lib/cjs/puppeteer/common/Page';
-import {Protocol} from 'devtools-protocol';
 import {IsTuple} from 'ts-essentials';
 import TypedArray = NodeJS.TypedArray;
 
@@ -27,18 +26,18 @@ export function getPageFromFrame(frame: Frame): Page {
 }
 
 /** @return Stack starting with this frame, going up */
-export function getFrameStack(frame: Frame): Frame[] {
-	const frames: Frame[]      = [];
-	let curFrame: Frame | null = frame;
-	do {
+export function getFrameStack(frame: Frame): [Frame] & Frame[] {
+	const frames: [Frame] & Frame[] = [frame];
+	let curFrame: Frame | null      = frame;
+	while ((curFrame = curFrame.parentFrame()))
 		frames.push(curFrame);
-		curFrame = curFrame.parentFrame();
-	} while (curFrame);
 	return frames;
 }
 
 /** Typed version of {@link Page#exposeFunction} */
-export async function exposeFunction<Name extends keyof Window & string, Func extends typeof window[Name]>(page: Page, name: Name, func: Func) {
+export async function exposeFunction<Name extends keyof Window & string,
+	  Func extends typeof window[Name] & ((this: typeof global, ...args: never) => void)>(
+	  page: Page, name: Name, func: Func) {
 	await page.exposeFunction(name, func);
 }
 
@@ -49,29 +48,13 @@ export async function unwrapHandle<T>(handle: JSHandle<T>): Promise<UnwrappedHan
 	return await unwrapHandleEx(handle, () => true) as UnwrappedHandle<T>;
 }
 
-function valueFromRemoteObject(obj: Protocol.Runtime.RemoteObject): unknown {
-	if (obj.unserializableValue)
-		switch (obj.type) {
-			case 'bigint':
-				return BigInt(obj.unserializableValue.replace('n', ''));
-			case 'number': {
-				const val = {
-					'-0': -0,
-					'NaN': NaN,
-					'Infinity': Infinity,
-					'-Infinity': -Infinity,
-				}[obj.unserializableValue];
-				if (val !== undefined) return val;
-				break;
-			}
-		}
-	return obj.value;
-}
-
 /**
  * Like {@link JSHandle#jsonValue}, but retains non-serializable objects as {@link JSHandle}s
  */
-export async function unwrapHandleEx<T>(handle: JSHandle<T>, shouldUnwrap: (className: string) => boolean = className => ['Object', 'Proxy'].includes(className)):
+export async function unwrapHandleEx<T>(
+	  handle: JSHandle<T>,
+	  shouldUnwrap: (className: string) => boolean = className => ['Object', 'Proxy'].includes(className),
+):
 	  Promise<UnwrappedHandleEx<T>> {
 	const remoteObject = handle.remoteObject();
 
@@ -94,10 +77,7 @@ export async function unwrapHandleEx<T>(handle: JSHandle<T>, shouldUnwrap: (clas
 		return handle as UnwrappedHandleEx<T>;
 
 	} else  // Return other types such as numbers, booleans, bigints, etc. unwrapped
-		return (remoteObject.type === 'undefined'
-			  ? undefined
-			  : valueFromRemoteObject(remoteObject)
-			  ?? await handle.jsonValue()) as UnwrappedHandleEx<T>;
+		return await handle.jsonValue() as UnwrappedHandleEx<T>;
 }
 
 export type UnwrappedHandle<T> = T extends string | boolean | number | null | undefined | bigint

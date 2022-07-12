@@ -860,7 +860,7 @@
         },
         "UserFlow": {
             "additionalProperties": false,
-            "description": "&#64;puppeteer/replay (Chrome DevTools) flow",
+            "description": "@puppeteer/replay (Chrome DevTools) flow",
             "properties": {
                 "selectorAttribute": {
                     "description": "The name of the attribute to use to generate selectors instead of regular\nCSS selectors. For example, specifying `data-testid` would generate the\nselector `[data-testid=value]` for the element `<div data-testid=value>`.",
@@ -1217,7 +1217,7 @@
                             "anyOf": [
                                 {
                                     "items": {
-                                        "description": "new-page is triggered when a new page has fully loaded",
+                                        "description": "- `loaded`: first page loaded;\n- `filled`: after group of fields filled;\n- `submitted`: after group of fields submitted;\n- `link-clicked`: page opened after detected login/register link clicked;\n- `interact-chain-executed`: after a specified interact chain was executed;\n- `new-page`: after a new tab has fully loaded;",
                                         "enum": [
                                             "filled",
                                             "interact-chain-executed",

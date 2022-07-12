@@ -9,6 +9,7 @@
 		"noImplicitReturns": true,
 		"strict": true,
 		"exactOptionalPropertyTypes": true,
+		"noUncheckedIndexedAccess": true,
 		"forceConsistentCasingInFileNames": true,
 		"outDir": "ts-out",
 		"declaration": true,
