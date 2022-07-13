@@ -54,7 +54,8 @@ void (async () => {
 		};
 
 		async function runCrawler(
-			  page: string, log: Logger, options: FieldsCollectorOptions = {}): Promise<FieldCollectorData> {
+			  page: string, t: Tap.Test, log: Logger, options: FieldsCollectorOptions = {}, noError = true):
+			  Promise<FieldCollectorData> {
 			const result = await crawler(
 				  new URL(page, baseUrl),
 				  {
@@ -65,19 +66,26 @@ void (async () => {
 					  ],
 				  },
 			);
-			if (result.timeout) throw new Error('TRC detected timeout');
-			return (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldCollectorData }).fields;
+			t.ok(!result.timeout, 'TRC should not time out');
+			const fields = (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldCollectorData }).fields;
+			if (noError) {
+				t.strictNotSame(fields, {}, 'should return a result');
+				t.strictSame(fields.errors, [], 'should not generate any errors');
+			}
+			return fields;
 		}
 
-		function test(name: string, fun: (t: Tap.Test, log: Logger) => PromiseLike<unknown> | unknown) {
+		function test(name: string, fun: (t: Tap.Test, log: Logger) => PromiseLike<unknown> | unknown, noError = true) {
 			const testLogger = serial ? new ColoredLogger(new ConsoleLogger()) : new BufferingLogger();
 			if (serial) testLogger.startGroup(name);
 			const countLogger = new CountingLogger(testLogger);
 
 			return t.test(name, async t => {
 				await fun(t, countLogger);
-				t.equal(countLogger.count('error'), 0, 'should not generate any errors');
-				t.equal(countLogger.count('warn'), 0, 'should not generate any warnings');
+				if (noError) {
+					t.equal(countLogger.count('error'), 0, 'should not log any errors');
+					t.equal(countLogger.count('warn'), 0, 'should not log any warnings');
+				}
 				if (!t.passing() && testLogger instanceof BufferingLogger) {
 					const conLogger = new ConsoleLogger();
 					conLogger.group(name, () => testLogger.drainTo(new ColoredLogger(conLogger)));
@@ -88,7 +96,7 @@ void (async () => {
 		return Promise.all([
 			test('for a simple form', async (t, log) => {
 				const screenshots: ScreenshotTrigger[] = [];
-				const result                           = await runCrawler('login_form.html', log, {
+				const result                           = await runCrawler('login_form.html', t, log, {
 					screenshot: {
 						target(_, trigger) {screenshots.push(trigger);},
 						triggers: ['loaded', 'filled', 'submitted'],
@@ -96,7 +104,6 @@ void (async () => {
 				});
 				if (!t.strictNotSame(result, {}, 'should return a result'))
 					t.bailout('collector returns an empty object');
-				t.strictSame(result.errors, [], 'should not generate any errors');
 
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 
@@ -130,13 +137,19 @@ void (async () => {
 				t.strictSame(screenshots, ['loaded', 'filled', 'submitted'], 'should make the right screenshots');
 			}),
 			test('for a frame', async (t, log) => {
-				const result = await runCrawler('login_form_frame.html', log);
+				const result = await runCrawler('login_form_frame.html', t, log);
+				t.equal(result.fields.length, 2, 'should find 2 fields');
+				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
+				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
+			}),
+			test('for a frame where the parent navigates', async (t, log) => {
+				const result = await runCrawler('login_form_frame_parent.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
 			test('for a hidden popup', async (t, log) => {
-				const result       = await runCrawler('login_form_hidden.html', log);
+				const result       = await runCrawler('login_form_hidden.html', t, log);
 				const popupOpenIdx = result.events.findIndex(ev =>
 					        ev instanceof ClickLinkEvent && ev.link.join().includes('popupLink')),
 				      fillIdx      = result.events.findIndex(ev => ev instanceof FillEvent);
@@ -148,7 +161,7 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
 			test('for a popup form', async (t, log) => {
-				const result = await runCrawler('login_form_popup.html', log);
+				const result = await runCrawler('login_form_popup.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
@@ -159,7 +172,7 @@ void (async () => {
 				t.ok(leak?.attrs, 'should have password leak element attrs set');
 			}),
 			test('for an open shadow form', async (t, log) => {
-				const result = await runCrawler('login_form_shadow.html', log);
+				const result = await runCrawler('login_form_shadow.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				const emailField    = result.fields.find(field => field.fieldType === 'email'),
 				      passwordField = result.fields.find(field => field.fieldType === 'password');
@@ -174,7 +187,7 @@ void (async () => {
 				t.ok(leak?.attrs, 'should have password leak element attrs set');
 			}),
 			test('for a closed shadow form', async (t, log) => {
-				const result = await runCrawler('login_form_shadow_closed.html', log);
+				const result = await runCrawler('login_form_shadow_closed.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				const emailField    = result.fields.find(field => field.fieldType === 'email'),
 				      passwordField = result.fields.find(field => field.fieldType === 'password');
@@ -189,19 +202,19 @@ void (async () => {
 				t.ok(leak?.attrs, 'should have password leak element attrs set');
 			}),
 			test('for email input with type=text', async (t, log) => {
-				const result = await runCrawler('login_form_text_email.html', log);
+				const result = await runCrawler('login_form_text_email.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
 			test('for open shadow email input with type=text', async (t, log) => {
-				const result = await runCrawler('login_form_shadow_text_email.html', log);
+				const result = await runCrawler('login_form_shadow_text_email.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
 			test('for closed shadow email input with type=text', async (t, log) => {
-				const result = await runCrawler('login_form_shadow_closed_text_email.html', log);
+				const result = await runCrawler('login_form_shadow_closed_text_email.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
@@ -227,7 +240,7 @@ void (async () => {
 					  'should click the added button and open \'Facebook\'');
 			}),
 			test('for multiple forms', async (t, log) => {
-				const result = await runCrawler('multiple_forms.html', log);
+				const result = await runCrawler('multiple_forms.html', t, log);
 				t.equal(result.fields.length, 2 + 3 + 2 + 1 * 2, 'should find 9 fields');
 				t.equal(result.fields.filter(f => f.filled).length, result.fields.length,
 					  'should fill all fields');
@@ -241,7 +254,7 @@ void (async () => {
 					  'should reload between submits');
 			}),
 			test('for login/register links opening on same page', async (t, log) => {
-				const result = await runCrawler('login_link.html', log);
+				const result = await runCrawler('login_link.html', t, log);
 				t.equal(result.links?.length, 2, 'should find the 2 links');
 				t.equal(result.events.filter(ev => ev instanceof ClickLinkEvent).length, 2,
 					  'should follow the 2 links');
@@ -252,7 +265,7 @@ void (async () => {
 			}),
 			test('for login/register links opening in new tabs', async (t, log) => {
 				const screenshots: ScreenshotTrigger[] = [];
-				const result                           = await runCrawler('login_link_blank.html', log, {
+				const result                           = await runCrawler('login_link_blank.html', t, log, {
 					screenshot: {
 						target(_, trigger) {screenshots.push(trigger);},
 						triggers: ['new-page', 'filled', 'submitted', 'link-clicked'],
@@ -280,7 +293,7 @@ void (async () => {
 					  'should make 3 new-page screenshots');
 			}),
 			test('for login form and linked form', async (t, log) => {
-				const result = await runCrawler('login_form_and_link.html', log);
+				const result = await runCrawler('login_form_and_link.html', t, log);
 				t.equal(result.links?.length, 1, 'should find 1 link');
 				t.equal(result.events.filter(ev => ev instanceof ClickLinkEvent).length, 1,
 					  'should follow the link');
@@ -289,7 +302,7 @@ void (async () => {
 					  'should submit 2 times');
 			}),
 			test('with manual JS click chain', async (t, log) => {
-				const result      = await runCrawler('multiple_logins.html', log, {
+				const result      = await runCrawler('multiple_logins.html', t, log, {
 					interactChains: [{
 						type: 'js-path-click',
 						paths: [
@@ -313,7 +326,7 @@ void (async () => {
 			}),
 			test('with manual @puppeteer/replay click flow', async (t, log) => {
 				const screenshots: ScreenshotTrigger[] = [];
-				const result                           = await runCrawler('multiple_logins.html', log, {
+				const result                           = await runCrawler('multiple_logins.html', t, log, {
 					interactChains: [{
 						type: 'puppeteer-replay',
 						flow: {
