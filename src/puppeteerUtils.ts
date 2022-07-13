@@ -1,6 +1,4 @@
 import {ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
-import {Frame as InternalFrame} from 'puppeteer/lib/cjs/puppeteer/common/FrameManager';
-import {Page as InternalPage} from 'puppeteer/lib/cjs/puppeteer/common/Page';
 import {IsTuple} from 'ts-essentials';
 import TypedArray = NodeJS.TypedArray;
 
@@ -15,14 +13,7 @@ export function isOfType<Name extends string & keyof typeof import('puppeteer')>
 }
 
 export function getPageFromHandle(handle: JSHandle): Page | null {
-	const frame = handle.executionContext().frame();
-	return frame ? getPageFromFrame(frame) : null;
-}
-
-export function getPageFromFrame(frame: Frame): Page {
-	//XXX Replace with stable version if ever available
-	// See https://github.com/puppeteer/puppeteer/issues/8654
-	return (frame as Frame & InternalFrame)._frameManager.page() as Page & InternalPage;
+	return handle.executionContext().frame()?.page() ?? null;
 }
 
 /** @return Stack starting with this frame, going up */

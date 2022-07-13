@@ -29,14 +29,7 @@ import {
 	selectorStr,
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
-import {
-	exposeFunction,
-	getFrameStack,
-	getPageFromFrame,
-	getPageFromHandle,
-	isOfType,
-	unwrapHandle,
-} from './puppeteerUtils';
+import {exposeFunction, getFrameStack, getPageFromHandle, isOfType, unwrapHandle} from './puppeteerUtils';
 import ErrnoException = NodeJS.ErrnoException;
 
 export class FieldsCollector extends BaseCollector {
@@ -304,7 +297,7 @@ export class FieldsCollector extends BaseCollector {
 		if (!linkInfo) throw new Error('could not find link element anymore');
 		await this.#click(linkInfo.handle);
 		const opened = await this.#waitForNavigation(page.mainFrame(), this.#options.timeoutMs.followLink);
-		await this.#screenshot(opened ? getPageFromFrame(opened) : page, 'link-clicked');
+		await this.#screenshot(opened?.page() ?? page, 'link-clicked');
 	}
 
 	/** Just click an element */
@@ -323,7 +316,7 @@ export class FieldsCollector extends BaseCollector {
 			  this.#dataParams.pageLoadDurationMs * 2);
 
 		this.#log?.log(frame.url() === url ? 'will reload' : `will navigate ${frame.url()} → ${url}`);
-		await getPageFromFrame(frame).bringToFront();
+		await frame.page().bringToFront();
 		try {
 			await frame.goto(url, {timeout: maxWaitTimeMs, waitUntil: 'load'});
 			await this.#sleep(this.#options.sleepMs?.postNavigate);
@@ -354,7 +347,7 @@ export class FieldsCollector extends BaseCollector {
 					} catch (err) {
 						if (isOfType(err, 'TimeoutError')) throw err;
 						// Frame may be detached due to parent navigating
-						const page = getPageFromFrame(frame);
+						const page = frame.page();
 						await page.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
 						return {msg: `parent page navigated to ${page.url()}`, target: page.mainFrame()};
 					}
@@ -464,7 +457,7 @@ export class FieldsCollector extends BaseCollector {
 						// Fill all fields in the form
 						// For a field outside a form, we fill all fields outside a form in the frame
 						await this.#fillFields(formFields);
-						await this.#screenshot(getPageFromFrame(frame), 'filled');
+						await this.#screenshot(frame.page(), 'filled');
 
 						await this.#sleep(this.#options.sleepMs?.postFill);
 
@@ -479,7 +472,7 @@ export class FieldsCollector extends BaseCollector {
 
 							const opened = await this.#waitForNavigation(field.handle.executionContext().frame()!,
 								  this.#options.timeoutMs.submitField);
-							await this.#screenshot(getPageFromFrame(opened ?? frame), 'submitted');
+							await this.#screenshot((opened ?? frame).page(), 'submitted');
 						} catch (err) {
 							this.#reportError(err, ['failed to submit field', field.attrs], 'warn');
 						}
@@ -506,7 +499,7 @@ export class FieldsCollector extends BaseCollector {
 		} else {
 			if (frameFields.length) {
 				await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
-				await this.#screenshot(getPageFromFrame(frame), 'filled');
+				await this.#screenshot(frame.page(), 'filled');
 
 				await this.#sleep(this.#options.sleepMs?.postFill);
 
@@ -527,7 +520,7 @@ export class FieldsCollector extends BaseCollector {
 	async #findFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs>[] | null> {
 		if (!this.#headless) {
 			// For some reason non-headless chrome does not execute code on background pages
-			await getPageFromFrame(frame).bringToFront();
+			await frame.page().bringToFront();
 		}
 
 		this.#log?.debug('finding fields');
@@ -594,7 +587,7 @@ export class FieldsCollector extends BaseCollector {
 
 	async #injectPasswordLeakDetection(frame: Frame) {
 		try {
-			const page = getPageFromFrame(frame);
+			const page = frame.page();
 			if (tryAdd(this.#injectedPasswordCallback, page))
 				await exposeFunction(page, PageVars.PASSWORD_CALLBACK, this.#passwordLeakCallback.bind(this, frame));
 
