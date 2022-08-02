@@ -1,23 +1,24 @@
 {
 	"compilerOptions": {
 		"target": "ESNext",
-		"useDefineForClassFields": true,
 		"module": "CommonJS",
 		"moduleResolution": "Node",
 		"esModuleInterop": true,
-		"sourceMap": true,
-		"preserveConstEnums": false,
+		"resolveJsonModule": true,
+		"forceConsistentCasingInFileNames": true,
+		// Type checking
+		"strict": true,
 		"noImplicitOverride": true,
 		"noImplicitReturns": true,
-		"strict": true,
 		"exactOptionalPropertyTypes": true,
 		"noUncheckedIndexedAccess": true,
-		"forceConsistentCasingInFileNames": true,
+		// Output
+		"preserveConstEnums": false,
 		"noEmit": true,
 		"outDir": "ts-out",
-		"pretty": true,
-		"resolveJsonModule": true,
-		"allowJs": true
+		"sourceMap": true,
+		// CLI
+		"pretty": true
 	},
 	"include": [
 		"./src/**/*.ts",

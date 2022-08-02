@@ -93,6 +93,7 @@ void (async () => {
 			});
 		}
 
+		process.setMaxListeners(Infinity);
 		return Promise.all([
 			test('for a simple form', async (t, log) => {
 				const screenshots: ScreenshotTrigger[] = [];
