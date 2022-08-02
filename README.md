@@ -2,11 +2,11 @@
 
 WIP, see [projects](https://github.com/stevenwdv/leak-detection/projects?type=beta)
 
-Run crawl:
+Run single crawl:
 
 ```shell
 npm install
-npm start -- crawl https://example.com/
+npm start -- crawl --url https://example.com/
 ```
 
 Get options:

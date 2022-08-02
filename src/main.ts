@@ -1,69 +1,101 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import consumers from 'node:stream/consumers';
 
+import async, {ErrorCallback, IterableCollection} from 'async';
 import yaml from 'js-yaml';
 import jsonschema from 'jsonschema';
+import ProgressBar from 'progress';
+import sanitizeFilename from 'sanitize-filename';
 import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracker-radar-collector';
 import yargs from 'yargs';
 
 import {FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
-import {ColoredLogger, ConsoleLogger, FilteringLogger, Logger, LogLevel, logLevels} from './logger';
+import {
+	ColoredLogger,
+	ConsoleLogger,
+	CountingLogger,
+	FileLogger,
+	FilteringLogger,
+	Logger,
+	LogLevel,
+	logLevels,
+	TaggedLogger,
+} from './logger';
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {logError} from './utils';
+import chalk from 'chalk';
+
+// Fix wrong type
+const eachLimit = async.eachLimit as <T, E = Error>(
+	  arr: IterableCollection<T>, limit: number,
+	  iterator: (item: T, callback: ErrorCallback<E>) => Promise<void> /*added*/ | void,
+) => Promise<void>;
 
 async function main() {
 	const args = yargs
-		  .command('crawl <url>', 'crawl a URL', yargs => yargs
-			    .positional('url', {
-				    description: 'URL of homepage to crawl',
-				    type: 'string',
-				    demandOption: true,
-			    })
-			    .option('config', {
-				    description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
-				    type: 'string',
-				    normalize: true,
-			    })
-			    .option('log-level', {
-				    description: `log level for crawl; one of ${logLevels.join(', ')}`,
-				    type: 'string',
-			    })
-			    .option('api-calls', {
-				    description: 'enable API call breakpoints collector to track field value sniffs',
-				    type: 'boolean',
-				    default: true,
-			    })
-			    .option('requests', {
-				    description: 'enable requests collector',
-				    type: 'boolean',
-				    default: true,
-			    })
-			    .option('headed', {
-				    description: 'open a browser window',
-				    type: 'boolean',
-				    default: false,
-			    })
-			    .option('devtools', {
-				    description: 'open developer tools',
-				    type: 'boolean',
-				    default: false,
-			    })
-			    .option('timeout', {
-				    description: 'timeout for crawl, in seconds, or 0 to disable',
-				    type: 'number',
-				    default: 0,
-			    })
-			    .option('output', {
-				    alias: 'out',
-				    description: 'output file path',
-				    type: 'string',
-				    normalize: true,
-			    }))
+		  .command('crawl', 'crawl a URL', yargs => yargs
+				.option('url', {
+					description: 'URL of homepage to crawl',
+					type: 'string',
+				})
+				.option('urls-file', {
+					description: 'File with URLs to crawl, each on it\'s own line',
+					type: 'string',
+					normalize: true,
+				})
+				.option('parallelism', {
+					description: 'Number of crawls to run in parallel if --urls-file was specified',
+					type: 'number',
+					default: 30,
+				})
+				.option('config', {
+					description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
+					type: 'string',
+					normalize: true,
+				})
+				.option('log-level', {
+					description: `log level for crawl; one of ${logLevels.join(', ')}`,
+					type: 'string',
+				})
+				.option('api-calls', {
+					description: 'enable API call breakpoints collector to track field value sniffs',
+					type: 'boolean',
+					default: true,
+				})
+				.option('requests', {
+					description: 'enable requests collector',
+					type: 'boolean',
+					default: true,
+				})
+				.option('headed', {
+					description: 'open a browser window',
+					type: 'boolean',
+					default: false,
+				})
+				.option('devtools', {
+					description: 'open developer tools',
+					type: 'boolean',
+					default: false,
+				})
+				.option('timeout', {
+					description: 'timeout for crawl, in seconds, or 0 to disable',
+					type: 'number',
+					default: 0,
+				})
+				.option('output', {
+					alias: 'out',
+					description: 'output file (--url) or directory (--urls-file)',
+					type: 'string',
+					normalize: true,
+				}))
 		  .demandCommand()
 		  .strict()
 		  .parseSync();
+
+	if (!args.url === !args.urlsFile) throw new Error('specify either --url or --urls-file');
 
 	let options: FieldsCollectorOptions = {};
 	if (args.config !== undefined) {
@@ -78,7 +110,7 @@ async function main() {
 				break;
 			case '.yml':
 			case '.yaml':
-				options = yaml.load(fs.readFileSync(args.config, {encoding: 'utf8'}), {
+				options = yaml.load(await fsp.readFile(args.config, 'utf8'), {
 					filename: path.basename(args.config),
 					onWarning: console.warn,
 				}) as FieldsCollectorOptions;
@@ -94,45 +126,128 @@ async function main() {
 		console.debug('loaded config: %o', options);
 	}
 
-	let logger: Logger = new ColoredLogger(new ConsoleLogger());
 	if (args.logLevel)
-		if ((logLevels as readonly string[]).includes(args.logLevel))
-			logger = new FilteringLogger(logger, args.logLevel as LogLevel);
-		else throw new Error(`invalid log level: ${args.logLevel}`);
+		if (!(logLevels as readonly string[]).includes(args.logLevel))
+			throw new Error(`invalid log level: ${args.logLevel}`);
+	const logLevel = args.logLevel as LogLevel | undefined;
 
-	const collectors: BaseCollector[] = [
-		new FieldsCollector(options, logger),
-	];
-	if (args.apiCalls) collectors.push(
-		  new APICallCollector(args.headed && args.devtools
-				? breakpoints
-				: breakpoints.map(b => ({
-					...b,
-					props: b.props.map(p => ({...p, pauseDebugger: false})),
-					methods: b.methods.map(m => ({...m, pauseDebugger: false})),
-				}))));
-	if (args.requests) collectors.push(new RequestCollector());
+	const apiBreakpoints = args.headed && args.devtools
+		  ? breakpoints
+		  : breakpoints.map(b => ({
+			  ...b,
+			  props: b.props.map(p => ({...p, pauseDebugger: false})),
+			  methods: b.methods.map(m => ({...m, pauseDebugger: false})),
+		  }));
 
-	const result = await crawler(
-		  new URL(args.url),
-		  {
-			  log: logger.log.bind(logger),
-			  maxCollectionTimeMs: args.timeout * 1e3,
-			  throwCollectorErrors: true,
-			  headed: args.headed,
-			  keepOpen: args.headed,
-			  devtools: args.devtools,
-			  collectors,
-		  },
-	);
-	if (args.output) {
-		fs.writeFileSync(args.output, JSON.stringify(result, undefined, '\t'));
-		console.info('output written to', args.output);
+	if (args.urlsFile) {
+		if (!args.output) throw new Error('--output must be specified with --urls-file');
+		const outputDir = args.output;
+
+		const urlsStr = await fsp.readFile(args.urlsFile, 'utf8');
+		const urls    = [...urlsStr.matchAll(/^\s*(.*\S)\s*$/mg)].map(m => m[1]!)
+			  .filter(l => !l.startsWith('#')).map(u => new URL(u));
+		console.log(`crawling ${urls.length} urls`);
+
+		await fsp.mkdir(outputDir, {recursive: true});
+
+		const progressBar = new ProgressBar(' :bar :current/:total:msg │ ETA: :etas', {
+			complete: chalk.green('═'),
+			incomplete: chalk.gray('┄'),
+			total: urls.length,
+			width: 30,
+		});
+		progressBar.render({msg: ''});
+
+		process.setMaxListeners(Infinity);
+		await eachLimit(urls, args.parallelism, async url => {
+			try {
+				const fileBase     = path.join(outputDir, sanitizeFilename(
+					  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
+					  {replacement: '_'},
+				));
+				const fileLogger   = new FileLogger(`${fileBase}.log`);
+				let logger: Logger = new TaggedLogger(fileLogger);
+				logger.info(`crawling ${url.href} at ${new Date().toString()}`);
+				if (logLevel) logger = new FilteringLogger(logger, logLevel);
+				const counter = logger = new CountingLogger(logger);
+
+				const collectors: BaseCollector[] = [
+					new FieldsCollector(options, logger),
+				];
+				if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
+				if (args.requests) collectors.push(new RequestCollector());
+
+				const result   = await crawler(
+					  url,
+					  {
+						  log: plainToLogger.bind(undefined, logger),
+						  maxCollectionTimeMs: args.timeout * 1e3,
+						  throwCollectorErrors: false,
+						  headed: args.headed,
+						  keepOpen: args.headed,
+						  devtools: args.devtools,
+						  collectors,
+					  },
+				);
+				const errors   = counter.count('error'),
+				      warnings = counter.count('warn');
+				if (errors || warnings)
+					progressBar.interrupt(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
+
+				await fsp.writeFile(`${fileBase}.json`, JSON.stringify(result, undefined, '\t'));
+				await fileLogger.finalize();
+			} catch (err) {
+				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
+			} finally {
+				progressBar.tick({msg: ` ✔️ ${url.href}`});
+			}
+		});
+		progressBar.terminate();
+
+		console.info('data & logs saved to', outputDir);
+
 	} else {
-		console.info('%o', result);  // %o: print more properties
-		// eslint-disable-next-line no-debugger
-		debugger  // Give you the ability to inspect the result in a debugger
+		const url = new URL(args.url!);
+
+		let logger: Logger = new ColoredLogger(new ConsoleLogger());
+		if (logLevel) logger = new FilteringLogger(logger, logLevel);
+
+		const collectors: BaseCollector[] = [
+			new FieldsCollector(options, logger),
+		];
+		if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
+		if (args.requests) collectors.push(new RequestCollector());
+
+		const result = await crawler(
+			  url,
+			  {
+				  log: plainToLogger.bind(logger),
+				  maxCollectionTimeMs: args.timeout * 1e3,
+				  throwCollectorErrors: true,
+				  headed: args.headed,
+				  keepOpen: args.headed,
+				  devtools: args.devtools,
+				  collectors,
+			  },
+		);
+		if (args.output) {
+			await fsp.writeFile(args.output, JSON.stringify(result, undefined, '\t'));
+			console.info('output written to', args.output);
+		} else {
+			console.info('%o', result);  // %o: print more properties
+			// eslint-disable-next-line no-debugger
+			debugger  // Give you the ability to inspect the result in a debugger
+		}
 	}
+}
+
+function plainToLogger(logger: Logger, ...args: unknown[]) {
+	let level: LogLevel = 'log';
+	if (typeof args[0] === 'string') {
+		if (args[0].includes('\x1B[31m' /*red*/)) level = 'error';
+		else if (args[0].includes('\x1B[33m' /*yellow*/)) level = 'warn';
+	}
+	logger.logLevel(level, ...args);
 }
 
 void main().catch(logError);

@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import util from 'node:util';
+
 import chalk, {Chalk} from 'chalk';
 import {ValueOf} from 'ts-essentials';
 
@@ -55,6 +58,65 @@ export class ConsoleLogger extends Logger {
 	}
 }
 
+export class FileLogger extends Logger {
+	readonly #groups: string[]  = [];
+	readonly #file: fs.WriteStream;
+	#error: unknown | undefined = undefined;
+
+	constructor(file: fs.PathLike | fs.WriteStream) {
+		super();
+		this.#file = file instanceof fs.WriteStream ? file : fs.createWriteStream(file, 'utf8');
+		this.#file.once('error', err => this.#error = err);
+	}
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		args.unshift(...this.#groups.map(g => `${g}❯`));
+		this.#file.write(args.map(o => typeof o === 'string' ? o : util.inspect(o)).join(' ') + '\n');
+	}
+
+	startGroup(name: string) {
+		this.#groups.push(name);
+	}
+
+	endGroup() {
+		this.#groups.pop();
+	}
+
+	checkError() {
+		return this.#error;
+	}
+
+	async finalize() {
+		const err = this.checkError();
+		if (err) throw err;
+		await new Promise<void>((resolve, reject) =>
+			  this.#file.close(err => err ? reject(err) : resolve()));
+	}
+}
+
+export class PlainLogger extends Logger {
+	readonly #log: (...args: unknown[]) => void;
+	readonly #groups: string[] = [];
+
+	constructor(log: (...args: unknown[]) => void) {
+		super();
+		this.#log = log;
+	}
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
+		this.#log(...args);
+	}
+
+	startGroup(name: string) {
+		this.#groups.push(name);
+	}
+
+	endGroup() {
+		this.#groups.pop();
+	}
+}
+
 export class ColoredLogger extends Logger {
 	readonly #log: Logger;
 	readonly #groups: string[] = [];
@@ -95,26 +157,25 @@ export class ColoredLogger extends Logger {
 	}
 }
 
-export class PlainLogger extends Logger {
-	readonly #log: (...args: unknown[]) => void;
-	readonly #groups: string[] = [];
+export class TaggedLogger extends Logger {
+	readonly #log: Logger;
 
-	constructor(log: (...args: unknown[]) => void) {
+	constructor(logger: Logger) {
 		super();
-		this.#log = log;
+		this.#log = logger;
 	}
 
 	logLevel(level: LogLevel, ...args: unknown[]) {
-		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
-		this.#log(...args);
+		args.unshift(`[${level.toUpperCase()}]`);
+		this.#log.logLevel(level, ...args);
 	}
 
 	startGroup(name: string) {
-		this.#groups.push(name);
+		this.#log.startGroup(name);
 	}
 
 	endGroup() {
-		this.#groups.pop();
+		this.#log.endGroup();
 	}
 }
 

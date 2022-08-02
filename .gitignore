@@ -2,3 +2,5 @@ node_modules/
 dist/
 ts-out/
 /crawl-config.*
+/out/
+/urls.txt
