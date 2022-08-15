@@ -25,7 +25,6 @@ import {
 } from './logger';
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
-import {logError} from './utils';
 import chalk from 'chalk';
 
 // Fix wrong type
@@ -221,7 +220,7 @@ async function main() {
 		const result = await crawler(
 			  url,
 			  {
-				  log: plainToLogger.bind(logger),
+				  log: plainToLogger.bind(undefined, logger),
 				  maxCollectionTimeMs: args.timeout * 1e3,
 				  throwCollectorErrors: true,
 				  headed: args.headed,
@@ -250,4 +249,4 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 	logger.logLevel(level, ...args);
 }
 
-void main().catch(logError);
+void main().catch(console.error);

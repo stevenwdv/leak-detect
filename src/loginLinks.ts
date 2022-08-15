@@ -77,8 +77,10 @@ export async function findLoginLinks(frame: Frame, exactMatch = false): Promise<
 					(el instanceof HTMLAnchorElement || el instanceof HTMLAreaElement) && loginRegex.test(el.href)
 			  ) ||
 			  el instanceof SVGAElement && loginRegex.test(el.href.baseVal) ||
+			  /* eslint-disable deprecation/deprecation */
 			  (el instanceof SVGElement && el.className instanceof SVGAnimatedString
 					? loginRegex.test(el.className.baseVal) : loginRegex.test(el.className))
+			  /* eslint-enable deprecation/deprecation */
 		));
 	}, loginRegexSrc);
 	return unwrapHandle(listHandle);

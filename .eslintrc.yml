@@ -1,6 +1,8 @@
 ﻿root: true
 parser: "@typescript-eslint/parser"
-plugins: [ "@typescript-eslint" ]
+plugins:
+  - "@typescript-eslint"
+  - deprecation
 
 overrides:
   - files: [ "*.ts" ]
@@ -32,4 +34,9 @@ overrides:
       "@typescript-eslint/no-unnecessary-condition":
         - warn
         - allowConstantLoopConditions: true
+      "@typescript-eslint/require-await": warn
       eslint-comments/no-unused-disable: warn
+      eslint-comments/disable-enable-pair:
+        - error
+        - allowWholeFile: true
+      deprecation/deprecation: warn
