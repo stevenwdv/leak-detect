@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import {createRunner, PuppeteerRunnerExtension} from '@puppeteer/replay';
-import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
+import {BrowserContext, ElementHandle, Frame, Page, TimeoutError} from 'puppeteer';
 import {groupBy} from 'ramda';
 import * as tldts from 'tldts';
 import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
@@ -29,7 +29,7 @@ import {
 	selectorStr,
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
-import {exposeFunction, getFrameStack, getPageFromHandle, isOfType, unwrapHandle} from './puppeteerUtils';
+import {exposeFunction, getFrameStack, getPageFromHandle, unwrapHandle} from './puppeteerUtils';
 import ErrnoException = NodeJS.ErrnoException;
 
 export class FieldsCollector extends BaseCollector {
@@ -321,7 +321,7 @@ export class FieldsCollector extends BaseCollector {
 			await frame.goto(url, {timeout: maxWaitTimeMs, waitUntil: 'load'});
 			await this.#sleep(this.#options.sleepMs?.postNavigate);
 		} catch (err) {
-			if (isOfType(err, 'TimeoutError')) {
+			if (err instanceof TimeoutError) {
 				this.#log?.log('navigation timeout exceeded (will continue)');
 				return;
 			}
@@ -345,7 +345,7 @@ export class FieldsCollector extends BaseCollector {
 						await frame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
 						return {msg: `navigated to ${frame.url()}`, target: frame};
 					} catch (err) {
-						if (isOfType(err, 'TimeoutError')) throw err;
+						if (err instanceof TimeoutError) throw err;
 						// Frame may be detached due to parent navigating
 						const page = frame.page();
 						await page.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
@@ -361,7 +361,7 @@ export class FieldsCollector extends BaseCollector {
 			await this.#sleep(this.#options.sleepMs?.postNavigate);
 			return target;
 		} catch (err) {
-			if (isOfType(err, 'TimeoutError')) {
+			if (err instanceof TimeoutError) {
 				this.#log?.log('navigation timeout exceeded (will continue)');
 				return null;
 			}

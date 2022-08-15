@@ -2,16 +2,6 @@ import {ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
 import {IsTuple} from 'ts-essentials';
 import TypedArray = NodeJS.TypedArray;
 
-// puppeteer does not actually export its classes, so we cannot use instanceof and instead need this stupid stuff
-/** Checks if `obj` is exactly of type `className` (not derived) */
-export function isOfType<Name extends string & keyof typeof import('puppeteer')>(obj: unknown, className: Name):
-	  obj is typeof import('puppeteer')[Name] extends abstract new (...args: never) => unknown
-			? InstanceType<typeof import('puppeteer')[Name]>
-			: never {
-	// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-	return Object.getPrototypeOf(obj)?.constructor?.name === className;
-}
-
 export function getPageFromHandle(handle: JSHandle): Page | null {
 	return handle.executionContext().frame()?.page() ?? null;
 }
