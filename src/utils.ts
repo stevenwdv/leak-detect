@@ -9,6 +9,10 @@ export type AsBound<Constructor extends { prototype: object } & (abstract new (.
 	  ? (this: InstanceType<Constructor>, ...args: P) => R
 	  : Constructor['prototype'][MemberName]
 
+export function notFalsy<T>(v: T | null | undefined | 0 | false | ''): v is T {
+	return !!v;
+}
+
 export function stripHash(url: string | URL): string {
 	return url.toString().match(/^[^#]*/)![0]!;
 }
@@ -94,6 +98,13 @@ export function formatDuration(ms: number): string {
 	if (!str) str += `${Math.ceil(ms)}ms `;
 	str = str.slice(0, -1);
 	return str;
+}
+
+export function appendDomainToEmail(email: string, domain: string) {
+	let emailSuffix = domain;
+	if (emailSuffix.startsWith('www.')) emailSuffix = emailSuffix.substring(4);
+	const [localPart, domainPart] = email.split('@') as [string, string];
+	return `${localPart}+${emailSuffix}@${domainPart}`;
 }
 
 export function populateDefaults<T>(obj: DeepPartial<T>, defaults: T): T {

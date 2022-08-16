@@ -33,15 +33,8 @@ export async function fillPasswordField(elem: ElementHandle, password: string, o
 
 
 export async function fillEmailField(
-	  elem: ElementHandle, hostname: string, emailAddress: string, options: FillTimesMs) {
-	let emailSuffix = hostname;
-	if (emailSuffix.startsWith('www.')) {
-		emailSuffix = emailSuffix.substring(4, 4 + emailSuffix.length);
-	}
-	const [local, domain] = emailAddress.split('@') as [string, string];
-	const emailToFill     = `${local}+${emailSuffix}@${domain}`;
-
-	await fillInputElement(elem, emailToFill, options);
+	  elem: ElementHandle, hostname: string, email: string, options: FillTimesMs) {
+	await fillInputElement(elem, email, options);
 }
 
 export async function submitField(elem: ElementHandle, clickDwellTimeMs: number) {

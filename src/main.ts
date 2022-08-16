@@ -4,11 +4,13 @@ import path from 'node:path';
 import consumers from 'node:stream/consumers';
 
 import async, {ErrorCallback, IterableCollection} from 'async';
+import chalk from 'chalk';
 import yaml from 'js-yaml';
 import jsonschema from 'jsonschema';
 import ProgressBar from 'progress';
 import sanitizeFilename from 'sanitize-filename';
 import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracker-radar-collector';
+import {CollectResult} from 'tracker-radar-collector/crawler';
 import yargs from 'yargs';
 
 import {FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
@@ -25,7 +27,8 @@ import {
 } from './logger';
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
-import chalk from 'chalk';
+import {appendDomainToEmail} from './utils';
+import {findValue} from './analysis';
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -120,8 +123,7 @@ async function main() {
 
 		const res = new jsonschema.Validator().validate(options, configSchema);
 		if (res.errors.length)
-			throw new AggregateError(res.errors.map(err => err.stack /*actually more like message*/),
-				  'config file validation failed');
+			throw new AggregateError(res.errors.map(String), 'config file validation failed');
 		console.debug('loaded config: %o', options);
 	}
 
@@ -193,6 +195,7 @@ async function main() {
 				if (errors || warnings)
 					progressBar.interrupt(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
 
+				//TODO report leaks
 				await fsp.writeFile(`${fileBase}.json`, JSON.stringify(result, undefined, '\t'));
 				await fileLogger.finalize();
 			} catch (err) {
@@ -211,9 +214,8 @@ async function main() {
 		let logger: Logger = new ColoredLogger(new ConsoleLogger());
 		if (logLevel) logger = new FilteringLogger(logger, logLevel);
 
-		const collectors: BaseCollector[] = [
-			new FieldsCollector(options, logger),
-		];
+		const fieldsCollector = new FieldsCollector(options, logger);
+		const collectors: BaseCollector[] = [fieldsCollector];
 		if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
 		if (args.requests) collectors.push(new RequestCollector());
 
@@ -237,7 +239,28 @@ async function main() {
 			// eslint-disable-next-line no-debugger
 			debugger  // Give you the ability to inspect the result in a debugger
 		}
+
+		await reportLeaks(fieldsCollector, result);
 	}
+}
+
+async function reportLeaks(fieldsCollector: FieldsCollector, crawlResult: CollectResult) {
+	if (!crawlResult.data.requests) return;
+	console.log('searching for leaked values...');
+	const values = {
+		email: fieldsCollector.options.fill.appendDomainToEmail
+			  ? appendDomainToEmail(fieldsCollector.options.fill.email, new URL(crawlResult.initialUrl).hostname)
+			  : fieldsCollector.options.fill.email,
+		password: fieldsCollector.options.fill.password,
+	};
+	for (const leak of (await Promise.all(Object.entries(values)
+		  .map(async ([prop, value]) =>
+				(await findValue(value, crawlResult.data.requests!))
+					  .map(({encodings, part, request: {url}}) => ({
+						  url: `Found ${prop} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`,
+						  body: `Found ${prop} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`,
+					  }[part]))))).flat())
+		console.info(leak);
 }
 
 function plainToLogger(logger: Logger, ...args: unknown[]) {

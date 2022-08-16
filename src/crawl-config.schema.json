@@ -1174,8 +1174,13 @@
                     "description": "Add and click a dummy button to detect Facebook leaks",
                     "type": "boolean"
                 },
-                "emailBase": {
-                    "description": "Email address to fill in (\"domainname+\" is prepended to this)",
+                "appendDomainToEmail": {
+                    "default": false,
+                    "description": "Append \"+domainname\" to the local part of the email address?",
+                    "type": "boolean"
+                },
+                "email": {
+                    "description": "Email address to fill in",
                     "type": "string"
                 },
                 "password": {

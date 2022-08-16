@@ -27,6 +27,7 @@
 		"sanitize-filename": "^1.6.3",
 		"tldts": "^5.7.89",
 		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#d9c7487",
+		"value-searcher": "github:stevenwdv/value-searcher#5b72f8a",
 		"yargs": "^17.5.1"
 	},
 	"devDependencies": {
