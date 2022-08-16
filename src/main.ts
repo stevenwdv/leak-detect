@@ -13,7 +13,7 @@ import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracke
 import {CollectResult} from 'tracker-radar-collector/crawler';
 import yargs from 'yargs';
 
-import {FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
+import {FieldCollectorData, FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
 import {
 	ColoredLogger,
 	ConsoleLogger,
@@ -29,6 +29,7 @@ import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail} from './utils';
 import {findValue} from './analysis';
+import {UnreachableCaseError} from 'ts-essentials';
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -172,13 +173,12 @@ async function main() {
 				if (logLevel) logger = new FilteringLogger(logger, logLevel);
 				const counter = logger = new CountingLogger(logger);
 
-				const collectors: BaseCollector[] = [
-					new FieldsCollector(options, logger),
-				];
+				const fieldsCollector             = new FieldsCollector(options, logger);
+				const collectors: BaseCollector[] = [fieldsCollector];
 				if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
 				if (args.requests) collectors.push(new RequestCollector());
 
-				const result   = await crawler(
+				const crawlResult = await crawler(
 					  url,
 					  {
 						  log: plainToLogger.bind(undefined, logger),
@@ -189,14 +189,23 @@ async function main() {
 						  devtools: args.devtools,
 						  collectors,
 					  },
-				);
+				) as CrawlResult;
+
+				const output: OutputFile = {crawlResult};
+
+				try {
+					const leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
+					if (leakedValues) output.leakedValues = leakedValues;
+				} catch (err) {
+					logger.error('error while searching for leaks', err);
+				}
+
 				const errors   = counter.count('error'),
 				      warnings = counter.count('warn');
 				if (errors || warnings)
 					progressBar.interrupt(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
 
-				//TODO report leaks
-				await fsp.writeFile(`${fileBase}.json`, JSON.stringify(result, undefined, '\t'));
+				await fsp.writeFile(`${fileBase}.json`, JSON.stringify(output, undefined, '\t'));
 				await fileLogger.finalize();
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
@@ -214,12 +223,12 @@ async function main() {
 		let logger: Logger = new ColoredLogger(new ConsoleLogger());
 		if (logLevel) logger = new FilteringLogger(logger, logLevel);
 
-		const fieldsCollector = new FieldsCollector(options, logger);
+		const fieldsCollector             = new FieldsCollector(options, logger);
 		const collectors: BaseCollector[] = [fieldsCollector];
 		if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
 		if (args.requests) collectors.push(new RequestCollector());
 
-		const result = await crawler(
+		const crawlResult = await crawler(
 			  url,
 			  {
 				  log: plainToLogger.bind(undefined, logger),
@@ -230,37 +239,59 @@ async function main() {
 				  devtools: args.devtools,
 				  collectors,
 			  },
-		);
+		) as CrawlResult;
+
+		const output: OutputFile = {crawlResult};
+
+		logger.log('searching for leaked values in web requests');
+		const leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
+		if (leakedValues) {
+			output.leakedValues = leakedValues;
+			for (const {type, requestIndex, part, encodings} of leakedValues) {
+				const {url} = crawlResult.data.requests![requestIndex]!;
+				switch (part) {
+					case 'url':
+						logger.info(`Found ${type} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+						break;
+					case 'body':
+						logger.info(`Found ${type} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+						break;
+					default:
+						throw new UnreachableCaseError(part);
+				}
+			}
+		}
+
 		if (args.output) {
-			await fsp.writeFile(args.output, JSON.stringify(result, undefined, '\t'));
+			await fsp.writeFile(args.output, JSON.stringify(output, undefined, '\t'));
 			console.info('output written to', args.output);
 		} else {
-			console.info('%o', result);  // %o: print more properties
+			console.info('%o', output);  // %o: print more properties
 			// eslint-disable-next-line no-debugger
 			debugger  // Give you the ability to inspect the result in a debugger
 		}
-
-		await reportLeaks(fieldsCollector, result);
 	}
 }
 
-async function reportLeaks(fieldsCollector: FieldsCollector, crawlResult: CollectResult) {
-	if (!crawlResult.data.requests) return;
-	console.log('searching for leaked values...');
+async function getLeakedValues(
+	  fieldsCollector: FieldsCollector, crawlResult: CollectResult): Promise<null | LeakedValue[]> {
+	const requests = crawlResult.data.requests;
+	if (!requests) return null;
+
 	const values = {
 		email: fieldsCollector.options.fill.appendDomainToEmail
 			  ? appendDomainToEmail(fieldsCollector.options.fill.email, new URL(crawlResult.initialUrl).hostname)
 			  : fieldsCollector.options.fill.email,
 		password: fieldsCollector.options.fill.password,
 	};
-	for (const leak of (await Promise.all(Object.entries(values)
-		  .map(async ([prop, value]) =>
-				(await findValue(value, crawlResult.data.requests!))
-					  .map(({encodings, part, request: {url}}) => ({
-						  url: `Found ${prop} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`,
-						  body: `Found ${prop} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`,
-					  }[part]))))).flat())
-		console.info(leak);
+
+	return (await Promise.all(Object.entries(values).map(async ([prop, value]) =>
+		  (await findValue(value, requests))
+				.map(({part, request, encodings}) => ({
+					type: prop as keyof typeof values,
+					requestIndex: requests.indexOf(request),
+					part, encodings,
+				} as const))))).flat();
 }
 
 function plainToLogger(logger: Logger, ...args: unknown[]) {
@@ -273,3 +304,20 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 }
 
 void main().catch(console.error);
+
+type CrawlResult =
+	  CollectResult
+	  & { data: { [fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldCollectorData } };
+
+interface OutputFile {
+	crawlResult: CrawlResult;
+	leakedValues?: LeakedValue[];
+}
+
+interface LeakedValue {
+	type: 'password' | 'email';
+	requestIndex: number;
+	part: 'url' | 'body';
+	/** Encodings (e.g. `uri`) that were used to encode value, outside-in */
+	encodings: string[];
+}
