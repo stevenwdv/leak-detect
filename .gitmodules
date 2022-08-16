@@ -1,0 +1,3 @@
+[submodule "value-searcher"]
+	path = value-searcher
+	url = https://github.com/stevenwdv/value-searcher
