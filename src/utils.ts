@@ -27,6 +27,9 @@ export function stripHash(url: string | URL): string {
  * ) === 'page?n=42'
  */
 export function getRelativeUrl(url: URL, base: URL): string {
+	if (!url.protocol.startsWith('http') || !base.protocol.startsWith('http'))
+		return url.href;
+
 	let protocol  = url.protocol,
 	    authority = url.host,
 	    path      = url.pathname,
@@ -72,7 +75,8 @@ export function trySetWith<K, V>(map: Map<K, V>, key: K, getValue: () => V): boo
 
 /** Add `map(element)` for each element in `items` to `seen` and return elements that were not in `seen` before */
 export function filterUniqBy<ItemType, FilterType>(items: ItemType[], seen: Set<FilterType>,
-                                                   map: (item: ItemType) => FilterType): ItemType[] {
+	  map: (item: ItemType) => FilterType,
+): ItemType[] {
 	return items.filter(item => tryAdd(seen, map(item)));
 }
 

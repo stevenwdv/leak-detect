@@ -67,7 +67,7 @@ function formSelectorFromRoot(elem: Element): string {
 	let mySelector;
 
 	if (elem.id) {
-		const globalSelector = /^[a-z0-9_-]+$/i.test(elem.id)
+		const globalSelector = /^[a-z_][a-z0-9_-]*$/i.test(elem.id)
 			  ? `#${elem.id}`
 			  : `[id='${escapeAttrVal(elem.id)}']`;
 		if (globallyUnique(globalSelector)) return globalSelector;

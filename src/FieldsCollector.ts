@@ -434,6 +434,8 @@ export class FieldsCollector extends BaseCollector {
 				allDone = true;  // All frames are done
 			}
 
+			if (this.#processedFields.size >= this.options.fill.maxFields)
+				this.#log?.log('reached maximum number of filled fields');
 			this.#log?.log(`processed ${pageFields.length} new fields`);
 			return pageFields;
 		});
@@ -447,6 +449,8 @@ export class FieldsCollector extends BaseCollector {
 	 *  Also includes previously processed fields in forms which have new fields.
 	 */
 	async #processFields(frame: Frame): Promise<{ fields: FieldElementAttrs[] | null, done: boolean }> {
+		if (this.#processedFields.size >= this.options.fill.maxFields)
+			return {fields: null, done: true};
 		const frameFields = await this.#findFields(frame);
 		if (!frameFields) return {fields: null, done: true};
 
@@ -494,7 +498,8 @@ export class FieldsCollector extends BaseCollector {
 							// Otherwise, just the submitted field
 							fields: formSelector ? formFields.map(f => f.attrs) : [field.attrs],
 							// We are done if this was the last form or the last loose field
-							done: lastForm && this.#processedFields.has(getElemIdentifier(formFields.at(-1)!)),
+							done: lastForm && this.#processedFields.has(getElemIdentifier(formFields.at(-1)!))
+								  || this.#processedFields.size >= this.options.fill.maxFields,
 						};
 					} catch (err) {
 						this.#reportError(err, ['failed to process form', formSelector], 'warn');
@@ -848,6 +853,9 @@ export interface FieldsCollectorOptions {
 		/** Add and click a dummy button to detect Facebook leaks
 		 * @default true */
 		addFacebookButton?: boolean;
+		/** Maximum number of fields to fill (approximate)
+		 * @minimum 0 */
+		maxFields?: integer;
 	};
 	/**
 	 * Transform calls to attach closed ShadowRoots into calls to attach open ones,
@@ -912,7 +920,7 @@ export const defaultOptions: FullFieldsCollectorOptions = {
 			betweenKeys: 250,
 		},
 	},
-	clickLinkCount: 10,
+	clickLinkCount: 5,
 	skipExternal: 'frames',
 	stopEarly: false,
 	fill: {
@@ -921,6 +929,7 @@ export const defaultOptions: FullFieldsCollectorOptions = {
 		password: 'The--P@s5w0rd',
 		submit: true,
 		addFacebookButton: true,
+		maxFields: 10,
 	},
 	disableClosedShadowDom: true,
 	interactChains: [],

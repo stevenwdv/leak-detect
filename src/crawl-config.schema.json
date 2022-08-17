@@ -1183,6 +1183,11 @@
                     "description": "Email address to fill in",
                     "type": "string"
                 },
+                "maxFields": {
+                    "description": "Maximum number of fields to fill (approximate)",
+                    "minimum": 0,
+                    "type": "integer"
+                },
                 "password": {
                     "description": "Password to fill in",
                     "type": "string"
