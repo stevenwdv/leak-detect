@@ -104,7 +104,7 @@ export class PlainLogger extends Logger {
 	}
 
 	logLevel(level: LogLevel, ...args: unknown[]) {
-		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
+		args.unshift(...this.#groups.map(g => `${chalk.gray(g)}❯`));
 		this.#log(...args);
 	}
 
@@ -144,7 +144,7 @@ export class ColoredLogger extends Logger {
 		const prefix = prefixes[level];
 		if (prefix) args.unshift(color(prefix));
 		args = args.map(a => typeof a === 'string' ? color(a) : a);
-		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
+		args.unshift(...this.#groups.map(g => `${chalk.gray(g)}❯`));
 		this.#log.logLevel(level, ...args);
 	}
 

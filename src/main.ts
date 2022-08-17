@@ -13,7 +13,7 @@ import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracke
 import {CollectResult} from 'tracker-radar-collector/crawler';
 import yargs from 'yargs';
 
-import {FieldCollectorData, FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
+import {defaultOptions, FieldCollectorData, FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
 import {
 	ColoredLogger,
 	ConsoleLogger,
@@ -27,7 +27,7 @@ import {
 } from './logger';
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
-import {appendDomainToEmail} from './utils';
+import {appendDomainToEmail, populateDefaults} from './utils';
 import {findValue} from './analysis';
 import {UnreachableCaseError} from 'ts-essentials';
 
@@ -36,6 +36,11 @@ const eachLimit = async.eachLimit as <T, E = Error>(
 	  arr: IterableCollection<T>, limit: number,
 	  iterator: (item: T, callback: ErrorCallback<E>) => Promise<void> /*added*/ | void,
 ) => Promise<void>;
+
+process.on('uncaughtExceptionMonitor', (error, origin) =>
+	  console.error('\n❌️', origin));
+
+process.on('exit', () => process.stdout.write('\x1B]9;4;0;0\x1B\\'));
 
 async function main() {
 	const args = yargs
@@ -125,8 +130,9 @@ async function main() {
 		const res = new jsonschema.Validator().validate(options, configSchema);
 		if (res.errors.length)
 			throw new AggregateError(res.errors.map(String), 'config file validation failed');
-		console.debug('loaded config: %o', options);
 	}
+
+	console.debug('crawler config: %o', populateDefaults(options, defaultOptions));
 
 	if (args.logLevel)
 		if (!(logLevels as readonly string[]).includes(args.logLevel))
@@ -148,7 +154,7 @@ async function main() {
 		const urlsStr = await fsp.readFile(args.urlsFile, 'utf8');
 		const urls    = [...urlsStr.matchAll(/^\s*(.*\S)\s*$/mg)].map(m => m[1]!)
 			  .filter(l => !l.startsWith('#')).map(u => new URL(u));
-		console.log(`crawling ${urls.length} urls`);
+		console.log(`crawling ${urls.length} URLs (max ${args.parallelism} in parallel)`);
 
 		await fsp.mkdir(outputDir, {recursive: true});
 
@@ -159,9 +165,16 @@ async function main() {
 			width: 30,
 		});
 		progressBar.render({msg: ''});
+		process.stdout.write('\x1B]9;4;1;0\x1B\\');
+
+		const urlsInProgress = new Set<string>();
+
+		process.on('uncaughtExceptionMonitor', () =>
+			  console.log('URLs for which crawl was in progress:\n', [...urlsInProgress].join('\n')));
 
 		process.setMaxListeners(Infinity);
 		await eachLimit(urls, args.parallelism, async url => {
+			urlsInProgress.add(url.href);
 			try {
 				const fileBase     = path.join(outputDir, sanitizeFilename(
 					  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
@@ -209,9 +222,14 @@ async function main() {
 				await fileLogger.finalize();
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
-			} finally {
-				progressBar.tick({msg: ` ✔️ ${url.href}`});
 			}
+			urlsInProgress.delete(url.href);
+			const maxUrlLength = 70;
+			progressBar.tick({
+				msg: ` ✔️ ${
+					  url.href.length > maxUrlLength ? `${url.href.substring(0, maxUrlLength - 1)}…` : url.href}`,
+			});
+			process.stdout.write(`\x1B]9;4;1;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1B\\`);
 		});
 		progressBar.terminate();
 
@@ -228,6 +246,7 @@ async function main() {
 		if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
 		if (args.requests) collectors.push(new RequestCollector());
 
+		process.stdout.write('\x1B]9;4;3;0\x1B\\');
 		const crawlResult = await crawler(
 			  url,
 			  {
@@ -271,6 +290,7 @@ async function main() {
 			debugger  // Give you the ability to inspect the result in a debugger
 		}
 	}
+	console.info('\x07');
 }
 
 async function getLeakedValues(
@@ -298,12 +318,12 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 	let level: LogLevel = 'log';
 	if (typeof args[0] === 'string') {
 		if (args[0].includes('\x1B[31m' /*red*/)) level = 'error';
-		else if (args[0].includes('\x1B[33m' /*yellow*/)) level = 'warn';
+		else if (args[0].includes('\x1B[33m' /*yellow*/) || args[0].includes('⚠')) level = 'warn';
 	}
 	logger.logLevel(level, ...args);
 }
 
-void main().catch(console.error);
+void main().catch(err => console.error('\n❌️', err));
 
 type CrawlResult =
 	  CollectResult
