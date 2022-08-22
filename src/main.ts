@@ -105,33 +105,34 @@ async function main() {
 
 	if (!args.url === !args.urlsFile) throw new Error('specify either --url or --urls-file');
 
-	let options: FieldsCollectorOptions = {};
+	let readOptions;
 	if (args.config !== undefined) {
 		const extension = path.extname(args.config).toLowerCase();
 		switch (extension) {
 			case '.json':
-				options = await consumers.json(fs.createReadStream(args.config))
+				readOptions = await consumers.json(fs.createReadStream(args.config))
 					  .catch(reason => {
 						  console.error('error parsing config file');
 						  return Promise.reject(reason);
-					  }) as FieldsCollectorOptions;
+					  });
 				break;
 			case '.yml':
 			case '.yaml':
-				options = yaml.load(await fsp.readFile(args.config, 'utf8'), {
+				readOptions = yaml.load(await fsp.readFile(args.config, 'utf8'), {
 					filename: path.basename(args.config),
 					onWarning: console.warn,
-				}) as FieldsCollectorOptions;
+				});
 				break;
 			default:
 				throw new Error(`unknown config file extension: ${extension || '<none>'}`);
 		}
 
-		const res = new jsonschema.Validator().validate(options, configSchema);
+		const res = new jsonschema.Validator().validate(readOptions, configSchema);
 		if (res.errors.length)
 			throw new AggregateError(res.errors.map(String), 'config file validation failed');
 	}
 
+	const options = (readOptions ?? {}) as FieldsCollectorOptions;
 	console.debug('crawler config: %o', populateDefaults(options, defaultOptions));
 
 	if (args.logLevel)
