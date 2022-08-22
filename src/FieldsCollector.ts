@@ -916,7 +916,7 @@ export const defaultOptions: FullFieldsCollectorOptions = {
 	sleepMs: {
 		postFill: 5_000,
 		postFacebookButtonClick: 1_000,
-		postNavigate: 1_000,
+		postNavigate: 4_000,
 		fill: {
 			clickDwell: 100,
 			keyDwell: 100,
