@@ -414,7 +414,9 @@ export class FieldsCollector extends BaseCollector {
 
 			let allDone = false;
 			while (!allDone) oneSubmission: {
-				const incompleteFrames = page.frames().filter(frame => !completedFrames.has(frame.url()));
+				const incompleteFrames = page.frames()
+					  .filter(frame => frame.url()  // Skip mixed-content frames, see puppeteer/puppeteer#8812
+							&& !completedFrames.has(frame.url()));
 				for (const frame of incompleteFrames) {
 					const {fields: frameFields, done: frameDone} = await this.#group(
 						  `frame ${getRelativeUrl(new URL(frame.url()), new URL(logPageUrl))}`,
