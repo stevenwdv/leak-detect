@@ -40,7 +40,9 @@ const eachLimit = async.eachLimit as <T, E = Error>(
 process.on('uncaughtExceptionMonitor', (error, origin) =>
 	  console.error('\n\n❌️', origin));
 
-process.on('exit', () => process.stdout.write('\x1B]9;4;0;0\x1B\\'));
+process.on('exit', () => process.stdout.write('\x1b]9;4;0;0\x1b\\'));
+
+process.stdout.write('\x1b]0;leak detector\x1b\\');
 
 async function main() {
 	const args = yargs
@@ -58,6 +60,11 @@ async function main() {
 					description: 'Number of crawls to run in parallel if --urls-file was specified',
 					type: 'number',
 					default: 30,
+				})
+				.option('log-succeeded', {
+					description: 'Print out URLs of succeeded crawls with --urls-file as well',
+					type: 'boolean',
+					default: false,
 				})
 				.option('config', {
 					description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
@@ -166,7 +173,7 @@ async function main() {
 			width: 30,
 		});
 		progressBar.render({msg: ''});
-		process.stdout.write('\x1B]9;4;1;0\x1B\\');
+		process.stdout.write('\x1b]9;4;1;0\x1b\\');
 
 		const urlsInProgress: string[] = [];
 
@@ -218,6 +225,8 @@ async function main() {
 				      warnings = counter.count('warn');
 				if (errors || warnings)
 					progressBar.interrupt(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
+				else if (args.logSucceeded)
+					progressBar.interrupt(`✔️ ${url.href}`);
 
 				await fsp.writeFile(`${fileBase}.json`, JSON.stringify(output, undefined, '\t'));
 				await fileLogger.finalize();
@@ -227,10 +236,10 @@ async function main() {
 			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
 			const maxUrlLength = 60;
 			progressBar.tick({
-				msg: ` ✔️ ${
+				msg: ` ✓ ${
 					  url.href.length > maxUrlLength ? `${url.href.substring(0, maxUrlLength - 1)}…` : url.href}`,
 			});
-			process.stdout.write(`\x1B]9;4;1;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1B\\`);
+			process.stdout.write(`\x1b]9;4;1;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1b\\`);
 		});
 		progressBar.terminate();
 
@@ -247,7 +256,7 @@ async function main() {
 		if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
 		if (args.requests) collectors.push(new RequestCollector());
 
-		process.stdout.write('\x1B]9;4;3;0\x1B\\');
+		process.stdout.write('\x1b]9;4;3;0\x1b\\');
 		const crawlResult = await crawler(
 			  url,
 			  {
@@ -318,8 +327,8 @@ async function getLeakedValues(
 function plainToLogger(logger: Logger, ...args: unknown[]) {
 	let level: LogLevel = 'log';
 	if (typeof args[0] === 'string') {
-		if (args[0].includes('\x1B[31m' /*red*/)) level = 'error';
-		else if (args[0].includes('\x1B[33m' /*yellow*/)
+		if (args[0].includes('\x1b[31m' /*red*/)) level = 'error';
+		else if (args[0].includes('\x1b[33m' /*yellow*/)
 			  || args[0].includes('⚠')
 			  || args.some(a => a instanceof Error)) level = 'warn';
 	}
@@ -329,7 +338,7 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 void (async () => {
 	try {
 		await main();
-		process.stdout.write('\x1B]9;4;1;100\x1B\\');
+		process.stdout.write('\x1b]9;4;1;100\x1b\\');
 	} catch (err) {
 		console.error('\n❌️', err);
 		process.exitCode = 1;
