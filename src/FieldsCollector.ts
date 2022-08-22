@@ -59,7 +59,7 @@ export class FieldsCollector extends BaseCollector {
 	/** Pages that password leak callback has been injected into */
 	#injectedPasswordCallback = new Set<Page>();
 
-	#events: FieldCollectorEvent[]   = [];
+	#events: FieldsCollectorEvent[]  = [];
 	/** Selectors of processed fields */
 	#processedFields                 = new Set<string>();
 	#passwordLeaks: PasswordLeak[]   = [];
@@ -86,7 +86,7 @@ export class FieldsCollector extends BaseCollector {
 			}
 			const timeDiff = fs.statSync('./inject/src/main.ts').mtimeMs - bundleTime;
 			if (timeDiff > 0)
-				console.error(`⚠️ inject script was modified ${formatDuration(timeDiff)} after bundle creation, ` +
+				console.warn(`⚠️ inject script was modified ${formatDuration(timeDiff)} after bundle creation, ` +
 					  'you should probably run `npm run pack` in the `inject` folder');
 			const injectSrc = fs.readFileSync('./inject/dist/bundle.js', 'utf8');
 			// eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -161,7 +161,7 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldCollectorData> {
+	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldsCollectorData> {
 		this.#dataParams = options;
 
 		if (this.#siteDomain === null && this.#initialUrl.hostname !== 'localhost') {
@@ -959,31 +959,31 @@ export interface VisitedTarget {
 
 //region Events
 // noinspection JSUnusedGlobalSymbols
-export abstract class FieldCollectorEvent {
+export abstract class FieldsCollectorEvent {
 	protected constructor(public readonly type: string, public readonly time = Date.now()) {}
 }
 
 // noinspection JSUnusedGlobalSymbols
-export class FillEvent extends FieldCollectorEvent {
+export class FillEvent extends FieldsCollectorEvent {
 	constructor(public readonly field: SelectorChain) {
 		super('fill');
 	}
 }
 
 // noinspection JSUnusedGlobalSymbols
-export class SubmitEvent extends FieldCollectorEvent {
+export class SubmitEvent extends FieldsCollectorEvent {
 	constructor(public readonly field: SelectorChain) {
 		super('submit');
 	}
 }
 
-export class FacebookButtonEvent extends FieldCollectorEvent {
+export class FacebookButtonEvent extends FieldsCollectorEvent {
 	constructor() {
 		super('fb-button');
 	}
 }
 
-export class ReturnEvent extends FieldCollectorEvent {
+export class ReturnEvent extends FieldsCollectorEvent {
 	/**
 	 * @param toLanding Return to landing page after examining a page for a link?
 	 */
@@ -993,7 +993,7 @@ export class ReturnEvent extends FieldCollectorEvent {
 }
 
 // noinspection JSUnusedGlobalSymbols
-export class ClickLinkEvent extends FieldCollectorEvent {
+export class ClickLinkEvent extends FieldsCollectorEvent {
 	constructor(public readonly link: SelectorChain, public readonly linkType: 'auto' | 'manual') {
 		super('link');
 	}
@@ -1008,14 +1008,14 @@ interface ErrorInfo {
 	level: 'error' | 'warn';
 }
 
-export type FieldCollectorData = Record<string, never> | {
+export type FieldsCollectorData = Record<string, never> | {
 	/** Similar to what {@link import('tracker-radar-collector').TargetCollector} does but with timestamps */
 	visitedTargets: VisitedTarget[],
 	fields: FieldElementAttrs[],
 	/** `null` on fail */
 	links: LinkElementAttrs[] | null,
 	passwordLeaks: PasswordLeak[],
-	events: FieldCollectorEvent[],
+	events: FieldsCollectorEvent[],
 	errors: ErrorInfo[],
 };
 

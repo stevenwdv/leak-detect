@@ -13,7 +13,7 @@ import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracke
 import {CollectResult} from 'tracker-radar-collector/crawler';
 import yargs from 'yargs';
 
-import {defaultOptions, FieldCollectorData, FieldsCollector, FieldsCollectorOptions} from './FieldsCollector';
+import {defaultOptions, FieldsCollector, FieldsCollectorData, FieldsCollectorOptions} from './FieldsCollector';
 import {
 	ColoredLogger,
 	ConsoleLogger,
@@ -38,7 +38,7 @@ const eachLimit = async.eachLimit as <T, E = Error>(
 ) => Promise<void>;
 
 process.on('uncaughtExceptionMonitor', (error, origin) =>
-	  console.error('\n❌️', origin));
+	  console.error('\n\n❌️', origin));
 
 process.on('exit', () => process.stdout.write('\x1B]9;4;0;0\x1B\\'));
 
@@ -167,14 +167,14 @@ async function main() {
 		progressBar.render({msg: ''});
 		process.stdout.write('\x1B]9;4;1;0\x1B\\');
 
-		const urlsInProgress = new Set<string>();
+		const urlsInProgress: string[] = [];
 
 		process.on('uncaughtExceptionMonitor', () =>
-			  console.log('URLs for which crawl was in progress:\n', [...urlsInProgress].join('\n')));
+			  console.log(`\nURLs for which crawl was in progress:\n${urlsInProgress.join('\n')}\n`));
 
 		process.setMaxListeners(Infinity);
 		await eachLimit(urls, args.parallelism, async url => {
-			urlsInProgress.add(url.href);
+			urlsInProgress.push(url.href);
 			try {
 				const fileBase     = path.join(outputDir, sanitizeFilename(
 					  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
@@ -223,8 +223,8 @@ async function main() {
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 			}
-			urlsInProgress.delete(url.href);
-			const maxUrlLength = 70;
+			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
+			const maxUrlLength = 60;
 			progressBar.tick({
 				msg: ` ✔️ ${
 					  url.href.length > maxUrlLength ? `${url.href.substring(0, maxUrlLength - 1)}…` : url.href}`,
@@ -252,7 +252,7 @@ async function main() {
 			  {
 				  log: plainToLogger.bind(undefined, logger),
 				  maxCollectionTimeMs: args.timeout * 1e3,
-				  throwCollectorErrors: true,
+				  throwCollectorErrors: false,
 				  headed: args.headed,
 				  keepOpen: args.headed,
 				  devtools: args.devtools,
@@ -318,16 +318,26 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 	let level: LogLevel = 'log';
 	if (typeof args[0] === 'string') {
 		if (args[0].includes('\x1B[31m' /*red*/)) level = 'error';
-		else if (args[0].includes('\x1B[33m' /*yellow*/) || args[0].includes('⚠')) level = 'warn';
+		else if (args[0].includes('\x1B[33m' /*yellow*/)
+			  || args[0].includes('⚠')
+			  || args.some(a => a instanceof Error)) level = 'warn';
 	}
 	logger.logLevel(level, ...args);
 }
 
-void main().catch(err => console.error('\n❌️', err));
+void (async () => {
+	try {
+		await main();
+		process.stdout.write('\x1B]9;4;1;100\x1B\\');
+	} catch (err) {
+		console.error('\n❌️', err);
+		process.exitCode = 1;
+	}
+})();
 
 type CrawlResult =
 	  CollectResult
-	  & { data: { [fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldCollectorData } };
+	  & { data: { [fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldsCollectorData } };
 
 interface OutputFile {
 	crawlResult: CrawlResult;

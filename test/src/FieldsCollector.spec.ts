@@ -12,8 +12,8 @@ import {CrawlOptions} from 'tracker-radar-collector/crawler';
 import {
 	ClickLinkEvent,
 	FacebookButtonEvent,
-	FieldCollectorData,
 	FieldsCollector,
+	FieldsCollectorData,
 	FieldsCollectorOptions,
 	FillEvent,
 	ReturnEvent,
@@ -55,7 +55,7 @@ void (async () => {
 
 		async function runCrawler(
 			  page: string, t: Tap.Test, log: Logger, options: FieldsCollectorOptions = {}, noError = true):
-			  Promise<FieldCollectorData> {
+			  Promise<FieldsCollectorData> {
 			const result = await crawler(
 				  new URL(page, baseUrl),
 				  {
@@ -67,7 +67,7 @@ void (async () => {
 				  },
 			);
 			t.ok(!result.timeout, 'TRC should not time out');
-			const fields = (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldCollectorData }).fields;
+			const fields = (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData }).fields;
 			if (noError) {
 				t.strictNotSame(fields, {}, 'should return a result');
 				t.strictSame(fields.errors, [], 'should not generate any errors');
@@ -234,7 +234,7 @@ void (async () => {
 							  new RequestCollector(),
 						  ],
 					  },
-				)).data as CollectorData & { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldCollectorData };
+				)).data as CollectorData & { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData };
 
 				t.ok(data.fields.events.find(ev => ev instanceof FacebookButtonEvent), 'should add Facebook button');
 				t.ok(data.requests!.find(r => r.url === new URL('facebook.html', baseUrl).href),
