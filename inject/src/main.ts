@@ -77,9 +77,15 @@ function formSelectorFromRoot(elem: Element): string {
 	mySelector ||= elem.hasAttribute('name') && validSelector(`[name='${escapeAttrVal(elem.getAttribute('name')!)}']`);
 	mySelector ||= elem.tagName.toLowerCase();
 
-	const sameSiblings = matchSiblings(mySelector);
-	if (sameSiblings.matchCount > 1)
-		mySelector += `:nth-of-type(${sameSiblings.index + 1})`;
+	let sameSiblings = matchSiblings(mySelector);
+	if (sameSiblings.matchCount > 1) {
+		// Note: :nth-of-type takes selects the xth element with the matched *tag name*, unlike XPath's [x]
+		//TODO use :nth-child(x of mySelector) when it becomes available
+		mySelector   = elem.tagName.toLowerCase();
+		sameSiblings = matchSiblings(mySelector);
+		if (sameSiblings.matchCount > 1)
+			mySelector += `:nth-of-type(${sameSiblings.index + 1})`;
+	}
 
 	// No parentElement: parentNode is ShadowRoot
 	const parentSelector = elem.parentElement ? formSelectorFromRoot(elem.parentElement) : ':host';
@@ -105,12 +111,15 @@ export function formSelectorChain(elem: Element): SelectorChain {
  * Get Node from CSS selector chain, across Shadow roots
  * @param reference Default: {@link document}
  */
-export function getElementBySelectorChain(selectorChain: SelectorChain, reference: ParentNode = document): SelectorChainResult | null {
+export function getElementBySelectorChain(
+	  selectorChain: SelectorChain, reference: ParentNode = document): SelectorChainResult | null {
 	let unique = true;
 	if (!selectorChain.length) return reference instanceof Element ? {elem: reference, unique} : null;
-	for (const [i, selector] of selectorChain.entries()) {
-		const matches = reference.querySelectorAll(selector);
-		const [match] = matches;
+	// Cannot use selectorChain.entries(), because some 'scriptaculous' library overrides it with a wrong implementation
+	for (let i = 0; i < selectorChain.length; ++i) {
+		const selector = selectorChain[i]!;
+		const matches  = reference.querySelectorAll(selector);
+		const [match]  = matches;
 		if (!match) return null;
 		if (i + 1 < selectorChain.length) {
 			const shadow = match.shadowRoot;
