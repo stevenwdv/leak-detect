@@ -16,17 +16,17 @@
 		"inject"
 	],
 	"dependencies": {
-		"@puppeteer/replay": "^0.6.1",
+		"@puppeteer/replay": "^1.0.0",
 		"async": "^3.2.4",
 		"chalk": "^4.1.2",
 		"js-yaml": "^4.1.0",
 		"jsonschema": "^1.4.1",
 		"progress": "^2.0.3",
-		"puppeteer": "^15.5.0",
+		"puppeteer": "^16.2.0",
 		"ramda": "^0.28.0",
 		"sanitize-filename": "^1.6.3",
 		"tldts": "^5.7.89",
-		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#06cfa8d",
+		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#a7056594",
 		"value-searcher": "file:value-searcher",
 		"yargs": "^17.5.1"
 	},
