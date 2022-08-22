@@ -3,10 +3,10 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import {createRunner, PuppeteerRunnerExtension} from '@puppeteer/replay';
-import {BrowserContext, ElementHandle, Frame, Page, TimeoutError} from 'puppeteer';
+import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 import {groupBy} from 'ramda';
 import * as tldts from 'tldts';
-import {BaseCollector, TargetCollector} from 'tracker-radar-collector';
+import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
 import {DeepRequired, UnreachableCaseError} from 'ts-essentials';
 
 import {SelectorChain} from 'leak-detect-inject';
@@ -39,6 +39,7 @@ import {
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
 import {exposeFunction, getFrameStack, getPageFromHandle, unwrapHandle} from './puppeteerUtils';
+import TimeoutError = puppeteer.TimeoutError;
 import ErrnoException = NodeJS.ErrnoException;
 
 export class FieldsCollector extends BaseCollector {
