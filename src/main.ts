@@ -11,6 +11,8 @@ import ProgressBar from 'progress';
 import sanitizeFilename from 'sanitize-filename';
 import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracker-radar-collector';
 import {CollectResult} from 'tracker-radar-collector/crawler';
+import {UnreachableCaseError} from 'ts-essentials';
+import ValueSearcher from 'value-searcher';
 import yargs from 'yargs';
 
 import {defaultOptions, FieldsCollector, FieldsCollectorData, FieldsCollectorOptions} from './FieldsCollector';
@@ -29,7 +31,6 @@ import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, populateDefaults} from './utils';
 import {findValue} from './analysis';
-import {UnreachableCaseError} from 'ts-essentials';
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -303,22 +304,25 @@ async function main() {
 	console.info('\x07');
 }
 
+let passwordSearcher: ValueSearcher | undefined,
+    emailSearcher: ValueSearcher | undefined;
+
 async function getLeakedValues(
 	  fieldsCollector: FieldsCollector, crawlResult: CollectResult): Promise<null | LeakedValue[]> {
 	const requests = crawlResult.data.requests;
 	if (!requests) return null;
 
-	const values = {
+	const searchers = {
 		email: fieldsCollector.options.fill.appendDomainToEmail
-			  ? appendDomainToEmail(fieldsCollector.options.fill.email, new URL(crawlResult.initialUrl).hostname)
-			  : fieldsCollector.options.fill.email,
-		password: fieldsCollector.options.fill.password,
+			  ? await ValueSearcher.fromValues(appendDomainToEmail(fieldsCollector.options.fill.email, new URL(crawlResult.initialUrl).hostname))
+			  : emailSearcher ??= await ValueSearcher.fromValues(fieldsCollector.options.fill.email),
+		password: passwordSearcher ??= await ValueSearcher.fromValues(fieldsCollector.options.fill.password),
 	};
 
-	return (await Promise.all(Object.entries(values).map(async ([prop, value]) =>
-		  (await findValue(value, requests))
+	return (await Promise.all(Object.entries(searchers).map(async ([prop, searcher]) =>
+		  (await findValue(searcher, requests))
 				.map(({part, request, encodings}) => ({
-					type: prop as keyof typeof values,
+					type: prop as keyof typeof searchers,
 					requestIndex: requests.indexOf(request),
 					part, encodings,
 				} as const))))).flat();

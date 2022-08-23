@@ -4,10 +4,7 @@ import ValueSearcher from 'value-searcher';
 import {notFalsy} from './utils';
 
 export async function findValue(
-	  value: string, requests: readonly RequestCollector.RequestData[]): Promise<FindEntry[]> {
-	const searcher = new ValueSearcher();
-	await searcher.addValue(Buffer.from(value));
-
+	  searcher: ValueSearcher, requests: readonly RequestCollector.RequestData[]): Promise<FindEntry[]> {
 	return (await Promise.all(requests.flatMap(request => [
 		searcher.findValueIn(Buffer.from(request.url))
 			  .then(encoders => encoders && {
