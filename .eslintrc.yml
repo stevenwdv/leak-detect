@@ -39,4 +39,4 @@ overrides:
       eslint-comments/disable-enable-pair:
         - error
         - allowWholeFile: true
-      deprecation/deprecation: warn
+      deprecation/deprecation: error

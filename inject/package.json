@@ -4,7 +4,7 @@
 	"private": true,
 	"scripts": {
 		"pack": "webpack --mode production && touch ./dist/bundle.js",
-		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint ."
+		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint --max-warnings 0 ."
 	},
 	"type": "module",
 	"types": "./types/main.d.ts",

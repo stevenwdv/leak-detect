@@ -1,4 +1,7 @@
+import {setTimeout} from 'node:timers/promises';
+
 import {ElementHandle} from 'puppeteer';
+
 import {getPageFromHandle} from './puppeteerUtils';
 
 function getRandomUpTo(maxValue: number) {
@@ -22,7 +25,7 @@ async function fillInputElement(elem: ElementHandle, text: string, options: Fill
 	const page = getPageFromHandle(elem)!;
 	for (const key of text) {
 		await elem.type(key, {delay: getRandomUpTo(options.keyDwell)});
-		await page.waitForTimeout(getRandomUpTo(options.betweenKeys));
+		await setTimeout(getRandomUpTo(options.betweenKeys));
 	}
 	await page.keyboard.press('Tab');  // Trigger blur
 }
