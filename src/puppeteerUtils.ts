@@ -35,8 +35,7 @@ export async function unwrapHandle<T>(handle: JSHandle<T>): Promise<UnwrappedHan
 export async function unwrapHandleEx<T>(
 	  handle: JSHandle<T>,
 	  shouldUnwrap: (className: string) => boolean = className => ['Object', 'Proxy'].includes(className),
-):
-	  Promise<UnwrappedHandleEx<T>> {
+): Promise<UnwrappedHandleEx<T>> {
 	const remoteObject = handle.remoteObject();
 
 	// Leave functions & symbols wrapped

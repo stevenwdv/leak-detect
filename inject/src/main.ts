@@ -1,11 +1,13 @@
 // noinspection JSUnusedGlobalSymbols
 
 import {detectEmailInputs as _detectEmailInputs} from './email_detector';
+import {detectUsernameInputs as _detectUsernameInputs} from './username_detector';
 // @ts-expect-error Fathom has no type declarations
 import {utils} from 'fathom-web';
 
-export const detectEmailInputs = _detectEmailInputs as (domRoot: Element) => Generator<FathomResult, void, undefined>;
-export const {isVisible}       = utils as { isVisible: (elem: Element) => boolean };
+export const detectEmailInputs    = _detectEmailInputs as (domRoot: Element) => Generator<FathomResult, void, undefined>;
+export const detectUsernameInputs = _detectUsernameInputs as (domRoot: Element) => Generator<FathomResult, void, undefined>;
+export const {isVisible}          = utils as { isVisible: (elem: Element) => boolean };
 
 export interface FathomResult {
 	elem: Element;
@@ -115,7 +117,7 @@ export function getElementBySelectorChain(
 	  selectorChain: SelectorChain, reference: ParentNode = document): SelectorChainResult | null {
 	let unique = true;
 	if (!selectorChain.length) return reference instanceof Element ? {elem: reference, unique} : null;
-	// Cannot use selectorChain.entries(), because some 'scriptaculous' library overrides it with a wrong implementation
+	// Cannot use selectorChain.entries(), because some Prototype.js library (e.g. via 'scriptaculous') overrides it with a wrong implementation
 	for (let i = 0; i < selectorChain.length; ++i) {
 		const selector = selectorChain[i]!;
 		const matches  = reference.querySelectorAll(selector);

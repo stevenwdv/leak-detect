@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import {createRunner, PuppeteerRunnerExtension} from '@puppeteer/replay';
+import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
 import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 import {groupBy} from 'ramda';
 import * as tldts from 'tldts';
@@ -85,7 +85,11 @@ export class FieldsCollector extends BaseCollector {
 					console.error('bundle to inject not found, run `npm run pack` in the `inject` folder');
 				throw err;
 			}
-			const timeDiff = fs.statSync('./inject/src/main.ts').mtimeMs - bundleTime;
+			const sourceDir      = './inject/src/';
+			const sourceFileTime = fs.readdirSync(sourceDir)
+				  .map(fileName => fs.statSync(path.join(sourceDir, fileName)).mtimeMs)
+				  .reduce((a, b) => Math.max(a, b));
+			const timeDiff       = sourceFileTime - bundleTime;
 			if (timeDiff > 0)
 				console.warn(`⚠️ inject script was modified ${formatDuration(timeDiff)} after bundle creation, ` +
 					  'you should probably run `npm run pack` in the `inject` folder');
@@ -553,8 +557,18 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #getEmailFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs & FathomElementAttrs>[]> {
-		const emailFieldsFromFathom = await unwrapHandle(await frame.evaluateHandle(
-			  () => [...window[PageVars.INJECTED].detectEmailInputs(document.documentElement)]));
+		const emailFieldsFromFathom = await unwrapHandle(await frame.evaluateHandle(() => {
+			const found      = [
+				...window[PageVars.INJECTED].detectEmailInputs(document.documentElement),
+				...window[PageVars.INJECTED].detectUsernameInputs(document.documentElement),
+			];
+			const elemScores = new Map<Element, number>();
+			for (const {elem, score} of found) {
+				const prev = elemScores.get(elem);
+				if (prev === undefined || score > prev) elemScores.set(elem, score);
+			}
+			return [...elemScores].map(([elem, score]) => ({elem, score}));
+		}));
 		return (await Promise.all(emailFieldsFromFathom.map(async field => ({
 			handle: field.elem,
 			attrs: {
@@ -767,13 +781,12 @@ export class FieldsCollector extends BaseCollector {
 // noinspection JSClassNamingConvention
 type integer = number;
 
-// For some reason @puppeteer/replay doesn't export UserFlow
 /**
  * &#64;puppeteer/replay (Chrome DevTools) flow
  * @TJS-description "@puppeteer/replay (Chrome DevTools) flow"
  * @see https://developer.chrome.com/docs/devtools/recorder/
  */
-type PuppeteerReplayUserFlow = Parameters<typeof createRunner>[0];
+type PuppeteerReplayUserFlow = UserFlow;
 
 export interface JSPathClickInteractChain {
 	type: 'js-path-click';

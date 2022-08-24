@@ -1,1 +1,2 @@
-email_detector.d.ts
+*.d.ts
+!/main.d.ts

@@ -1,4 +1,5 @@
 export declare const detectEmailInputs: (domRoot: Element) => Generator<FathomResult, void, undefined>;
+export declare const detectUsernameInputs: (domRoot: Element) => Generator<FathomResult, void, undefined>;
 export declare const isVisible: (elem: Element) => boolean;
 export interface FathomResult {
     elem: Element;

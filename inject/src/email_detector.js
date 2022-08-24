@@ -109,6 +109,10 @@ const email_detector_ruleset = ruleset([
 // so it's not actually a redeclaration.
 // eslint-disable-next-line no-unused-vars, no-redeclare
 function* detectEmailInputs(domRoot) {
+    //#LD-CHANGE Fix incorrect Prototype.js implementation
+    let af     = Array.from;
+    Array.from = it => [...it];
+
     // First return <input type='email'>
     //#LD-CHANGE use querySelectorAllDeep
     const typeEmailInputs = Array.from(querySelectorAllDeep('input[type=\'email\']'));
@@ -126,4 +130,6 @@ function* detectEmailInputs(domRoot) {
             yield {elem: input.element, score};
         }
     }
+    //#LD-CHANGE
+    Array.from = af;
 }
