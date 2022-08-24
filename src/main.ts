@@ -11,7 +11,7 @@ import yaml from 'js-yaml';
 import jsonschema from 'jsonschema';
 import ProgressBar from 'progress';
 import sanitizeFilename from 'sanitize-filename';
-import {APICallCollector, BaseCollector, crawler, RequestCollector} from 'tracker-radar-collector';
+import {APICallCollector, BaseCollector, crawler, puppeteer, RequestCollector} from 'tracker-radar-collector';
 import {CollectResult} from 'tracker-radar-collector/crawler';
 import {UnreachableCaseError} from 'ts-essentials';
 import ValueSearcher from 'value-searcher';
@@ -87,16 +87,21 @@ async function main() {
 					description: `log level for crawl; one of ${logLevels.join(', ')}`,
 					type: 'string',
 				})
-				.option('api-calls', {
-					description: 'enable API call breakpoints collector to track field value sniffs',
-					type: 'boolean',
-					default: true,
-				})
-				.option('requests', {
-					description: 'enable requests collector',
-					type: 'boolean',
-					default: true,
-				})
+			    .option('api-calls', {
+				    description: 'enable API call breakpoints collector to track field value sniffs',
+				    type: 'boolean',
+				    default: true,
+			    })
+			    .option('requests', {
+				    description: 'enable requests collector',
+				    type: 'boolean',
+				    default: true,
+			    })
+			    .option('single-browser', {
+				    description: 'perform crawls with --urls-file using a single browser (still multiple contexts)',
+				    type: 'boolean',
+				    default: true,
+			    })
 				.option('headed', {
 					description: 'open a browser window',
 					type: 'boolean',
@@ -110,7 +115,7 @@ async function main() {
 				.option('timeout', {
 					description: 'timeout for crawl, in seconds, or 0 to disable',
 					type: 'number',
-					default: 10 * 60,
+					default: 20 * 60,
 				})
 				.option('output', {
 					alias: 'out',
@@ -195,6 +200,12 @@ async function main() {
 		});
 
 		process.setMaxListeners(Infinity);
+
+		const browser = args.singleBrowser ? await puppeteer.launch({
+			headless: !args.headed,
+			devtools: args.devtools,
+		}) : undefined;
+
 		await eachLimit(urls, args.parallelism, async url => {
 			urlsInProgress.push(url.href);
 			try {
@@ -216,6 +227,7 @@ async function main() {
 				const crawlResult = await crawler(
 					  url,
 					  {
+						  browserContext: await browser?.createIncognitoBrowserContext(),
 						  log: plainToLogger.bind(undefined, logger),
 						  maxCollectionTimeMs: args.timeout * 1e3,
 						  throwCollectorErrors: false,
@@ -255,6 +267,7 @@ async function main() {
 			});
 			process.stdout.write(`\x1b]9;4;1;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1b\\`);
 		});
+		if (!args.headed) await browser?.close();
 		progressBar.terminate();
 
 		console.info('data & logs saved to', outputDir);

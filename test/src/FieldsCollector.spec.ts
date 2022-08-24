@@ -6,7 +6,7 @@ import {AddressInfo} from 'node:net';
 import {createServer} from 'http-server';
 import t from 'tap';
 
-import {crawler, RequestCollector} from 'tracker-radar-collector';
+import {crawler, puppeteer, RequestCollector} from 'tracker-radar-collector';
 import {CrawlOptions} from 'tracker-radar-collector/crawler';
 
 import {
@@ -32,18 +32,25 @@ void (async () => {
 			  const server = (createServer({
 				  root: path.join(__dirname, '../pages/'),
 			  }) as ReturnType<typeof createServer> & { server: http.Server | https.Server }).server
-					.listen(undefined, 'localhost')
-					.once('listening', () => {
-						const addr    = server.address() as AddressInfo;
-						const baseUrl = new URL(`http://localhost:${addr.port}/`);
-						resolve({server, baseUrl});
-					})
-					.once('error', reject);
+				    .listen(undefined, 'localhost')
+				    .once('listening', () => {
+					    const addr    = server.address() as AddressInfo;
+					    const baseUrl = new URL(`http://localhost:${addr.port}/`);
+					    resolve({server, baseUrl});
+				    })
+				    .once('error', reject);
 		  });
 
-	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 30, buffered: true}, t => {
-		t.teardown(() => new Promise<void>((resolve, reject) =>
-			  server.close(err => err ? reject(err) : resolve())));
+	const browser = await puppeteer.launch({
+		headless: !headed,
+		devtools: headed,
+	});
+
+	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 10, buffered: true}, t => {
+		t.teardown(() => new Promise<void>((resolve, reject) => {
+			server.close(err => err ? reject(err) : resolve());
+			void browser.close();
+		}));
 
 		const baseCrawlOptions: CrawlOptions = {
 			log() {throw new Error('log unspecified');},
@@ -60,6 +67,7 @@ void (async () => {
 				  new URL(page, baseUrl),
 				  {
 					  ...baseCrawlOptions,
+					  browserContext: await browser.createIncognitoBrowserContext(),
 					  log: log.log.bind(log),
 					  collectors: [
 						  new FieldsCollector(options, log),
