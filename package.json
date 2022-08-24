@@ -6,11 +6,15 @@
 	"scripts": {
 		"install": "npm -w inject run pack && (sed -i '1s;^;// @ts-nocheck\\n;' node_modules/@duckduckgo/autoconsent/lib/tabwrapper.ts || true)",
 		"start": "node --require ts-node/register ./src/main.ts",
+		"debug": "node --require ts-node/register --inspect --pending-deprecation --trace-deprecation --trace-warnings ./src/main.ts",
 		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint --max-warnings 0 .",
 		"lint-all": "npm run lint && npm -w inject run lint && cd ./test/ && tsc --noEmit --emitDeclarationOnly false && eslint --max-warnings 0 .",
 		"generate-schema": "npx typescript-json-schema ./tsconfig.json FieldsCollectorOptions --ignoreErrors --noExtraProps --strictNullChecks --required true --out ./src/crawl-config.schema.json",
 		"test-server": "http-server ./test/pages/",
 		"test": "tap"
+	},
+	"bin": {
+		"leak-detect": "./src/main.ts"
 	},
 	"workspaces": [
 		"inject"

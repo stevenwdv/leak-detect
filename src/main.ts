@@ -1,3 +1,5 @@
+#!npx ts-node
+
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -37,6 +39,15 @@ const eachLimit = async.eachLimit as <T, E = Error>(
 	  arr: IterableCollection<T>, limit: number,
 	  iterator: (item: T, callback: ErrorCallback<E>) => Promise<void> /*added*/ | void,
 ) => Promise<void>;
+
+process.on('uncaughtException', error => {
+	process.exitCode = 1;
+	process.stderr.write('\x07');
+	console.error(error);
+	// eslint-disable-next-line no-debugger
+	debugger;
+	console.warn('\nWe will try to continue anyway\n');
+});
 
 process.on('uncaughtExceptionMonitor', (error, origin) =>
 	  console.error('\n\n❌️', origin));
@@ -99,7 +110,7 @@ async function main() {
 				.option('timeout', {
 					description: 'timeout for crawl, in seconds, or 0 to disable',
 					type: 'number',
-					default: 0,
+					default: 10 * 60,
 				})
 				.option('output', {
 					alias: 'out',
@@ -178,8 +189,10 @@ async function main() {
 
 		const urlsInProgress: string[] = [];
 
-		process.on('uncaughtExceptionMonitor', () =>
-			  console.log(`\nURLs for which crawl was in progress:\n${urlsInProgress.join('\n')}\n`));
+		process.on('uncaughtExceptionMonitor', () => {
+			process.stdout.write(`\x1b]9;4;2;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1b\\`);
+			console.log(`\nURLs for which crawl was in progress:\n${urlsInProgress.join('\n')}\n`);
+		});
 
 		process.setMaxListeners(Infinity);
 		await eachLimit(urls, args.parallelism, async url => {
@@ -335,6 +348,7 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 		else if (args[0].includes('\x1b[33m' /*yellow*/)
 			  || args[0].includes('⚠')
 			  || args.some(a => a instanceof Error)) level = 'warn';
+		else if (args[0].includes(' context initiated in ')) level = 'debug';
 	}
 	logger.logLevel(level, ...args);
 }
