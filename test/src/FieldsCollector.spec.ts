@@ -41,15 +41,18 @@ void (async () => {
 				    .once('error', reject);
 		  });
 
-	const browser = await puppeteer.launch({
+	//TODO set to true when puppeteer/puppeteer#8691 and puppeteer/puppeteer#8838 are fixed
+	const singleBrowser = false;
+	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+	const browser       = singleBrowser ? await puppeteer.launch({
 		headless: !headed,
 		devtools: headed,
-	});
+	}) : undefined;
 
 	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 10, buffered: true}, t => {
 		t.teardown(() => new Promise<void>((resolve, reject) => {
 			server.close(err => err ? reject(err) : resolve());
-			void browser.close();
+			void browser?.close();
 		}));
 
 		const baseCrawlOptions: CrawlOptions = {
@@ -63,17 +66,23 @@ void (async () => {
 		async function runCrawler(
 			  page: string, t: Tap.Test, log: Logger, options: FieldsCollectorOptions = {}, noError = true):
 			  Promise<FieldsCollectorData> {
-			const result = await crawler(
-				  new URL(page, baseUrl),
-				  {
-					  ...baseCrawlOptions,
-					  browserContext: await browser.createIncognitoBrowserContext(),
-					  log: log.log.bind(log),
-					  collectors: [
-						  new FieldsCollector(options, log),
-					  ],
-				  },
-			);
+			const browserContext = await browser?.createIncognitoBrowserContext();
+			let result;
+			try {
+				result = await crawler(
+					  new URL(page, baseUrl),
+					  {
+						  ...baseCrawlOptions,
+						  browserContext,
+						  log: log.log.bind(log),
+						  collectors: [
+							  new FieldsCollector(options, log),
+						  ],
+					  },
+				);
+			} finally {
+				await browserContext?.close();
+			}
 			t.ok(!result.timeout, 'TRC should not time out');
 			const fields = (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData }).fields;
 			if (noError) {
@@ -229,20 +238,27 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
 			test('for Facebook button leak', async (t, log) => {
-				const data = (await crawler(
-					  new URL('facebook_button_simulator.html', baseUrl),
-					  {
-						  ...baseCrawlOptions,
-						  log: log.log.bind(log),
-						  collectors: [
-							  new FieldsCollector({
-								  fill: {submit: false},
-								  clickLinkCount: 0,
-							  }, log),
-							  new RequestCollector(),
-						  ],
-					  },
-				)).data as CollectorData & { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData };
+				const browserContext = await browser?.createIncognitoBrowserContext();
+				let data;
+				try {
+					data = (await crawler(
+						  new URL('facebook_button_simulator.html', baseUrl),
+						  {
+							  ...baseCrawlOptions,
+							  browserContext,
+							  log: log.log.bind(log),
+							  collectors: [
+								  new FieldsCollector({
+									  fill: {submit: false},
+									  clickLinkCount: 0,
+								  }, log),
+								  new RequestCollector(),
+							  ],
+						  },
+					)).data as CollectorData & { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData };
+				} finally {
+					await browserContext?.close();
+				}
 
 				t.ok(data.fields.events.find(ev => ev instanceof FacebookButtonEvent), 'should add Facebook button');
 				t.ok(data.requests!.find(r => r.url === new URL('facebook.html', baseUrl).href),

@@ -78,15 +78,15 @@ async function main() {
 					type: 'boolean',
 					default: false,
 				})
-				.option('config', {
-					description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
-					type: 'string',
-					normalize: true,
-				})
-				.option('log-level', {
-					description: `log level for crawl; one of ${logLevels.join(', ')}`,
-					type: 'string',
-				})
+			    .option('config', {
+				    description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
+				    type: 'string',
+				    normalize: true,
+			    })
+			    .option('log-level', {
+				    description: `log level for crawl; one of ${logLevels.join(', ')}`,
+				    type: 'string',
+			    })
 			    .option('api-calls', {
 				    description: 'enable API call breakpoints collector to track field value sniffs',
 				    type: 'boolean',
@@ -100,7 +100,7 @@ async function main() {
 			    .option('single-browser', {
 				    description: 'perform crawls with --urls-file using a single browser (still multiple contexts)',
 				    type: 'boolean',
-				    default: true,
+				    default: false,  //TODO set to true when puppeteer/puppeteer#8691 and puppeteer/puppeteer#8838 are fixed
 			    })
 				.option('headed', {
 					description: 'open a browser window',
@@ -224,19 +224,25 @@ async function main() {
 				if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
 				if (args.requests) collectors.push(new RequestCollector());
 
-				const crawlResult = await crawler(
-					  url,
-					  {
-						  browserContext: await browser?.createIncognitoBrowserContext(),
-						  log: plainToLogger.bind(undefined, logger),
-						  maxCollectionTimeMs: args.timeout * 1e3,
-						  throwCollectorErrors: false,
-						  headed: args.headed,
-						  keepOpen: args.headed,
-						  devtools: args.devtools,
-						  collectors,
-					  },
-				) as CrawlResult;
+				const browserContext = await browser?.createIncognitoBrowserContext();
+				let crawlResult;
+				try {
+					crawlResult = await crawler(
+						  url,
+						  {
+							  browserContext,
+							  log: plainToLogger.bind(undefined, logger),
+							  maxCollectionTimeMs: args.timeout * 1e3,
+							  throwCollectorErrors: false,
+							  headed: args.headed,
+							  keepOpen: args.headed,
+							  devtools: args.devtools,
+							  collectors,
+						  },
+					) as CrawlResult;
+				} finally {
+					await browserContext?.close();
+				}
 
 				const output: OutputFile = {crawlResult};
 
@@ -259,6 +265,7 @@ async function main() {
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 			}
+
 			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
 			const maxUrlLength = 60;
 			progressBar.tick({
