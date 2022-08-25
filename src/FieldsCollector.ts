@@ -15,7 +15,6 @@ import {
 	addAll,
 	appendDomainToEmail,
 	AsBound,
-	EmptyObject,
 	filterUniqBy,
 	formatDuration,
 	getRelativeUrl,
@@ -171,12 +170,12 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldsCollectorData> {
+	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldsCollectorData | null> {
 		this.#dataParams = options;
 
 		if (this.#siteDomain === null && this.#initialUrl.hostname !== 'localhost') {
 			this.#log?.warn('URL has no domain with public suffix, will skip this page');
-			return {};
+			return null;
 		}
 
 		await this.#screenshot(this.#page, 'loaded');
@@ -1080,16 +1079,16 @@ interface ErrorInfo {
 	level: 'error' | 'warn';
 }
 
-export type FieldsCollectorData = EmptyObject | {
+export interface FieldsCollectorData {
 	/** Similar to what {@link import('tracker-radar-collector').TargetCollector} does but with timestamps */
-	visitedTargets: VisitedTarget[],
-	fields: FieldElementAttrs[],
+	visitedTargets: VisitedTarget[];
+	fields: FieldElementAttrs[];
 	/** `null` on fail */
-	links: LinkElementAttrs[] | null,
-	passwordLeaks: PasswordLeak[],
-	events: FieldsCollectorEvent[],
-	errors: ErrorInfo[],
-};
+	links: LinkElementAttrs[] | null;
+	passwordLeaks: PasswordLeak[];
+	events: FieldsCollectorEvent[];
+	errors: ErrorInfo[];
+}
 
 // This is a const enum such that the TypeScript transpiler replaces names with values in the page scripts
 /** Names of in-page things */

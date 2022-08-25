@@ -336,7 +336,7 @@ async function main() {
 			           visitedTargetIndex
 		           } of leakedValues) {
 			const {url} = requestIndex ? crawlResult.data.requests![requestIndex]!
-				  : crawlResult.data.fields!.visitedTargets![visitedTargetIndex!]!;
+				  : crawlResult.data.fields!.visitedTargets[visitedTargetIndex!]!;
 
 			switch (part) {
 				case 'url':
@@ -381,8 +381,7 @@ async function getLeakedValues(
 		  (await findValue(searcher,
 				crawlResult.data.requests ?? [],
 				// typescript-eslint bug
-				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-				crawlResult.data.fields?.visitedTargets?.map(t => t.url) ?? []))
+				crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? []))
 				.map(entry => ({
 					...entry,
 					type: prop as keyof typeof searchers,
@@ -420,7 +419,7 @@ void (async () => {
 
 export type CrawlResult =
 	  CollectResult
-	  & { data: { [fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldsCollectorData } };
+	  & { data: { [fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldsCollectorData | null } };
 
 export interface OutputFile {
 	crawlResult: CrawlResult;

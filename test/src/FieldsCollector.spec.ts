@@ -84,12 +84,12 @@ void (async () => {
 				await browserContext?.close();
 			}
 			t.ok(!result.timeout, 'TRC should not time out');
-			const fields = (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData }).fields;
+			const fields = (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData | null }).fields;
 			if (noError) {
-				t.strictNotSame(fields, {}, 'should return a result');
-				t.strictSame(fields.errors, [], 'should not generate any errors');
+				if (t.strictNotSame(fields, {}, 'should return a result'))
+					t.strictSame(fields!.errors, [], 'should not generate any errors');
 			}
-			return fields;
+			return fields!;  // Unsound cast, doesn't matter
 		}
 
 		function test(name: string, fun: (t: Tap.Test, log: Logger) => PromiseLike<unknown> | unknown, noError = true) {
@@ -278,12 +278,12 @@ void (async () => {
 								  new RequestCollector(),
 							  ],
 						  },
-					)).data as CollectorData & { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData };
+					)).data as CollectorData & { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData | null };
 				} finally {
 					await browserContext?.close();
 				}
 
-				t.ok(data.fields.events.find(ev => ev instanceof FacebookButtonEvent), 'should add Facebook button');
+				t.ok(data.fields!.events.find(ev => ev instanceof FacebookButtonEvent), 'should add Facebook button');
 				t.ok(data.requests!.find(r => r.url === new URL('facebook.html', baseUrl).href),
 					  'should click the added button and open \'Facebook\'');
 			}),
