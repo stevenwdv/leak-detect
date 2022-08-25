@@ -33,6 +33,8 @@ import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, populateDefaults} from './utils';
 import {findValue} from './analysis';
+import {PathLike} from 'fs';
+import {FileHandle} from 'fs/promises';
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -274,7 +276,7 @@ async function main() {
 				else if (args.logSucceeded)
 					progressBar.interrupt(`✔️ ${url.href}`);
 
-				await fsp.writeFile(`${fileBase}.json`, JSON.stringify(output, undefined, '\t'));
+				await saveJson(`${fileBase}.json`, output);
 				await fileLogger.finalize();
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
@@ -343,7 +345,7 @@ async function main() {
 		}
 
 		if (args.output) {
-			await fsp.writeFile(args.output, JSON.stringify(output, undefined, '\t'));
+			await saveJson(args.output, output);
 			console.info('output written to', args.output);
 		} else {
 			console.info('%o', output);  // %o: print more properties
@@ -389,6 +391,11 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 		else if (args[0].includes(' context initiated in ')) level = 'debug';
 	}
 	logger.logLevel(level, ...args);
+}
+
+async function saveJson(file: PathLike | FileHandle, output: OutputFile) {
+	await fsp.writeFile(file, JSON.stringify(output, (_key, value) =>
+		  value instanceof Error ? String(value) : value as unknown, '\t'));
 }
 
 void (async () => {
