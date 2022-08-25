@@ -53,13 +53,14 @@ process.on('uncaughtExceptionMonitor', (error, origin) =>
 	  console.error('\n\n❌️', origin));
 
 let mainExited = false;
-process.on('exit', () => {
-	process.stdout.write('\x1b]9;4;0;0\x1b\\');
+process.on('beforeExit', () => {
 	if (!mainExited) {
-		process.exitCode = 13;
-		console.error('\n\n❌️ Error: Node.js prevented a hang due to a Promise that can never be fulfilled');
+		process.exitCode ??= 13;
+		console.error('\n\n\x07❌️ Unexpected exit: It seems Node.js prevented a hang due to a Promise that can never be fulfilled, ' +
+			  'this may be a bug in the Puppeteer library');
 	}
 });
+process.on('exit', () => process.stdout.write('\x1b]9;4;0;0\x1b\\'));
 
 process.stdout.write('\x1b]0;leak detector\x1b\\');
 
@@ -287,6 +288,8 @@ async function main() {
 			});
 			process.stdout.write(`\x1b]9;4;1;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1b\\`);
 		});
+		if (browser?.isConnected() === false)
+			throw new Error('Browser quit unexpectedly, this may be a bug in Chromium');
 		if (!args.headed || args.headedAutoclose)
 			await browser?.close();
 		progressBar.terminate();
@@ -393,7 +396,7 @@ void (async () => {
 		process.stdout.write('\x1b]9;4;1;100\x1b\\');
 	} catch (err) {
 		process.exitCode = 1;
-		console.error('\n❌️', err);
+		console.error('\n\x07❌️', err);
 	} finally {
 		mainExited = true;
 	}
