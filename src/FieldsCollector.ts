@@ -1,3 +1,4 @@
+import assert from 'node:assert';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -60,6 +61,7 @@ export class FieldsCollector extends BaseCollector {
 	/** Pages that password leak callback has been injected into */
 	#injectedPasswordCallback = new Set<Page>();
 	#startUrls                = new Map<Page, string>();
+	#postCleanListeners       = new Map<Page, () => PromiseLike<void> | void>();
 	#dirtyPages               = new Set<Page>();
 
 	#events: FieldsCollectorEvent[]  = [];
@@ -207,7 +209,7 @@ export class FieldsCollector extends BaseCollector {
 	 * @returns Processed fields
 	 */
 	async #executeInteractChains(): Promise<FieldElementAttrs[]> {
-		const fields = [];
+		const fields: FieldElementAttrs[] = [];
 		for (const [nChain, chain] of this.options.interactChains.entries()) {
 			try {
 				this.#log?.log(`starting click chain ${nChain + 1}${
@@ -215,42 +217,46 @@ export class FieldsCollector extends BaseCollector {
 				await this.#cleanPage(this.#page);
 				await this.#closeExtraPages();
 
-				switch (chain.type) {
-					case 'js-path-click':
-						for (const [nElem, elemPath] of chain.paths.entries()) {
-							const elem = await unwrapHandle(await this.#page.evaluateHandle(
-								  // eslint-disable-next-line @typescript-eslint/no-implied-eval
-								  Function(`return (${elemPath});`) as () => Element | null | undefined));
-							if (!elem) {
-								// noinspection ExceptionCaughtLocallyJS
-								throw new Error(`element for click chain not found: ${elemPath}`);
+				const executeChain = async () => {
+					switch (chain.type) {
+						case 'js-path-click':
+							for (const [nElem, elemPath] of chain.paths.entries()) {
+								const elem = await unwrapHandle(await this.#page.evaluateHandle(
+									  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+									  Function(`return (${elemPath});`) as () => Element | null | undefined));
+								if (!elem) {
+									// noinspection ExceptionCaughtLocallyJS
+									throw new Error(`element for click chain not found: ${elemPath}`);
+								}
+								const selector = await formSelectorChain(elem);
+
+								this.#log?.log(`clicking element ${nElem + 1}/${chain.paths.length}`, selectorStr(selector));
+								this.#events.push(new ClickLinkEvent(selector, 'manual'));
+								await this.#click(elem);
+								await this.#sleep(this.options.sleepMs?.postNavigate);
 							}
-							const selector = await formSelectorChain(elem);
-
-							this.#log?.log(`clicking element ${nElem + 1}/${chain.paths.length}`, selectorStr(selector));
-							this.#events.push(new ClickLinkEvent(selector, 'manual'));
-							await this.#click(elem);
-							await this.#sleep(this.options.sleepMs?.postNavigate);
+							break;
+						case 'puppeteer-replay': {
+							const flow       = chain.flow;
+							const noNavSteps = flow.steps.filter(step => step.type !== 'navigate');
+							if (noNavSteps.length < flow.steps.length)
+								this.#log?.info(`ignoring ${flow.steps.length - noNavSteps.length} navigate steps`);
+							const flowRunner = await createRunner({...flow, steps: noNavSteps},
+								  new PuppeteerRunnerExtension(this.#context.browser(), this.#page));
+							await flowRunner.run();
+							break;
 						}
-						break;
-					case 'puppeteer-replay': {
-						const flow       = chain.flow;
-						const noNavSteps = flow.steps.filter(step => step.type !== 'navigate');
-						if (noNavSteps.length < flow.steps.length)
-							this.#log?.info(`ignoring ${flow.steps.length - noNavSteps.length} navigate steps`);
-						const flowRunner = await createRunner({...flow, steps: noNavSteps},
-							  new PuppeteerRunnerExtension(this.#context.browser(), this.#page));
-						await flowRunner.run();
-						break;
 					}
-				}
-
+				};
+				await executeChain();
 				await this.#screenshot(this.#page, 'interact-chain-executed');
-				//FIXME this can reload the page without re-executing chains
-				fields.push(...await this.#processFieldsOnAllPages());
-				this.#setDirty(this.#page);
+
+				await this.#doWithOnCleanPage(this.#page, executeChain, async () =>
+					  fields.push(...await this.#processFieldsOnAllPages()));
 			} catch (err) {
 				this.#reportError(err, ['failed to inspect page for click chain', chain]);
+			} finally {
+				this.#setDirty(this.#page);
 			}
 		}
 		return fields;
@@ -338,6 +344,23 @@ export class FieldsCollector extends BaseCollector {
 		if (this.#dirtyPages.delete(page)) {
 			this.#events.push(new ReturnEvent(page === this.#page));
 			await this.#goto(page.mainFrame(), startUrl, this.options.timeoutMs.reload);
+			await this.#postCleanListeners.get(page)?.();
+		}
+	}
+
+	#doWithOnCleanPage<T extends Promise<unknown> | unknown>(
+		  page: Page, listener: () => PromiseLike<void> | void, scopeFunc: () => T): T {
+		assert(!this.#postCleanListeners.has(page));
+		this.#postCleanListeners.set(page, listener);
+		let promise;
+		try {
+			const res = scopeFunc();
+			// noinspection SuspiciousTypeOfGuard
+			if ((promise = res instanceof Promise))
+				return res.finally(() => this.#postCleanListeners.delete(page)) as unknown as T;
+			return res;
+		} finally {
+			if (!promise) this.#postCleanListeners.delete(page);
 		}
 	}
 
@@ -571,7 +594,7 @@ export class FieldsCollector extends BaseCollector {
 
 	async #getEmailFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs & FathomElementAttrs>[]> {
 		const emailFieldsFromFathom = await unwrapHandle(await frame.evaluateHandle(() => {
-			const found      = [
+			const found = [
 				...window[PageVars.INJECTED].detectEmailInputs(document.documentElement),
 				...window[PageVars.INJECTED].detectUsernameInputs(document.documentElement),
 			];

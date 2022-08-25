@@ -23,11 +23,12 @@ export abstract class Logger {
 
 	abstract endGroup(): void;
 
-	group<T>(name: string, func: () => T): T {
+	group<T extends Promise<unknown> | unknown>(name: string, func: () => T): T {
 		this.startGroup(name);
 		let promise;
 		try {
 			const res = func();
+			// noinspection SuspiciousTypeOfGuard
 			if ((promise = res instanceof Promise))
 				return res.finally(() => this.endGroup()) as unknown as T;
 			return res;
