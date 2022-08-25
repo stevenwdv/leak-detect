@@ -73,16 +73,16 @@ async function main() {
 					type: 'string',
 					normalize: true,
 				})
-				.option('parallelism', {
-					description: 'Number of crawls to run in parallel if --urls-file was specified',
-					type: 'number',
-					default: 30,
-				})
-				.option('log-succeeded', {
-					description: 'Print out URLs of succeeded crawls with --urls-file as well',
-					type: 'boolean',
-					default: false,
-				})
+			    .option('parallelism', {
+				    description: 'Number of crawls to run in parallel if --urls-file was specified',
+				    type: 'number',
+				    default: 30,
+			    })
+			    .option('log-succeeded', {
+				    description: 'Print out URLs of succeeded crawls with --urls-file as well',
+				    type: 'boolean',
+				    default: false,
+			    })
 			    .option('config', {
 				    description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
 				    type: 'string',
@@ -107,11 +107,16 @@ async function main() {
 				    type: 'boolean',
 				    default: false,  //TODO set to true when puppeteer/puppeteer#8691 and puppeteer/puppeteer#8838 are fixed
 			    })
-				.option('headed', {
-					description: 'open a browser window',
-					type: 'boolean',
-					default: false,
-				})
+			    .option('headed', {
+				    description: 'open a browser window',
+				    type: 'boolean',
+				    default: false,
+			    })
+			    .option('headed-autoclose', {
+				    description: 'automatically close windows even in --headed mode',
+				    type: 'boolean',
+				    default: false,
+			    })
 				.option('devtools', {
 					description: 'open developer tools',
 					type: 'boolean',
@@ -240,13 +245,14 @@ async function main() {
 							  maxCollectionTimeMs: args.timeout * 1e3,
 							  throwCollectorErrors: false,
 							  headed: args.headed,
-							  keepOpen: args.headed,
+							  keepOpen: args.headed && !args.headedAutoclose,
 							  devtools: args.devtools,
 							  collectors,
 						  },
 					) as CrawlResult;
 				} finally {
-					await browserContext?.close();
+					if (!args.headed || args.headedAutoclose)
+						await browserContext?.close();
 				}
 
 				const output: OutputFile = {crawlResult};
@@ -279,7 +285,8 @@ async function main() {
 			});
 			process.stdout.write(`\x1b]9;4;1;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1b\\`);
 		});
-		if (!args.headed) await browser?.close();
+		if (!args.headed || args.headedAutoclose)
+			await browser?.close();
 		progressBar.terminate();
 
 		console.info('data & logs saved to', outputDir);
