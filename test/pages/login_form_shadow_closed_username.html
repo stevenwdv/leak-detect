@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Closed shadow email field with type=text</title>
+	<script>
+		customElements.define('my-login-form', class LoginForm extends HTMLElement
+		{
+			constructor() {
+				super();
+				const shadowRoot = this.attachShadow({mode: 'open'});
+
+				const email       = document.createElement('input');
+				email.name        = 'username';
+				email.placeholder = 'username';
+
+				const password       = document.createElement('input');
+				password.name        = 'password';
+				password.type        = 'password';
+				password.placeholder = 'password';
+
+				const submit       = document.createElement('button');
+				submit.textContent = 'Login (GET request)';
+				submit.type        = 'submit';
+
+				const form  = document.createElement('form');
+				form.action = 'logged_in.html';
+				form.append(email, password, submit);
+
+				const style       = document.createElement('style');
+				style.textContent = `
+					:host {
+						display: inline-block;
+						padding: 1em;
+						background: repeating-linear-gradient(
+							45deg,
+							#111,
+							#111 1em,
+							#444 1em,
+							#444 2em
+						);
+					}
+					:host::before {
+						content: 'closed shadow';
+						font-weight: bold;
+						color: white;
+					}
+				`;
+
+				shadowRoot.append(style, form);
+			}
+		});
+	</script>
+</head>
+<body>
+Welcome!
+
+<h1>Login</h1>
+<my-login-form></my-login-form>
+
+</body>
+</html>

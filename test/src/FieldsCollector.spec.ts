@@ -49,7 +49,7 @@ void (async () => {
 		devtools: headed,
 	}) : undefined;
 
-	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 10, buffered: true}, t => {
+	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 30, buffered: true}, t => {
 		t.teardown(() => new Promise<void>((resolve, reject) => {
 			server.close(err => err ? reject(err) : resolve());
 			void browser?.close();
@@ -154,6 +154,7 @@ void (async () => {
 
 				t.strictSame(screenshots, ['loaded', 'filled', 'submitted'], 'should make the right screenshots');
 			}),
+
 			test('for a frame', async (t, log) => {
 				const result = await runCrawler('login_form_frame.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
@@ -166,6 +167,7 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
+
 			test('for a hidden popup', async (t, log) => {
 				const result       = await runCrawler('login_form_hidden.html', t, log);
 				const popupOpenIdx = result.events.findIndex(ev =>
@@ -219,6 +221,7 @@ void (async () => {
 				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
 				t.ok(leak?.attrs, 'should have password leak element attrs set');
 			}),
+
 			test('for email input with type=text', async (t, log) => {
 				const result = await runCrawler('login_form_text_email.html', t, log);
 				t.equal(result.fields.length, 2, 'should find 2 fields');
@@ -237,6 +240,26 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 			}),
+
+			test('for username input with type=text', async (t, log) => {
+				const result = await runCrawler('login_form_username.html', t, log);
+				t.equal(result.fields.length, 2, 'should find 2 fields');
+				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find username field');
+				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
+			}),
+			test('for open shadow email input with type=text', async (t, log) => {
+				const result = await runCrawler('login_form_shadow_username.html', t, log);
+				t.equal(result.fields.length, 2, 'should find 2 fields');
+				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find username field');
+				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
+			}),
+			test('for closed shadow email input with type=text', async (t, log) => {
+				const result = await runCrawler('login_form_shadow_closed_username.html', t, log);
+				t.equal(result.fields.length, 2, 'should find 2 fields');
+				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find username field');
+				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
+			}),
+
 			test('for Facebook button leak', async (t, log) => {
 				const browserContext = await browser?.createIncognitoBrowserContext();
 				let data;
@@ -264,6 +287,7 @@ void (async () => {
 				t.ok(data.requests!.find(r => r.url === new URL('facebook.html', baseUrl).href),
 					  'should click the added button and open \'Facebook\'');
 			}),
+
 			test('for multiple forms', async (t, log) => {
 				const result = await runCrawler('multiple_forms.html', t, log);
 				t.equal(result.fields.length, 2 + 3 + 2 + 1 * 2, 'should find 9 fields');
@@ -278,6 +302,7 @@ void (async () => {
 				t.ok(result.events.filter(ev => ev instanceof ReturnEvent).length >= 5 - 1,
 					  'should reload between submits');
 			}),
+
 			test('for login/register links opening on same page', async (t, log) => {
 				const result = await runCrawler('login_link.html', t, log);
 				t.equal(result.links?.length, 2, 'should find the 2 links');
@@ -326,6 +351,7 @@ void (async () => {
 				t.equal(result.events.filter(ev => ev instanceof SubmitEvent).length, 2,
 					  'should submit 2 times');
 			}),
+
 			test('with manual JS click chain', async (t, log) => {
 				const result      = await runCrawler('multiple_logins.html', t, log, {
 					interactChains: [{
