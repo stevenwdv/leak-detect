@@ -59,6 +59,8 @@ export class FieldsCollector extends BaseCollector {
 	#page!: Page;
 	/** Pages that password leak callback has been injected into */
 	#injectedPasswordCallback = new Set<Page>();
+	#startUrls                = new Map<Page, string>();
+	#dirtyPages               = new Set<Page>();
 
 	#events: FieldsCollectorEvent[]  = [];
 	/** Selectors of processed fields */
@@ -76,7 +78,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	static #loadInjectScript() {
-		FieldsCollector.#doInjectFun ||= (() => {
+		FieldsCollector.#doInjectFun ??= (() => {
 			let bundleTime;
 			try {
 				bundleTime = fs.statSync('./inject/dist/bundle.js').mtimeMs;
@@ -210,8 +212,7 @@ export class FieldsCollector extends BaseCollector {
 			try {
 				this.#log?.log(`starting click chain ${nChain + 1}${
 					  chain.type === 'puppeteer-replay' ? `: ${chain.flow.title}` : ''}`);
-				this.#events.push(new ReturnEvent(true));
-				await this.#goto(this.#page.mainFrame(), this.#dataParams.finalUrl, this.options.timeoutMs.reload);
+				await this.#cleanPage(this.#page);
 				await this.#closeExtraPages();
 
 				switch (chain.type) {
@@ -219,7 +220,7 @@ export class FieldsCollector extends BaseCollector {
 						for (const [nElem, elemPath] of chain.paths.entries()) {
 							const elem = await unwrapHandle(await this.#page.evaluateHandle(
 								  // eslint-disable-next-line @typescript-eslint/no-implied-eval
-								  Function(`return (${elemPath});`) as () => Element | null));
+								  Function(`return (${elemPath});`) as () => Element | null | undefined));
 							if (!elem) {
 								// noinspection ExceptionCaughtLocallyJS
 								throw new Error(`element for click chain not found: ${elemPath}`);
@@ -245,7 +246,9 @@ export class FieldsCollector extends BaseCollector {
 				}
 
 				await this.#screenshot(this.#page, 'interact-chain-executed');
+				//FIXME this can reload the page without re-executing chains
 				fields.push(...await this.#processFieldsOnAllPages());
+				this.#setDirty(this.#page);
 			} catch (err) {
 				this.#reportError(err, ['failed to inspect page for click chain', chain]);
 			}
@@ -259,6 +262,7 @@ export class FieldsCollector extends BaseCollector {
 	 */
 	async #inspectLinkedPages(): Promise<{ links: LinkElementAttrs[], fields: FieldElementAttrs[] } | null> {
 		try {
+			await this.#cleanPage(this.#page);
 			let links = (await getLoginLinks(this.#page.mainFrame(), new Set(['exact', 'loose', 'coords'])))
 				  .map(info => info.attrs);
 
@@ -282,8 +286,7 @@ export class FieldsCollector extends BaseCollector {
 							return;
 						}
 
-						this.#events.push(new ReturnEvent(true));
-						await this.#goto(this.#page.mainFrame(), this.#dataParams.finalUrl, this.options.timeoutMs.reload);
+						await this.#cleanPage(this.#page);
 						await this.#closeExtraPages();
 
 						await this.#followLink(link);
@@ -323,6 +326,19 @@ export class FieldsCollector extends BaseCollector {
 			if (el instanceof HTMLElement) el.click();
 			else el.dispatchEvent(new MouseEvent('click', {view: window, bubbles: true, cancelable: true}));
 		});
+	}
+
+	#setDirty(page: Page) {
+		this.#dirtyPages.add(page);
+	}
+
+	async #cleanPage(page: Page) {
+		let startUrl = this.#startUrls.get(page);
+		if (!startUrl) this.#startUrls.set(page, (startUrl = page.url()));
+		if (this.#dirtyPages.delete(page)) {
+			this.#events.push(new ReturnEvent(page === this.#page));
+			await this.#goto(page.mainFrame(), startUrl, this.options.timeoutMs.reload);
+		}
 	}
 
 	async #goto(frame: Frame, url: string, minTimeoutMs: number) {
@@ -412,13 +428,19 @@ export class FieldsCollector extends BaseCollector {
 
 			const completedFrames = new Set<string>();
 
-			const startUrl = page.url();
-			const prePages = new Set(await this.#context.pages());
+			await this.#cleanPage(page);
 
 			const pageFields = [];
 
-			let allDone = false;
+			let allDone   = false;
+			let submitted = false;
 			while (!allDone) oneSubmission: {
+				if (submitted) {
+					// Reload only after submissions,
+					// and only when we need to continue search
+					submitted = false;
+					await this.#cleanPage(page);
+				}
 				const incompleteFrames = page.frames()
 					  .filter(frame => frame.url()  // Skip mixed-content frames, see puppeteer/puppeteer#8812
 							&& !completedFrames.has(frame.url()));
@@ -426,14 +448,16 @@ export class FieldsCollector extends BaseCollector {
 					const {fields: frameFields, done: frameDone} = await this.#group(
 						  `frame ${getRelativeUrl(new URL(frame.url()), new URL(logPageUrl))}`,
 						  () => this.#processFields(frame), frame !== page.mainFrame());
-					if (frameDone) completedFrames.add(frame.url());  // This frame is done
+					if (frameDone) {
+						completedFrames.add(frame.url());  // This frame is done
+						if (frame === incompleteFrames.at(-1)!)
+							allDone = true;  // All frames done, prevent extra reload even on submission
+					}
 					if (frameFields?.length) {
 						pageFields.push(...frameFields);
 						if (this.options.fill.submit) {
 							// We submitted a field, now reload the page and try other fields
-							this.#events.push(new ReturnEvent(false));
-							await this.#goto(page.mainFrame(), startUrl, this.options.timeoutMs.reload);
-							await closeExtraPages(this.#context, prePages);
+							submitted = true;
 							break oneSubmission;
 						}
 					}
@@ -484,18 +508,7 @@ export class FieldsCollector extends BaseCollector {
 						if (this.options.fill.addFacebookButton)
 							await this.#clickFacebookButton(frame);
 
-						this.#events.push(new SubmitEvent(field.attrs.selectorChain));
-						this.#log?.log('submitting field', selectorStr(field.attrs.selectorChain));
-						try {
-							await submitField(field.handle, this.options.sleepMs?.fill?.clickDwell ?? 0);
-							field.attrs.submitted = true;
-
-							const opened = await this.#waitForNavigation(field.handle.executionContext().frame()!,
-								  this.options.timeoutMs.submitField);
-							await this.#screenshot((opened ?? frame).page(), 'submitted');
-						} catch (err) {
-							this.#reportError(err, ['failed to submit field', field.attrs], 'warn');
-						}
+						await this.#submitField(field);
 
 						if (formSelector) addAll(this.#processedFields, formFields.map(getElemIdentifier));
 						else this.#processedFields.add(getElemIdentifier(field));
@@ -590,11 +603,29 @@ export class FieldsCollector extends BaseCollector {
 		} as const)))).filter(({attrs: {visible}}) => visible);
 	}
 
+	async #submitField(field: ElementInfo<FieldElementAttrs>) {
+		this.#events.push(new SubmitEvent(field.attrs.selectorChain));
+		this.#log?.log('submitting field', selectorStr(field.attrs.selectorChain));
+		this.#setDirty(field.handle.executionContext().frame()!.page());
+		try {
+			await submitField(field.handle, this.options.sleepMs?.fill?.clickDwell ?? 0);
+			field.attrs.submitted = true;
+
+			const frame  = field.handle.executionContext().frame()!;
+			const opened = await this.#waitForNavigation(field.handle.executionContext().frame()!,
+				  this.options.timeoutMs.submitField);
+			await this.#screenshot((opened ?? frame).page(), 'submitted');
+		} catch (err) {
+			this.#reportError(err, ['failed to submit field', field.attrs], 'warn');
+		}
+	}
+
 	async #fillFields(fields: ElementInfo<FieldElementAttrs>[]) {
 		this.#log?.log(`filling ${fields.length} fields`);
 		const fillTimes = this.options.sleepMs?.fill ?? {clickDwell: 0, keyDwell: 0, betweenKeys: 0};
 		for (const field of fields.filter(f => !f.attrs.filled)) {
 			this.#events.push(new FillEvent(field.attrs.selectorChain));
+			this.#setDirty(field.handle.executionContext().frame()!.page());
 			await this.#injectPasswordLeakDetection(field.handle.executionContext().frame()!);
 			try {
 				switch (field.attrs.fieldType) {
@@ -716,6 +747,7 @@ export class FieldsCollector extends BaseCollector {
 	async #clickFacebookButton(frame: Frame) {
 		this.#log?.log('adding and clicking button for Facebook leak detection');
 		this.#events.push(new FacebookButtonEvent());
+		this.#setDirty(frame.page());
 		try {
 			await frame.evaluate(() => {
 				const btn          = document.createElement('button');
