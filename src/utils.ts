@@ -3,6 +3,8 @@ import {DeepPartial} from 'ts-essentials';
 export type OmitFirstParameter<Func> = Func extends (first: never, ...args: infer Rest) => infer Return
 	  ? (...args: Rest) => Return : never;
 
+export type EmptyObject = { [key in string]?: never };
+
 export type AsBound<Constructor extends { prototype: object } & (abstract new (...args: never) => unknown),
 	  MemberName extends keyof Constructor['prototype']>
 	  = Constructor['prototype'][MemberName] extends (...args: infer P) => infer R

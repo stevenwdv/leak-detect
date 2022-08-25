@@ -32,7 +32,7 @@ import {
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, populateDefaults} from './utils';
-import {findValue} from './analysis';
+import {FindEntry, findValue} from './analysis';
 import {PathLike} from 'fs';
 import {FileHandle} from 'fs/promises';
 
@@ -69,15 +69,15 @@ process.stdout.write('\x1b]0;leak detector\x1b\\');
 async function main() {
 	const args = yargs
 		  .command('crawl', 'crawl a URL', yargs => yargs
-				.option('url', {
-					description: 'URL of homepage to crawl',
-					type: 'string',
-				})
-				.option('urls-file', {
-					description: 'File with URLs to crawl, each on it\'s own line',
-					type: 'string',
-					normalize: true,
-				})
+			    .option('url', {
+				    description: 'URL of homepage to crawl',
+				    type: 'string',
+			    })
+			    .option('urls-file', {
+				    description: 'File with URLs to crawl, each on it\'s own line',
+				    type: 'string',
+				    normalize: true,
+			    })
 			    .option('parallelism', {
 				    description: 'Number of crawls to run in parallel if --urls-file was specified',
 				    type: 'number',
@@ -263,8 +263,7 @@ async function main() {
 				const output: OutputFile = {crawlResult};
 
 				try {
-					const leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
-					if (leakedValues) output.leakedValues = leakedValues;
+					output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
 				} catch (err) {
 					logger.error('error while searching for leaks', err);
 				}
@@ -326,21 +325,31 @@ async function main() {
 		const output: OutputFile = {crawlResult};
 
 		logger.log('searching for leaked values in web requests');
-		const leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
-		if (leakedValues) {
-			output.leakedValues = leakedValues;
-			for (const {type, requestIndex, part, encodings} of leakedValues) {
-				const {url} = crawlResult.data.requests![requestIndex]!;
-				switch (part) {
-					case 'url':
-						logger.info(`Found ${type} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
-						break;
-					case 'body':
-						logger.info(`Found ${type} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`);
-						break;
-					default:
-						throw new UnreachableCaseError(part);
-				}
+		const leakedValues  = await getLeakedValues(fieldsCollector, crawlResult);
+		output.leakedValues = leakedValues;
+		for (const {
+			           type,
+			           part,
+			           header,
+			           encodings,
+			           requestIndex,
+			           visitedTargetIndex
+		           } of leakedValues) {
+			const {url} = requestIndex ? crawlResult.data.requests![requestIndex]!
+				  : crawlResult.data.fields!.visitedTargets![visitedTargetIndex!]!;
+
+			switch (part) {
+				case 'url':
+					logger.info(`Found ${type} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+					break;
+				case 'header':
+					logger.info(`Found ${type} in request header ${header!}: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+					break;
+				case 'body':
+					logger.info(`Found ${type} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+					break;
+				default:
+					throw new UnreachableCaseError(part);
 			}
 		}
 
@@ -359,12 +368,8 @@ async function main() {
 let passwordSearcher: ValueSearcher | undefined,
     emailSearcher: ValueSearcher | undefined;
 
-//TODO search in visitedTargets
 async function getLeakedValues(
-	  fieldsCollector: FieldsCollector, crawlResult: CollectResult): Promise<null | LeakedValue[]> {
-	const requests = crawlResult.data.requests;
-	if (!requests) return null;
-
+	  fieldsCollector: FieldsCollector, crawlResult: CrawlResult): Promise<LeakedValue[]> {
 	const searchers = {
 		email: fieldsCollector.options.fill.appendDomainToEmail
 			  ? await ValueSearcher.fromValues(appendDomainToEmail(fieldsCollector.options.fill.email, new URL(crawlResult.initialUrl).hostname))
@@ -373,11 +378,14 @@ async function getLeakedValues(
 	};
 
 	return (await Promise.all(Object.entries(searchers).map(async ([prop, searcher]) =>
-		  (await findValue(searcher, requests))
-				.map(({part, request, encodings}) => ({
+		  (await findValue(searcher,
+				crawlResult.data.requests ?? [],
+				// typescript-eslint bug
+				// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+				crawlResult.data.fields?.visitedTargets?.map(t => t.url) ?? []))
+				.map(entry => ({
+					...entry,
 					type: prop as keyof typeof searchers,
-					requestIndex: requests.indexOf(request),
-					part, encodings,
 				} as const))))).flat();
 }
 
@@ -410,19 +418,15 @@ void (async () => {
 	}
 })();
 
-type CrawlResult =
+export type CrawlResult =
 	  CollectResult
 	  & { data: { [fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldsCollectorData } };
 
-interface OutputFile {
+export interface OutputFile {
 	crawlResult: CrawlResult;
 	leakedValues?: LeakedValue[];
 }
 
-interface LeakedValue {
+export interface LeakedValue extends FindEntry {
 	type: 'password' | 'email';
-	requestIndex: number;
-	part: 'url' | 'body';
-	/** Encodings (e.g. `uri`) that were used to encode value, outside-in */
-	encodings: string[];
 }

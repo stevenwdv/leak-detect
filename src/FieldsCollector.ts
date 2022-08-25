@@ -15,6 +15,7 @@ import {
 	addAll,
 	appendDomainToEmail,
 	AsBound,
+	EmptyObject,
 	filterUniqBy,
 	formatDuration,
 	getRelativeUrl,
@@ -594,7 +595,7 @@ export class FieldsCollector extends BaseCollector {
 
 	async #getEmailFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs & FathomElementAttrs>[]> {
 		const emailFieldsFromFathom = await unwrapHandle(await frame.evaluateHandle(() => {
-			const found = [
+			const found      = [
 				...window[PageVars.INJECTED].detectEmailInputs(document.documentElement),
 				...window[PageVars.INJECTED].detectUsernameInputs(document.documentElement),
 			];
@@ -1079,7 +1080,7 @@ interface ErrorInfo {
 	level: 'error' | 'warn';
 }
 
-export type FieldsCollectorData = Record<string, never> | {
+export type FieldsCollectorData = EmptyObject | {
 	/** Similar to what {@link import('tracker-radar-collector').TargetCollector} does but with timestamps */
 	visitedTargets: VisitedTarget[],
 	fields: FieldElementAttrs[],
