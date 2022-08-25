@@ -55,8 +55,10 @@ process.on('uncaughtExceptionMonitor', (error, origin) =>
 let mainExited = false;
 process.on('exit', () => {
 	process.stdout.write('\x1b]9;4;0;0\x1b\\');
-	if (!mainExited)
+	if (!mainExited) {
+		process.exitCode = 13;
 		console.error('\n\n❌️ Error: Node.js prevented a hang due to a Promise that can never be fulfilled');
+	}
 });
 
 process.stdout.write('\x1b]0;leak detector\x1b\\');
@@ -390,8 +392,8 @@ void (async () => {
 		await main();
 		process.stdout.write('\x1b]9;4;1;100\x1b\\');
 	} catch (err) {
-		console.error('\n❌️', err);
 		process.exitCode = 1;
+		console.error('\n❌️', err);
 	} finally {
 		mainExited = true;
 	}
