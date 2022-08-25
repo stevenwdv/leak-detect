@@ -29,6 +29,7 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 		links.push(...infos);
 	}
 
+	await frame.page().bringToFront();
 	if (matchTypes.has('exact'))
 		await addNew(await findLoginLinks(frame, true), 'exact');
 	if (matchTypes.has('loose'))

@@ -5,6 +5,7 @@ import {notFalsy} from './utils';
 
 export async function findValue(
 	  searcher: ValueSearcher, requests: readonly RequestCollector.RequestData[]): Promise<FindEntry[]> {
+	//TODO search in headers
 	return (await Promise.all(requests.flatMap(request => [
 		searcher.findValueIn(Buffer.from(request.url))
 			  .then(encoders => encoders && {

@@ -357,6 +357,7 @@ async function main() {
 let passwordSearcher: ValueSearcher | undefined,
     emailSearcher: ValueSearcher | undefined;
 
+//TODO search in visitedTargets
 async function getLeakedValues(
 	  fieldsCollector: FieldsCollector, crawlResult: CollectResult): Promise<null | LeakedValue[]> {
 	const requests = crawlResult.data.requests;
