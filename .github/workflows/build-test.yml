@@ -24,7 +24,6 @@ jobs:
 
   test:
     name: Test
-    needs: build-lint
     runs-on: ubuntu-latest
 
     steps:
