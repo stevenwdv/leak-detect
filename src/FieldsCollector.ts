@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
-import {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
+import type {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 import {groupBy} from 'ramda';
 import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
@@ -40,8 +40,8 @@ import {
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
 import {exposeFunction, getFrameStack, getPageFromHandle, unwrapHandle} from './puppeteerUtils';
-import TimeoutError = puppeteer.TimeoutError;
 import ErrnoException = NodeJS.ErrnoException;
+import TimeoutError = puppeteer.TimeoutError;
 
 export class FieldsCollector extends BaseCollector {
 	/** Page function to inject leak-detect-inject */
@@ -649,7 +649,6 @@ export class FieldsCollector extends BaseCollector {
 		for (const field of fields.filter(f => !f.attrs.filled)) {
 			this.#events.push(new FillEvent(field.attrs.selectorChain));
 			this.#setDirty(field.handle.executionContext().frame()!.page());
-			await this.#injectPasswordLeakDetection(field.handle.executionContext().frame()!);
 			try {
 				switch (field.attrs.fieldType) {
 					case 'email':

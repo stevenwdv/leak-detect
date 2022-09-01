@@ -1,5 +1,6 @@
-import {ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
+import type {ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
 import {IsTuple} from 'ts-essentials';
+
 import TypedArray = NodeJS.TypedArray;
 
 export function getPageFromHandle(handle: JSHandle): Page | null {

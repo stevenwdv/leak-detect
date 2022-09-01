@@ -1,6 +1,6 @@
 import {setTimeout} from 'node:timers/promises';
 
-import {ElementHandle} from 'puppeteer';
+import type {ElementHandle} from 'puppeteer';
 
 import {getPageFromHandle} from './puppeteerUtils';
 

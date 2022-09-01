@@ -1,4 +1,5 @@
-import {ElementHandle, Frame} from 'puppeteer';
+import type {ElementHandle, Frame} from 'puppeteer';
+
 import {filterUniqBy} from './utils';
 import {ElementInfo, getElementAttrs, LinkElementAttrs, LinkMatchType, selectorStr} from './pageUtils';
 import {unwrapHandle} from './puppeteerUtils';

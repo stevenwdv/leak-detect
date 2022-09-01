@@ -1,5 +1,5 @@
 import {SelectorChain} from 'leak-detect-inject';
-import {BoundingBox, BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
+import type {BoundingBox, BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 
 import {stripHash} from './utils';
 import {PageVars} from './FieldsCollector';
