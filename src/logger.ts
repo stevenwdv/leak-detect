@@ -89,6 +89,7 @@ export class FileLogger extends Logger {
 
 	async finalize() {
 		const err = this.checkError();
+		// eslint-disable-next-line @typescript-eslint/no-throw-literal
 		if (err) throw err;
 		await new Promise<void>((resolve, reject) =>
 			  this.#file.close(err => err ? reject(err) : resolve()));
