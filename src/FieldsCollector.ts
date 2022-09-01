@@ -659,6 +659,7 @@ export class FieldsCollector extends BaseCollector {
 									: this.options.fill.email, fillTimes);
 						break;
 					case 'password':
+						await this.#injectPasswordLeakDetection(field.handle.executionContext().frame()!);
 						await fillPasswordField(field.handle, this.options.fill.password, fillTimes);
 						break;
 					default:
@@ -673,6 +674,7 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
+	//TODO? Maybe just check once after filling
 	async #injectPasswordLeakDetection(frame: Frame) {
 		try {
 			const page = frame.page();
