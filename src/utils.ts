@@ -15,6 +15,10 @@ export function notFalsy<T>(v: T | null | undefined | 0 | false | ''): v is T {
 	return !!v;
 }
 
+export function getRandomUpTo(maxValue: number) {
+	return Math.random() * maxValue;
+}
+
 export function stripHash(url: string | URL): string {
 	return url.toString().match(/^[^#]*/)![0]!;
 }

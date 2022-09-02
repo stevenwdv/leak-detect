@@ -65,7 +65,7 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 	});
 	return {
 		...elAttrsPartial,
-		frameStack: getFrameStack(handle.executionContext().frame()!).map(f => f.url()),
+		frameStack: getFrameStack(handle.frame).map(f => f.url()),
 		inView,
 		boundingBox,
 		time: Date.now(),

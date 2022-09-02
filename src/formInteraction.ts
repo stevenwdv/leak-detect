@@ -2,14 +2,10 @@ import {setTimeout} from 'node:timers/promises';
 
 import type {ElementHandle} from 'puppeteer';
 
-import {getPageFromHandle} from './puppeteerUtils';
-
-function getRandomUpTo(maxValue: number) {
-	return Math.random() * maxValue;
-}
+import {getRandomUpTo} from './utils';
 
 export async function focusElement(handle: ElementHandle, clickDwellTimeMs: number) {
-	const page = getPageFromHandle(handle)!;
+	const page = handle.frame.page();
 	await page.bringToFront();
 	await smoothScrollToElement(handle);
 	await handle.hover();
@@ -22,7 +18,7 @@ async function smoothScrollToElement(handle: ElementHandle) {
 
 async function fillInputElement(elem: ElementHandle, text: string, options: FillTimesMs) {
 	await focusElement(elem, options.clickDwell);
-	const page = getPageFromHandle(elem)!;
+	const page = elem.frame.page();
 	for (const key of text) {
 		await elem.type(key, {delay: getRandomUpTo(options.keyDwell)});
 		await setTimeout(getRandomUpTo(options.betweenKeys));
@@ -42,7 +38,7 @@ export async function fillEmailField(
 
 export async function submitField(elem: ElementHandle, clickDwellTimeMs: number) {
 	await focusElement(elem, clickDwellTimeMs);
-	const page = getPageFromHandle(elem)!;
+	const page = elem.frame.page();
 	await page.keyboard.press('Enter');
 }
 

@@ -26,11 +26,11 @@
 		"js-yaml": "^4.1.0",
 		"jsonschema": "^1.4.1",
 		"progress": "^2.0.3",
-		"puppeteer": "^16.2.0",
+		"puppeteer": "^17.1.0",
 		"ramda": "^0.28.0",
 		"sanitize-filename": "^1.6.3",
 		"tldts": "^5.7.90",
-		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#e62cc7ba",
+		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#0c866312",
 		"value-searcher": "file:value-searcher",
 		"yargs": "^17.5.1"
 	},

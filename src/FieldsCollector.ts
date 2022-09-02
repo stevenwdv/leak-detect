@@ -39,7 +39,7 @@ import {
 	selectorStr,
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
-import {exposeFunction, getFrameStack, getPageFromHandle, unwrapHandle} from './puppeteerUtils';
+import {exposeFunction, getFrameStack, unwrapHandle} from './puppeteerUtils';
 import ErrnoException = NodeJS.ErrnoException;
 import TimeoutError = puppeteer.TimeoutError;
 
@@ -325,7 +325,7 @@ export class FieldsCollector extends BaseCollector {
 
 	/** Just click an element */
 	async #click(elem: ElementHandle) {
-		await getPageFromHandle(elem)!.bringToFront();
+		await elem.frame.page().bringToFront();
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
 		await elem.evaluate(el => {
 			el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
@@ -629,13 +629,13 @@ export class FieldsCollector extends BaseCollector {
 	async #submitField(field: ElementInfo<FieldElementAttrs>) {
 		this.#events.push(new SubmitEvent(field.attrs.selectorChain));
 		this.#log?.log('submitting field', selectorStr(field.attrs.selectorChain));
-		this.#setDirty(field.handle.executionContext().frame()!.page());
+		this.#setDirty(field.handle.frame.page());
 		try {
 			await submitField(field.handle, this.options.sleepMs?.fill?.clickDwell ?? 0);
 			field.attrs.submitted = true;
 
-			const frame  = field.handle.executionContext().frame()!;
-			const opened = await this.#waitForNavigation(field.handle.executionContext().frame()!,
+			const frame  = field.handle.frame;
+			const opened = await this.#waitForNavigation(field.handle.frame,
 				  this.options.timeoutMs.submitField);
 			await this.#screenshot((opened ?? frame).page(), 'submitted');
 		} catch (err) {
@@ -648,7 +648,7 @@ export class FieldsCollector extends BaseCollector {
 		const fillTimes = this.options.sleepMs?.fill ?? {clickDwell: 0, keyDwell: 0, betweenKeys: 0};
 		for (const field of fields.filter(f => !f.attrs.filled)) {
 			this.#events.push(new FillEvent(field.attrs.selectorChain));
-			this.#setDirty(field.handle.executionContext().frame()!.page());
+			this.#setDirty(field.handle.frame.page());
 			try {
 				switch (field.attrs.fieldType) {
 					case 'email':
@@ -658,7 +658,7 @@ export class FieldsCollector extends BaseCollector {
 									: this.options.fill.email, fillTimes);
 						break;
 					case 'password':
-						await this.#injectPasswordLeakDetection(field.handle.executionContext().frame()!);
+						await this.#injectPasswordLeakDetection(field.handle.frame);
 						await fillPasswordField(field.handle, this.options.fill.password, fillTimes);
 						break;
 					default:

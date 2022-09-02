@@ -3,10 +3,6 @@ import {IsTuple} from 'ts-essentials';
 
 import TypedArray = NodeJS.TypedArray;
 
-export function getPageFromHandle(handle: JSHandle): Page | null {
-	return handle.executionContext().frame()?.page() ?? null;
-}
-
 /** @return Stack starting with this frame, going up */
 export function getFrameStack(frame: Frame): [Frame] & Frame[] {
 	const frames: [Frame] & Frame[] = [frame];
