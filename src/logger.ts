@@ -90,7 +90,7 @@ export class FileLogger extends Logger {
 	async finalize() {
 		const err = this.checkError();
 		// eslint-disable-next-line @typescript-eslint/no-throw-literal
-		if (err) throw err;
+		if (err !== undefined) throw err;
 		await new Promise<void>((resolve, reject) =>
 			  this.#file.close(err => err ? reject(err) : resolve()));
 	}
@@ -281,7 +281,7 @@ export class BufferingLogger extends Logger {
 
 export const logLevels = ['debug', 'log', 'info', 'warn', 'error'] as const;
 
-const logLevelOrder = {
+export const logLevelOrder = {
 	debug: 0,
 	log: 1,
 	info: 2,

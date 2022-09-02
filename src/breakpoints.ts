@@ -14,7 +14,7 @@ export const breakpoints: import('tracker-radar-collector').breakpoints.Breakpoi
 					value: elem.value,
 					type: elem.type,
 					id: elem.id,
-				}),
+				} as LeakDetectorCaptureData),
 			},
 		],
 		methods: [],
@@ -22,3 +22,10 @@ export const breakpoints: import('tracker-radar-collector').breakpoints.Breakpoi
 ];
 
 export default breakpoints;
+
+export interface LeakDetectorCaptureData {
+	time: number;
+	value: string;
+	type: string;
+	id: string;
+}

@@ -1030,19 +1030,16 @@ export interface VisitedTarget {
 }
 
 //region Events
-// noinspection JSUnusedGlobalSymbols
 export abstract class FieldsCollectorEvent {
 	protected constructor(public readonly type: string, public readonly time = Date.now()) {}
 }
 
-// noinspection JSUnusedGlobalSymbols
 export class FillEvent extends FieldsCollectorEvent {
 	constructor(public readonly field: SelectorChain) {
 		super('fill');
 	}
 }
 
-// noinspection JSUnusedGlobalSymbols
 export class SubmitEvent extends FieldsCollectorEvent {
 	constructor(public readonly field: SelectorChain) {
 		super('submit');
@@ -1064,13 +1061,11 @@ export class ReturnEvent extends FieldsCollectorEvent {
 	}
 }
 
-// noinspection JSUnusedGlobalSymbols
 export class ClickLinkEvent extends FieldsCollectorEvent {
 	constructor(public readonly link: SelectorChain, public readonly linkType: 'auto' | 'manual') {
 		super('link');
 	}
 }
-
 //endregion
 
 interface ErrorInfo {

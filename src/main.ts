@@ -32,7 +32,7 @@ import {
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, populateDefaults} from './utils';
-import {FindEntry, findValue} from './analysis';
+import {FindEntry, findValue, getSummary} from './analysis';
 import {PathLike} from 'fs';
 import {FileHandle} from 'fs/promises';
 
@@ -68,6 +68,7 @@ process.stdout.write('\x1b]0;leak detector\x1b\\');
 
 async function main() {
 	const args = yargs
+		  .wrap(yargs.terminalWidth())
 		  .command('crawl', 'crawl a URL', yargs => yargs
 			    .option('url', {
 				    description: 'URL of homepage to crawl',
@@ -122,16 +123,26 @@ async function main() {
 				    type: 'boolean',
 				    default: false,
 			    })
-				.option('devtools', {
-					description: 'open developer tools',
-					type: 'boolean',
-					default: false,
-				})
-				.option('timeout', {
-					description: 'timeout for crawl, in seconds, or 0 to disable',
-					type: 'number',
-					default: 20 * 60,
-				})
+			    .option('devtools', {
+				    description: 'open developer tools',
+				    type: 'boolean',
+				    default: false,
+			    })
+			    .option('timeout', {
+				    description: 'timeout for crawl, in seconds, or 0 to disable',
+				    type: 'number',
+				    default: 20 * 60,
+			    })
+			    .option('check-leaks', {
+				    description: 'check for leaks of filled values in web requests',
+				    type: 'boolean',
+				    default: true,
+			    })
+			    .option('summary', {
+				    description: 'provide a summary of each crawl result',
+				    type: 'boolean',
+				    default: true,
+			    })
 				.option('output', {
 					alias: 'out',
 					description: 'output file (--url) or directory (--urls-file)',
@@ -224,15 +235,16 @@ async function main() {
 		await eachLimit(urls, args.parallelism, async url => {
 			urlsInProgress.push(url.href);
 			try {
-				const fileBase     = path.join(outputDir, sanitizeFilename(
+				const fileBase     = path.join(outputDir, `${Date.now()} ${sanitizeFilename(
 					  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
 					  {replacement: '_'},
-				));
+				)}`);
 				const fileLogger   = new FileLogger(`${fileBase}.log`);
 				let logger: Logger = new TaggedLogger(fileLogger);
 				logger.info(`crawling ${url.href} at ${new Date().toString()}`);
 				if (logLevel) logger = new FilteringLogger(logger, logLevel);
-				const counter = logger = new CountingLogger(logger);
+				const errorTracker = logger = new ErrorTrackingLogger(logger);
+				const counter      = logger = new CountingLogger(logger);
 
 				const fieldsCollector             = new FieldsCollector(options, logger);
 				const collectors: BaseCollector[] = [fieldsCollector];
@@ -262,11 +274,12 @@ async function main() {
 
 				const output: OutputFile = {crawlResult};
 
-				try {
-					output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
-				} catch (err) {
-					logger.error('error while searching for leaks', err);
-				}
+				if (args.checkLeaks)
+					try {
+						output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
+					} catch (err) {
+						logger.error('error while searching for leaks', err);
+					}
 
 				const errors   = counter.count('error'),
 				      warnings = counter.count('warn');
@@ -277,6 +290,8 @@ async function main() {
 
 				await saveJson(`${fileBase}.json`, output);
 				await fileLogger.finalize();
+				if (args.summary)
+					await fsp.writeFile(`${fileBase}.txt`, getSummary(output, errorTracker.errors()));
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 			}
@@ -302,6 +317,7 @@ async function main() {
 
 		let logger: Logger = new ColoredLogger(new ConsoleLogger());
 		if (logLevel) logger = new FilteringLogger(logger, logLevel);
+		const errorTracker                = logger = new ErrorTrackingLogger(logger);
 
 		const fieldsCollector             = new FieldsCollector(options, logger);
 		const collectors: BaseCollector[] = [fieldsCollector];
@@ -324,32 +340,34 @@ async function main() {
 
 		const output: OutputFile = {crawlResult};
 
-		logger.log('searching for leaked values in web requests');
-		const leakedValues  = await getLeakedValues(fieldsCollector, crawlResult);
-		output.leakedValues = leakedValues;
-		for (const {
-			           type,
-			           part,
-			           header,
-			           encodings,
-			           requestIndex,
-			           visitedTargetIndex
-		           } of leakedValues) {
-			const {url} = requestIndex ? crawlResult.data.requests![requestIndex]!
-				  : crawlResult.data.fields!.visitedTargets[visitedTargetIndex!]!;
+		if (args.checkLeaks) {
+			logger.log('searching for leaked values in web requests');
+			const leakedValues  = await getLeakedValues(fieldsCollector, crawlResult);
+			output.leakedValues = leakedValues;
+			for (const {
+				           type,
+				           part,
+				           header,
+				           encodings,
+				           requestIndex,
+				           visitedTargetIndex
+			           } of leakedValues) {
+				const {url} = requestIndex ? crawlResult.data.requests![requestIndex]!
+					  : crawlResult.data.fields!.visitedTargets[visitedTargetIndex!]!;
 
-			switch (part) {
-				case 'url':
-					logger.info(`Found ${type} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
-					break;
-				case 'header':
-					logger.info(`Found ${type} in request header ${header!}: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
-					break;
-				case 'body':
-					logger.info(`Found ${type} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`);
-					break;
-				default:
-					throw new UnreachableCaseError(part);
+				switch (part) {
+					case 'url':
+						logger.info(`Found ${type} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+						break;
+					case 'header':
+						logger.info(`Found ${type} in request header ${header!}: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+						break;
+					case 'body':
+						logger.info(`Found ${type} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+						break;
+					default:
+						throw new UnreachableCaseError(part);
+				}
 			}
 		}
 
@@ -357,9 +375,13 @@ async function main() {
 			await saveJson(args.output, output);
 			console.info('output written to', args.output);
 		} else {
-			console.info('%o', output);  // %o: print more properties
 			// eslint-disable-next-line no-debugger
 			debugger  // Give you the ability to inspect the result in a debugger
+		}
+
+		if (args.summary) {
+			console.log('\n==== 📝 Summary: ====\n');
+			console.log(getSummary(output, errorTracker.errors()));
 		}
 	}
 	console.info('\x07');
@@ -398,6 +420,34 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 		else if (args[0].includes(' context initiated in ')) level = 'debug';
 	}
 	logger.logLevel(level, ...args);
+}
+
+class ErrorTrackingLogger extends Logger {
+	readonly #log: Logger;
+	readonly #msgs: { level: 'warn' | 'error', args: unknown[] }[] = [];
+
+	constructor(logger: Logger) {
+		super();
+		this.#log = logger;
+	}
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		if (level === 'warn' || level === 'error')
+			this.#msgs.push({level, args});
+		this.#log.logLevel(level, ...args);
+	}
+
+	startGroup(name: string) {
+		this.#log.startGroup(name);
+	}
+
+	endGroup() {
+		this.#log.endGroup();
+	}
+
+	errors() {
+		return this.#msgs;
+	}
 }
 
 async function saveJson(file: PathLike | FileHandle, output: OutputFile) {
