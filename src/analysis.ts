@@ -46,8 +46,8 @@ export function getSummary(output: OutputFile, errors: { level: 'warn' | 'error'
 			for (const leak of output.leakedValues) {
 				const reqTime = leak.requestIndex
 					  ? collectorData.requests![leak.requestIndex]!.wallTime
-					  : collectorData.fields!.visitedTargets[leak.visitedTargetIndex!]!.time / 1e3;
-				write(`${reqTime ? `${time(reqTime * 1e3)} ` : ''}${leak.type} sent in ${leak.part}`);
+					  : collectorData.fields!.visitedTargets[leak.visitedTargetIndex!]!.time;
+				write(`${reqTime ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
 				if (leak.requestIndex) {
 					const request = collectorData.requests![leak.requestIndex]!;
 					write(` of request to "${request.url}"`);
