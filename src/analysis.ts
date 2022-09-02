@@ -51,10 +51,10 @@ export function getSummary(output: OutputFile, errors: { level: 'warn' | 'error'
 				if (leak.requestIndex) {
 					const request = collectorData.requests![leak.requestIndex]!;
 					write(` of request to "${request.url}"`);
-					if (request.initiators?.length) {
-						writeln(' from:');
-						for (const initiator of request.initiators)
-							writeln(`\t${initiator}`);
+					if (request.stack?.length) {
+						writeln(' by:');
+						for (const frame of request.stack)
+							writeln(`\t${frame}`);
 					}
 					writeln();
 				} else writeln(` for navigation to ${collectorData.fields!.visitedTargets[leak.visitedTargetIndex!]!.url}`);
