@@ -97,6 +97,22 @@ export function addAll<T>(set: Set<T>, values: Iterable<T>) {
 	for (const val of values) set.add(val);
 }
 
+export function raceWithCondition<T>(
+	  promises: Iterable<T | PromiseLike<T>>,
+	  condition: (val: T) => boolean | PromiseLike<boolean>,
+): Promise<T | undefined> {
+	return new Promise((resolve, reject) =>
+		  void Promise.allSettled([...promises].map(async p => {
+			  // Calling resolve/reject multiple times does not do anything
+			  try {
+				  const res = await p;
+				  if (await condition(res)) resolve(res);
+			  } catch (err) {
+				  reject(err);
+			  }
+		  })).then(() => resolve(undefined)));
+}
+
 export function formatDuration(ms: number): string {
 	let str = '';
 	if (ms >= 3600_000) str += `${Math.floor(ms / 3600_000)}h `;

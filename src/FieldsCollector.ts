@@ -18,7 +18,9 @@ import {
 	filterUniqBy,
 	formatDuration,
 	getRelativeUrl,
+	notFalsy,
 	populateDefaults,
+	raceWithCondition,
 	tryAdd,
 } from './utils';
 import {ColoredLogger, Logger, PlainLogger} from './logger';
@@ -318,8 +320,9 @@ export class FieldsCollector extends BaseCollector {
 		const page     = this.#page;
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
 		if (!linkInfo) throw new Error('could not find link element anymore');
+		const waitNavigation = this.#waitForNavigation(page.mainFrame(), this.options.timeoutMs.followLink);
 		await this.#click(linkInfo.handle);
-		const opened = await this.#waitForNavigation(page.mainFrame(), this.options.timeoutMs.followLink);
+		const opened = await waitNavigation;
 		await this.#screenshot(opened?.page() ?? page, 'link-clicked');
 	}
 
@@ -389,11 +392,15 @@ export class FieldsCollector extends BaseCollector {
 		const maxWaitTimeMs = Math.max(minTimeoutMs,
 			  this.#dataParams.pageLoadDurationMs * 2);
 
-		this.#log?.debug(`waiting for navigation from ${frame.url()}`);
+		const frameStartUrl = frame.url(),
+		      pageStartUrl  = frame.page().url();
+
+		this.#log?.debug(`started waiting for navigation from ${frame.url()}`);
 		try {
-			const prePages      = new Set(await this.#context.pages());
-			const {msg, target} = await Promise.race([
+			const preTargets    = new Set(this.#context.targets());
+			const {msg, target} = (await raceWithCondition([
 				(async () => {
+					const pageNavigate = frame.page().waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
 					try {
 						await frame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
 						return {msg: `navigated to ${frame.url()}`, target: frame};
@@ -401,20 +408,25 @@ export class FieldsCollector extends BaseCollector {
 						if (err instanceof TimeoutError) throw err;
 						// Frame may be detached due to parent navigating
 						const page = frame.page();
-						await page.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
+						if (page.mainFrame() === frame) return null;
+						await pageNavigate;
 						return {msg: `parent page navigated to ${page.url()}`, target: page.mainFrame()};
 					}
 				})(),
 				this.#context.waitForTarget(
-					  async target => target.type() === 'page' && !prePages.has((await target.page())!),
+					  target => target.type() === 'page' && !preTargets.has(target),
 					  {timeout: maxWaitTimeMs})
 					  .then(async page => ({msg: `opened ${page.url()}`, target: (await page.page())!.mainFrame()})),
-			]);
+			], notFalsy))!;
 			this.#log?.log(msg);
 			await this.#sleep(this.options.sleepMs?.postNavigate);
 			return target;
 		} catch (err) {
 			if (err instanceof TimeoutError) {
+				if (frame.page().url() !== pageStartUrl)
+					this.#log?.log(`parent page started navigating to ${frame.page().url()}`);
+				else if (frame.url() !== frameStartUrl)
+					this.#log?.log(`started navigating to ${frame.url()}`);
 				this.#log?.log('navigation timeout exceeded (will continue)');
 				return null;
 			}
@@ -631,12 +643,13 @@ export class FieldsCollector extends BaseCollector {
 		this.#log?.log('submitting field', selectorStr(field.attrs.selectorChain));
 		this.#setDirty(field.handle.frame.page());
 		try {
+			const waitNavigation = this.#waitForNavigation(field.handle.frame,
+				  this.options.timeoutMs.submitField);
 			await submitField(field.handle, this.options.sleepMs?.fill?.clickDwell ?? 0);
 			field.attrs.submitted = true;
 
 			const frame  = field.handle.frame;
-			const opened = await this.#waitForNavigation(field.handle.frame,
-				  this.options.timeoutMs.submitField);
+			const opened = await waitNavigation;
 			await this.#screenshot((opened ?? frame).page(), 'submitted');
 		} catch (err) {
 			this.#reportError(err, ['failed to submit field', field.attrs], 'warn');
@@ -1066,6 +1079,7 @@ export class ClickLinkEvent extends FieldsCollectorEvent {
 		super('link');
 	}
 }
+
 //endregion
 
 interface ErrorInfo {
