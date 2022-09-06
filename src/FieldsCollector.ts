@@ -415,7 +415,7 @@ export class FieldsCollector extends BaseCollector {
 						await pageNavigate;
 						return {msg: `parent page navigated to ${page.url()}`, target: page.mainFrame()};
 					} finally {
-						void pageNavigate?.catch(/*ignore TimeoutError or other*/);
+						void pageNavigate?.catch(() => {/*ignore TimeoutError or other*/});
 					}
 				})(),
 				this.#context.waitForTarget(
