@@ -44,7 +44,6 @@ const eachLimit = async.eachLimit as <T, E = Error>(
 
 process.on('uncaughtException', error => {
 	process.exitCode = 1;
-	process.stderr.write('\x07');
 	console.error(error);
 	// eslint-disable-next-line no-debugger
 	debugger;
@@ -52,7 +51,7 @@ process.on('uncaughtException', error => {
 });
 
 process.on('uncaughtExceptionMonitor', (error, origin) =>
-	  console.error('\n\n❌️', origin));
+	  console.error('\n\n\x07❌️', origin));
 
 let mainExited = false;
 process.on('beforeExit', () => {

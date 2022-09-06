@@ -400,17 +400,22 @@ export class FieldsCollector extends BaseCollector {
 			const preTargets    = new Set(this.#context.targets());
 			const {msg, target} = (await raceWithCondition([
 				(async () => {
-					const pageNavigate = frame.page().waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
+					const page         = frame.page();
+					const pageNavigate = page.mainFrame() !== frame
+						  ? page.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'})
+						  : null;
 					try {
 						await frame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
 						return {msg: `navigated to ${frame.url()}`, target: frame};
 					} catch (err) {
 						if (err instanceof TimeoutError) throw err;
 						// Frame may be detached due to parent navigating
-						const page = frame.page();
-						if (page.mainFrame() === frame) return null;
+						// (Error: Navigating frame was detached)
+						if (!pageNavigate) return null;
 						await pageNavigate;
 						return {msg: `parent page navigated to ${page.url()}`, target: page.mainFrame()};
+					} finally {
+						void pageNavigate?.catch(/*ignore TimeoutError or other*/);
 					}
 				})(),
 				this.#context.waitForTarget(
