@@ -26,7 +26,7 @@
 		"js-yaml": "^4.1.0",
 		"jsonschema": "^1.4.1",
 		"progress": "^2.0.3",
-		"puppeteer": "^17.1.0",
+		"puppeteer": "^17.1.1",
 		"ramda": "^0.28.0",
 		"sanitize-filename": "^1.6.3",
 		"tldts": "^5.7.90",
