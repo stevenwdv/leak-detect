@@ -686,7 +686,6 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	//TODO? Maybe just check once after filling
 	async #injectPasswordLeakDetection(frame: Frame) {
 		try {
 			const page = frame.page();

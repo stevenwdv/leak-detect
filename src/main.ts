@@ -82,7 +82,7 @@ async function main() {
 			    .option('parallelism', {
 				    description: 'Number of crawls to run in parallel if --urls-file was specified',
 				    type: 'number',
-				    default: 30,
+				    default: 20,
 			    })
 			    .option('log-succeeded', {
 				    description: 'Print out URLs of succeeded crawls with --urls-file as well',
@@ -332,7 +332,7 @@ async function main() {
 				  maxCollectionTimeMs: args.timeout * 1e3,
 				  throwCollectorErrors: false,
 				  headed: args.headed,
-				  keepOpen: args.headed,
+				  keepOpen: args.headed && !args.headedAutoclose,
 				  devtools: args.devtools,
 				  collectors,
 			  },
