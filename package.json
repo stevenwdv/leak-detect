@@ -19,6 +19,9 @@
 	"workspaces": [
 		"inject"
 	],
+	"engines": {
+		"node": ">=17.5"
+	},
 	"dependencies": {
 		"@gorhill/ubo-core": "^0.1.25",
 		"@puppeteer/replay": "^1.1.1",
