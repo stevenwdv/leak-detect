@@ -63,7 +63,6 @@ export class ThirdPartyClassifier {
 	#getEntity(domain: string): number | null {
 		let superDomain = domain;
 		while (true) {
-			console.log('start');
 			const entity = this.#domainMap[superDomain];
 			if (entity !== undefined) return entity;
 			const dotIndex = superDomain.indexOf('.');
