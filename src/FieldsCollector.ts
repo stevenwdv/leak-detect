@@ -512,7 +512,7 @@ export class FieldsCollector extends BaseCollector {
 				this.#log?.log('reached maximum number of filled fields');
 			this.#log?.log(`processed ${pageFields.length} new fields`);
 			return pageFields;
-		});
+		}, logPageUrl !== this.#dataParams.finalUrl);
 	}
 
 	/**
