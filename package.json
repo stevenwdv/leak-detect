@@ -4,7 +4,7 @@
 	"author": "stevenwdv",
 	"repository": "github:stevenwdv/leak-detection",
 	"scripts": {
-		"install": "npm -w inject run pack && (sed -i '1s;^;// @ts-nocheck\\n;' node_modules/@duckduckgo/autoconsent/lib/tabwrapper.ts || true)",
+		"install": "npm -w inject run pack",
 		"start": "node --require ts-node/register ./src/main.ts",
 		"debug": "node --require ts-node/register --inspect --pending-deprecation --trace-deprecation --trace-warnings ./src/main.ts",
 		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint --max-warnings 0 .",
@@ -34,7 +34,7 @@
 		"ramda": "^0.28.0",
 		"sanitize-filename": "^1.6.3",
 		"tldts": "^5.7.90",
-		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#0c866312",
+		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#5c85f2a1",
 		"value-searcher": "file:value-searcher",
 		"yargs": "^17.5.1"
 	},

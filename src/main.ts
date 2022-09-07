@@ -10,8 +10,17 @@ import chalk from 'chalk';
 import yaml from 'js-yaml';
 import jsonschema from 'jsonschema';
 import ProgressBar from 'progress';
+import type {Browser} from 'puppeteer';
 import sanitizeFilename from 'sanitize-filename';
-import {APICallCollector, BaseCollector, crawler, puppeteer, RequestCollector} from 'tracker-radar-collector';
+import {
+	APICallCollector,
+	BaseCollector,
+	CMPCollector,
+	crawler,
+	puppeteer,
+	RequestCollector,
+} from 'tracker-radar-collector';
+import {BreakpointObject} from 'tracker-radar-collector/collectors/APICalls/breakpoints';
 import {CollectResult} from 'tracker-radar-collector/crawler';
 import {UnreachableCaseError} from 'ts-essentials';
 import ValueSearcher from 'value-searcher';
@@ -105,6 +114,11 @@ async function main() {
 				    description: 'enable requests collector',
 				    type: 'boolean',
 				    default: true,
+			    })
+			    .option('auto-consent', {
+				    description: 'try to automatically indicate consent in cookie dialog; one of optIn, optOut, noAction',
+				    type: 'boolean',
+				    default: 'optIn',
 			    })
 			    .option('single-browser', {
 				    description: 'perform crawls with --urls-file using a single browser (still multiple contexts)',
@@ -249,47 +263,7 @@ async function main() {
 				const errorTracker = logger = new ErrorTrackingLogger(logger);
 				const counter      = logger = new CountingLogger(logger);
 
-				const fieldsCollector             = new FieldsCollector(options, logger);
-				const collectors: BaseCollector[] = [fieldsCollector];
-				if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
-				if (args.requests) collectors.push(new RequestCollector());
-
-				const browserContext = await browser?.createIncognitoBrowserContext();
-				let crawlResult;
-				try {
-					crawlResult = await crawler(
-						  url,
-						  {
-							  browserContext,
-							  log: plainToLogger.bind(undefined, logger),
-							  maxCollectionTimeMs: args.timeout * 1e3,
-							  throwCollectorErrors: false,
-							  headed: args.headed,
-							  keepOpen: args.headed && !args.headedAutoclose,
-							  devtools: args.devtools,
-							  collectors,
-						  },
-					) as CrawlResult;
-				} finally {
-					if (!args.headed || args.headedAutoclose)
-						await browserContext?.close();
-				}
-
-				const output: OutputFile = {crawlResult};
-
-				if (args.checkThirdParty)
-					try {
-						output.domainInfo = await getDomainInfo(crawlResult);
-					} catch (err) {
-						logger.error('error while adding third party & tracker info', err);
-					}
-
-				if (args.checkLeaks)
-					try {
-						output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
-					} catch (err) {
-						logger.error('error while searching for leaks', err);
-					}
+				const output = await crawl(url, args, browser, options, apiBreakpoints, logger);
 
 				const errors   = counter.count('error'),
 				      warnings = counter.count('warn');
@@ -329,37 +303,11 @@ async function main() {
 		if (logLevel) logger = new FilteringLogger(logger, logLevel);
 		const errorTracker = logger = new ErrorTrackingLogger(logger);
 
-		const fieldsCollector             = new FieldsCollector(options, logger);
-		const collectors: BaseCollector[] = [fieldsCollector];
-		if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
-		if (args.requests) collectors.push(new RequestCollector());
-
 		process.stdout.write('\x1b]9;4;3;0\x1b\\');
-		const crawlResult = await crawler(
-			  url,
-			  {
-				  log: plainToLogger.bind(undefined, logger),
-				  maxCollectionTimeMs: args.timeout * 1e3,
-				  throwCollectorErrors: false,
-				  headed: args.headed,
-				  keepOpen: args.headed && !args.headedAutoclose,
-				  devtools: args.devtools,
-				  collectors,
-			  },
-		) as CrawlResult;
-		logger.log();
 
-		const output: OutputFile = {crawlResult};
+		const output = await crawl(url, args, undefined, options, apiBreakpoints, logger);
 
-		if (args.checkThirdParty) {
-			logger.log('checking third party & tracker info');
-			output.domainInfo = await getDomainInfo(crawlResult);
-		}
-
-		if (args.checkLeaks) {
-			logger.log('searching for leaked values in web requests');
-			const leakedValues  = await getLeakedValues(fieldsCollector, crawlResult);
-			output.leakedValues = leakedValues;
+		if (output.leakedValues) {
 			for (const {
 				           type,
 				           part,
@@ -367,9 +315,9 @@ async function main() {
 				           encodings,
 				           requestIndex,
 				           visitedTargetIndex
-			           } of leakedValues) {
-				const {url} = requestIndex !== undefined ? crawlResult.data.requests![requestIndex]!
-					  : crawlResult.data.fields!.visitedTargets[visitedTargetIndex!]!;
+			           } of output.leakedValues) {
+				const {url} = requestIndex !== undefined ? output.crawlResult.data.requests![requestIndex]!
+					  : output.crawlResult.data.fields!.visitedTargets[visitedTargetIndex!]!;
 
 				switch (part) {
 					case 'url':
@@ -403,8 +351,77 @@ async function main() {
 	console.info('\x07');
 }
 
-let passwordSearcher: ValueSearcher | undefined,
-    emailSearcher: ValueSearcher | undefined;
+async function crawl(
+	  url: URL,
+	  args: {
+		  apiCalls: boolean,
+		  requests: boolean,
+		  autoConsent: string,
+		  headed: boolean,
+		  headedAutoclose: boolean,
+		  devtools: boolean,
+		  timeout: number,
+		  checkThirdParty: boolean,
+		  checkLeaks: boolean,
+	  },
+	  browser: Browser | undefined,
+	  fieldsCollectorOptions: FieldsCollectorOptions,
+	  apiBreakpoints: BreakpointObject[],
+	  logger: Logger,
+): Promise<OutputFile> {
+	const fieldsCollector                        = new FieldsCollector(fieldsCollectorOptions, logger);
+	const collectors: BaseCollector[]            = [fieldsCollector];
+	const collectorFlags: Record<string, string> = {};
+	if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
+	if (args.requests) collectors.push(new RequestCollector());
+	if (args.autoConsent !== 'noAction') {
+		collectors.push(new CMPCollector());
+		collectorFlags.autoconsentAction = args.autoConsent;
+	}
+
+	const browserContext = await browser?.createIncognitoBrowserContext();
+	let crawlResult;
+	try {
+		crawlResult = await crawler(
+			  url,
+			  {
+				  browserContext,
+				  log: plainToLogger.bind(undefined, logger),
+				  maxCollectionTimeMs: args.timeout * 1e3,
+				  throwCollectorErrors: false,
+				  headed: args.headed,
+				  keepOpen: args.headed && !args.headedAutoclose,
+				  devtools: args.devtools,
+				  collectors,
+				  collectorFlags,
+			  },
+		) as CrawlResult;
+	} finally {
+		if (!args.headed || args.headedAutoclose)
+			await browserContext?.close();
+	}
+	logger.log();
+
+	const output: OutputFile = {crawlResult};
+
+	if (args.checkThirdParty)
+		try {
+			logger.log('checking third party & tracker info');
+			output.domainInfo = await getDomainInfo(crawlResult);
+		} catch (err) {
+			logger.error('error while adding third party & tracker info', err);
+		}
+
+	if (args.checkLeaks)
+		try {
+			logger.log('searching for leaked values in web requests');
+			output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
+		} catch (err) {
+			logger.error('error while searching for leaks', err);
+		}
+
+	return output;
+}
 
 async function getDomainInfo(crawlResult: CrawlResult): Promise<DomainInfo> {
 	const thirdPartyClassifier = await ThirdPartyClassifier.get(),
@@ -421,6 +438,9 @@ async function getDomainInfo(crawlResult: CrawlResult): Promise<DomainInfo> {
 		};
 	return domainInfo;
 }
+
+let passwordSearcher: ValueSearcher | undefined,
+    emailSearcher: ValueSearcher | undefined;
 
 async function getLeakedValues(
 	  fieldsCollector: FieldsCollector, crawlResult: CrawlResult): Promise<LeakedValue[]> {
