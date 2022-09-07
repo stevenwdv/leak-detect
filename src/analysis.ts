@@ -1,13 +1,15 @@
 import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher from 'value-searcher';
 
-import {formatDuration, notFalsy} from './utils';
+import {formatDuration, nonEmpty, notFalsy} from './utils';
 import {OutputFile} from './main';
 import {selectorStr} from './pageUtils';
 import {LeakDetectorCaptureData} from './breakpoints';
 import {ClickLinkEvent, FillEvent, SubmitEvent} from './FieldsCollector';
+import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 
-export function getSummary(output: OutputFile, errors: { level: 'warn' | 'error', args: unknown[] }[]): string {
+export async function getSummary(
+	  output: OutputFile, errors: { level: 'warn' | 'error', args: unknown[] }[]): Promise<string> {
 	const result = output.crawlResult;
 	const time   = (timestamp: number) =>
 		  `⌚️${((timestamp - result.testStarted) / 1e3).toFixed(1)}s`;
@@ -42,24 +44,43 @@ export function getSummary(output: OutputFile, errors: { level: 'warn' | 'error'
 	if (!collectorData.requests) writeln('⚠️ No request collector data found');
 	if (output.leakedValues) {
 		if (output.leakedValues.length) {
-			writeln('ℹ️ Values were sent in web requests:');
-			for (const leak of output.leakedValues) {
-				const reqTime = leak.requestIndex
-					  ? collectorData.requests![leak.requestIndex]!.wallTime
-					  : collectorData.fields!.visitedTargets[leak.visitedTargetIndex!]!.time;
-				write(`${reqTime ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
-				if (leak.requestIndex) {
-					const request = collectorData.requests![leak.requestIndex]!;
-					write(` of request to "${request.url}"`);
-					if (request.stack?.length) {
-						writeln(' by:');
-						for (const frame of request.stack)
-							writeln(`\t${frame}`);
-					}
-					writeln();
-				} else writeln(` for navigation to ${collectorData.fields!.visitedTargets[leak.visitedTargetIndex!]!.url}`);
+			const thirdPartyClassifier = await ThirdPartyClassifier.get(),
+			      trackerClassifier    = await TrackerClassifier.get();
+
+			const annotatedLeaks = output.leakedValues
+				  .map(leak => {
+					  const request       = leak.requestIndex !== undefined ? collectorData.requests![leak.requestIndex]! : undefined,
+					        visitedTarget = leak.visitedTargetIndex !== undefined ? collectorData.fields!.visitedTargets[leak.visitedTargetIndex]! : undefined;
+					  const url           = request?.url ?? visitedTarget!.url;
+					  return {
+						  ...leak,
+						  request,
+						  visitedTarget,
+						  thirdParty: thirdPartyClassifier.isThirdParty(url, result.finalUrl),
+						  tracker: trackerClassifier.isTracker(url, result.finalUrl),
+					  };
+				  });
+			const importantLeaks = annotatedLeaks.filter(({thirdParty, tracker}) => thirdParty || tracker);
+			if (importantLeaks.length) {
+				writeln('ℹ️ Values were sent in web requests to third parties:');
+				for (const leak of importantLeaks) {
+					const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
+					write(`${reqTime !== undefined ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
+					if (leak.request) {
+						write(' of request to');
+						if (leak.thirdParty) write(' third party');
+						if (leak.tracker) write(' tracker');
+						write(` "${leak.request.url}"`);
+						if (nonEmpty(leak.request.stack)) {
+							writeln(' by:');
+							for (const frame of leak.request.stack)
+								writeln(`\t${frame}`);
+						}
+						writeln();
+					} else writeln(` for navigation to ${collectorData.fields!.visitedTargets[leak.visitedTargetIndex!]!.url}`);
+				}
+				writeln();
 			}
-			writeln();
 		}
 	} else writeln('⚠️ No leaked value data found\n');
 

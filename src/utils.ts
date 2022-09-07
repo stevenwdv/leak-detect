@@ -11,8 +11,17 @@ export type AsBound<Constructor extends { prototype: object } & (abstract new (.
 	  ? (this: InstanceType<Constructor>, ...args: P) => R
 	  : Constructor['prototype'][MemberName]
 
+export type MaybePromise<T> = T | Promise<T>;
+export type MaybePromiseLike<T> = T | PromiseLike<T>;
+
+export type NonEmptyArray<T> = [T] & T[];
+
 export function notFalsy<T>(v: T | null | undefined | 0 | false | ''): v is T {
-	return !!v;
+	return Boolean(v);
+}
+
+export function nonEmpty(array: unknown[] | null | undefined): array is NonEmptyArray<unknown> {
+	return !!(array?.length ?? 0);
 }
 
 export function getRandomUpTo(maxValue: number) {
@@ -98,8 +107,8 @@ export function addAll<T>(set: Set<T>, values: Iterable<T>) {
 }
 
 export function raceWithCondition<T>(
-	  promises: Iterable<T | PromiseLike<T>>,
-	  condition: (val: T) => boolean | PromiseLike<boolean>,
+	  promises: Iterable<MaybePromiseLike<T>>,
+	  condition: (val: T) => MaybePromiseLike<boolean>,
 ): Promise<T | undefined> {
 	return new Promise((resolve, reject) =>
 		  void Promise.allSettled([...promises].map(async p => {
@@ -136,7 +145,7 @@ export function appendDomainToEmail(email: string, domain: string) {
 export function populateDefaults<T>(obj: DeepPartial<T>, defaults: T): T {
 	const objMap      = obj as { [key in string]?: unknown },
 	      defaultsMap = defaults as { [key in string]?: unknown };
-	if (obj && defaults && typeof obj === 'object' && typeof defaults === 'object'
+	if (obj !== null && typeof obj === 'object' && defaults !== null && typeof defaults === 'object'
 		  && Object.getPrototypeOf(obj) === Object.prototype
 		  && !(defaults instanceof Array)) {
 		for (const key of Object.keys(defaults))

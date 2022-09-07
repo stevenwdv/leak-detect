@@ -4,6 +4,8 @@ import util from 'node:util';
 import chalk, {Chalk} from 'chalk';
 import {ValueOf} from 'ts-essentials';
 
+import {MaybePromise} from './utils';
+
 export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
 
 export abstract class Logger {
@@ -23,9 +25,9 @@ export abstract class Logger {
 
 	abstract endGroup(): void;
 
-	group<T extends Promise<unknown> | unknown>(name: string, func: () => T): T {
+	group<T extends MaybePromise<unknown>>(name: string, func: () => T): T {
 		this.startGroup(name);
-		let promise;
+		let promise = false;
 		try {
 			const res = func();
 			// noinspection SuspiciousTypeOfGuard

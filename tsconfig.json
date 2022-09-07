@@ -26,5 +26,8 @@
 	],
 	"exclude": [
 		"./inject/"
+	],
+	"files": [
+		"./src/ubo-core.d.ts"
 	]
 }

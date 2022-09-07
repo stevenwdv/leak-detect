@@ -1,8 +1,8 @@
 import t from 'tap';
 import {RequestCollector} from 'tracker-radar-collector';
+import ValueSearcher from 'value-searcher';
 
 import {findValue} from '../../src/analysis';
-import ValueSearcher from 'value-searcher';
 
 void t.test(findValue.name, async t => {
 	const searcher = await ValueSearcher.fromValues('The--P@s5w0rd');

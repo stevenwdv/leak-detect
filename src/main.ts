@@ -33,8 +33,6 @@ import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, populateDefaults} from './utils';
 import {FindEntry, findValue, getSummary} from './analysis';
-import {PathLike} from 'fs';
-import {FileHandle} from 'fs/promises';
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -290,7 +288,7 @@ async function main() {
 				await saveJson(`${fileBase}.json`, output);
 				await fileLogger.finalize();
 				if (args.summary)
-					await fsp.writeFile(`${fileBase}.txt`, getSummary(output, errorTracker.errors()));
+					await fsp.writeFile(`${fileBase}.txt`, await getSummary(output, errorTracker.errors()));
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 			}
@@ -351,7 +349,7 @@ async function main() {
 				           requestIndex,
 				           visitedTargetIndex
 			           } of leakedValues) {
-				const {url} = requestIndex ? crawlResult.data.requests![requestIndex]!
+				const {url} = requestIndex !== undefined ? crawlResult.data.requests![requestIndex]!
 					  : crawlResult.data.fields!.visitedTargets[visitedTargetIndex!]!;
 
 				switch (part) {
@@ -380,7 +378,7 @@ async function main() {
 
 		if (args.summary) {
 			console.log('\n==== 📝 Summary: ====\n');
-			console.log(getSummary(output, errorTracker.errors()));
+			console.log(await getSummary(output, errorTracker.errors()));
 		}
 	}
 	console.info('\x07');
@@ -449,7 +447,7 @@ class ErrorTrackingLogger extends Logger {
 	}
 }
 
-async function saveJson(file: PathLike | FileHandle, output: OutputFile) {
+async function saveJson(file: fs.PathLike | fsp.FileHandle, output: OutputFile) {
 	await fsp.writeFile(file, JSON.stringify(output, (_key, value) =>
 		  value instanceof Error ? String(value) : value as unknown, '\t'));
 }

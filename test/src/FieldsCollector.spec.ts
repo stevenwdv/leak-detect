@@ -8,6 +8,7 @@ import t from 'tap';
 
 import {crawler, puppeteer, RequestCollector} from 'tracker-radar-collector';
 import {CrawlOptions} from 'tracker-radar-collector/crawler';
+import {CollectorData} from 'tracker-radar-collector/helpers/collectorsList';
 
 import {
 	ClickLinkEvent,
@@ -21,7 +22,7 @@ import {
 	SubmitEvent,
 } from '../../src/FieldsCollector';
 import {BufferingLogger, ColoredLogger, ConsoleLogger, CountingLogger, Logger} from '../../src/logger';
-import {CollectorData} from 'tracker-radar-collector/helpers/collectorsList';
+import {MaybePromiseLike} from '../../src/utils';
 
 const serial = process.argv.includes('--serial');
 const headed = process.argv.includes('--headed');
@@ -92,7 +93,7 @@ void (async () => {
 			return fields!;  // Unsound cast, doesn't matter
 		}
 
-		function test(name: string, fun: (t: Tap.Test, log: Logger) => PromiseLike<unknown> | unknown, noError = true) {
+		function test(name: string, fun: (t: Tap.Test, log: Logger) => MaybePromiseLike<unknown>, noError = true) {
 			const testLogger = serial ? new ColoredLogger(new ConsoleLogger()) : new BufferingLogger();
 			if (serial) testLogger.startGroup(name);
 			const countLogger = new CountingLogger(testLogger);
@@ -441,6 +442,6 @@ void (async () => {
 				t.strictSame(screenshots, ['loaded', 'interact-chain-executed', 'filled', 'submitted', 'link-clicked'],
 					  'should make the right screenshots');
 			}),
-		]) as Promise<unknown> as Promise<void> /* workaround: @types/tap is incorrect */;
+		]).then();
 	});
 })();

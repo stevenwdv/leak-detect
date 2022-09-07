@@ -34,7 +34,12 @@ overrides:
       "@typescript-eslint/no-unnecessary-condition":
         - warn
         - allowConstantLoopConditions: true
+      "@typescript-eslint/strict-boolean-expressions":
+        - warn
+        - allowNullableString: true
       "@typescript-eslint/require-await": warn
+      "@typescript-eslint/no-require-imports": warn
+      "@typescript-eslint/prefer-readonly": warn
       eslint-comments/no-unused-disable: warn
       eslint-comments/disable-enable-pair:
         - error

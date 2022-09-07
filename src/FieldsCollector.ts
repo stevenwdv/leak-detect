@@ -18,6 +18,9 @@ import {
 	filterUniqBy,
 	formatDuration,
 	getRelativeUrl,
+	MaybePromise,
+	MaybePromiseLike,
+	nonEmpty,
 	notFalsy,
 	populateDefaults,
 	raceWithCondition,
@@ -63,7 +66,7 @@ export class FieldsCollector extends BaseCollector {
 	/** Pages that password leak callback has been injected into */
 	#injectedPasswordCallback = new Set<Page>();
 	#startUrls                = new Map<Page, string>();
-	#postCleanListeners       = new Map<Page, () => PromiseLike<void> | void>();
+	#postCleanListeners       = new Map<Page, () => MaybePromiseLike<void>>();
 	#dirtyPages               = new Set<Page>();
 
 	#events: FieldsCollectorEvent[]  = [];
@@ -288,7 +291,7 @@ export class FieldsCollector extends BaseCollector {
 			for (const link of links) {
 				await this.#group(`link ${selectorStr(link.selectorChain)}`, async () => {
 					try {
-						if (this.options.skipExternal && link.href &&
+						if (this.options.skipExternal !== false && link.href &&
 							  tldts.getDomain(new URL(link.href, this.#dataParams.finalUrl).href) !== this.#siteDomain) {
 							this.#log?.log('skipping external link', link.href);
 							return;
@@ -351,11 +354,11 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	#doWithOnCleanPage<T extends Promise<unknown> | unknown>(
-		  page: Page, listener: () => PromiseLike<void> | void, scopeFunc: () => T): T {
+	#doWithOnCleanPage<T extends MaybePromise<unknown>>(
+		  page: Page, listener: () => MaybePromiseLike<void>, scopeFunc: () => T): T {
 		assert(!this.#postCleanListeners.has(page));
 		this.#postCleanListeners.set(page, listener);
-		let promise;
+		let promise = false;
 		try {
 			const res = scopeFunc();
 			// noinspection SuspiciousTypeOfGuard
@@ -461,7 +464,7 @@ export class FieldsCollector extends BaseCollector {
 	async #processFieldsOnPage(page: Page): Promise<FieldElementAttrs[] | null> {
 		const logPageUrl = page.url();
 		return this.#group(logPageUrl, async () => {
-			if (this.options.skipExternal && tldts.getDomain(page.url()) !== this.#siteDomain) {
+			if (this.options.skipExternal !== false && tldts.getDomain(page.url()) !== this.#siteDomain) {
 				this.#log?.log('skipping external page');
 				return null;
 			}
@@ -493,7 +496,7 @@ export class FieldsCollector extends BaseCollector {
 						if (frame === incompleteFrames.at(-1)!)
 							allDone = true;  // All frames done, prevent extra reload even on submission
 					}
-					if (frameFields?.length) {
+					if (nonEmpty(frameFields)) {
 						pageFields.push(...frameFields);
 						if (this.options.fill.submit) {
 							// We submitted a field, now reload the page and try other fields
@@ -664,7 +667,7 @@ export class FieldsCollector extends BaseCollector {
 	async #fillFields(fields: ElementInfo<FieldElementAttrs>[]) {
 		this.#log?.log(`filling ${fields.length} fields`);
 		const fillTimes = this.options.sleepMs?.fill ?? {clickDwell: 0, keyDwell: 0, betweenKeys: 0};
-		for (const field of fields.filter(f => !f.attrs.filled)) {
+		for (const field of fields.filter(f => !(f.attrs.filled ?? false))) {
 			this.#events.push(new FillEvent(field.attrs.selectorChain));
 			this.#setDirty(field.handle.frame.page());
 			try {
@@ -838,7 +841,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #sleep(ms: number | undefined) {
-		if (ms) {
+		if (ms ?? 0) {
 			this.#log?.debug('💤');
 			return new Promise<void>(resolve => setTimeout(resolve, ms));
 		}
@@ -970,7 +973,7 @@ export interface FieldsCollectorOptions {
 		 * or callback for created screenshots (JS-only)
 		 * @TJS-type string
 		 */
-		target: string | ((img: Buffer, trigger: ScreenshotTrigger) => PromiseLike<void> | void);
+		target: string | ((img: Buffer, trigger: ScreenshotTrigger) => MaybePromiseLike<void>);
 	} | null;
 }
 

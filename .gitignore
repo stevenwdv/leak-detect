@@ -4,3 +4,4 @@ ts-out/
 /crawl-config.*
 /out*/
 /urls.txt
+/tmp/

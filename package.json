@@ -20,6 +20,7 @@
 		"inject"
 	],
 	"dependencies": {
+		"@gorhill/ubo-core": "^0.1.25",
 		"@puppeteer/replay": "^1.1.1",
 		"async": "^3.2.4",
 		"chalk": "^4.1.2",
