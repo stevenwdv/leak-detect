@@ -6,10 +6,9 @@ import {OutputFile} from './main';
 import {selectorStr} from './pageUtils';
 import {LeakDetectorCaptureData} from './breakpoints';
 import {ClickLinkEvent, FillEvent, SubmitEvent} from './FieldsCollector';
-import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 
-export async function getSummary(
-	  output: OutputFile, errors: { level: 'warn' | 'error', args: unknown[] }[]): Promise<string> {
+export function getSummary(
+	  output: OutputFile, errors: { level: 'warn' | 'error', args: unknown[] }[]): string {
 	const result = output.crawlResult;
 	const time   = (timestamp: number) =>
 		  `⌚️${((timestamp - result.testStarted) / 1e3).toFixed(1)}s`;
@@ -44,9 +43,6 @@ export async function getSummary(
 	if (!collectorData.requests) writeln('⚠️ No request collector data found');
 	if (output.leakedValues) {
 		if (output.leakedValues.length) {
-			const thirdPartyClassifier = await ThirdPartyClassifier.get(),
-			      trackerClassifier    = await TrackerClassifier.get();
-
 			const annotatedLeaks = output.leakedValues
 				  .map(leak => {
 					  const request       = leak.requestIndex !== undefined ? collectorData.requests![leak.requestIndex]! : undefined,
@@ -56,11 +52,11 @@ export async function getSummary(
 						  ...leak,
 						  request,
 						  visitedTarget,
-						  thirdParty: thirdPartyClassifier.isThirdParty(url, result.finalUrl),
-						  tracker: trackerClassifier.isTracker(url, result.finalUrl),
+						  domainInfo: output.domainInfo?.[url],
 					  };
 				  });
-			const importantLeaks = annotatedLeaks.filter(({thirdParty, tracker}) => thirdParty || tracker);
+			const importantLeaks = annotatedLeaks.filter(({domainInfo}) =>
+				  !domainInfo || domainInfo.thirdParty || domainInfo.tracker);
 			if (importantLeaks.length) {
 				writeln('ℹ️ Values were sent in web requests to third parties:');
 				for (const leak of importantLeaks) {
@@ -68,8 +64,8 @@ export async function getSummary(
 					write(`${reqTime !== undefined ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
 					if (leak.request) {
 						write(' of request to');
-						if (leak.thirdParty) write(' third party');
-						if (leak.tracker) write(' tracker');
+						if (leak.domainInfo?.thirdParty === true) write(' third party');
+						if (leak.domainInfo?.tracker === true) write(' tracker');
 						write(` "${leak.request.url}"`);
 						if (nonEmpty(leak.request.stack)) {
 							writeln(' by:');

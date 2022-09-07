@@ -33,6 +33,7 @@ import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, populateDefaults} from './utils';
 import {FindEntry, findValue, getSummary} from './analysis';
+import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -129,6 +130,11 @@ async function main() {
 				    description: 'timeout for crawl, in seconds, or 0 to disable',
 				    type: 'number',
 				    default: 20 * 60,
+			    })
+			    .option('check-third-party', {
+				    description: 'check if request URLs are of third party servers or trackers',
+				    type: 'boolean',
+				    default: true,
 			    })
 			    .option('check-leaks', {
 				    description: 'check for leaks of filled values in web requests',
@@ -271,6 +277,13 @@ async function main() {
 
 				const output: OutputFile = {crawlResult};
 
+				if (args.checkThirdParty)
+					try {
+						output.domainInfo = await getDomainInfo(crawlResult);
+					} catch (err) {
+						logger.error('error while adding third party & tracker info', err);
+					}
+
 				if (args.checkLeaks)
 					try {
 						output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
@@ -288,7 +301,7 @@ async function main() {
 				await saveJson(`${fileBase}.json`, output);
 				await fileLogger.finalize();
 				if (args.summary)
-					await fsp.writeFile(`${fileBase}.txt`, await getSummary(output, errorTracker.errors()));
+					await fsp.writeFile(`${fileBase}.txt`, getSummary(output, errorTracker.errors()));
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 			}
@@ -314,7 +327,7 @@ async function main() {
 
 		let logger: Logger = new ColoredLogger(new ConsoleLogger());
 		if (logLevel) logger = new FilteringLogger(logger, logLevel);
-		const errorTracker                = logger = new ErrorTrackingLogger(logger);
+		const errorTracker = logger = new ErrorTrackingLogger(logger);
 
 		const fieldsCollector             = new FieldsCollector(options, logger);
 		const collectors: BaseCollector[] = [fieldsCollector];
@@ -334,8 +347,14 @@ async function main() {
 				  collectors,
 			  },
 		) as CrawlResult;
+		logger.log();
 
 		const output: OutputFile = {crawlResult};
+
+		if (args.checkThirdParty) {
+			logger.log('checking third party & tracker info');
+			output.domainInfo = await getDomainInfo(crawlResult);
+		}
 
 		if (args.checkLeaks) {
 			logger.log('searching for leaked values in web requests');
@@ -377,8 +396,8 @@ async function main() {
 		}
 
 		if (args.summary) {
-			console.log('\n==== 📝 Summary: ====\n');
-			console.log(await getSummary(output, errorTracker.errors()));
+			console.log('\n════ 📝 Summary: ════\n');
+			console.log(getSummary(output, errorTracker.errors()));
 		}
 	}
 	console.info('\x07');
@@ -386,6 +405,22 @@ async function main() {
 
 let passwordSearcher: ValueSearcher | undefined,
     emailSearcher: ValueSearcher | undefined;
+
+async function getDomainInfo(crawlResult: CrawlResult): Promise<DomainInfo> {
+	const thirdPartyClassifier = await ThirdPartyClassifier.get(),
+	      trackerClassifier    = await TrackerClassifier.get();
+
+	const domainInfo: DomainInfo = {};
+	for (const url of [
+		crawlResult.data.fields?.visitedTargets,
+		crawlResult.data.requests,
+	].flatMap(r => r?.map(({url}) => url) ?? []))
+		domainInfo[url] ??= {
+			thirdParty: thirdPartyClassifier.isThirdParty(url, crawlResult.finalUrl),
+			tracker: trackerClassifier.isTracker(url, crawlResult.finalUrl),
+		};
+	return domainInfo;
+}
 
 async function getLeakedValues(
 	  fieldsCollector: FieldsCollector, crawlResult: CrawlResult): Promise<LeakedValue[]> {
@@ -470,8 +505,11 @@ export type CrawlResult =
 
 export interface OutputFile {
 	crawlResult: CrawlResult;
+	domainInfo?: DomainInfo;
 	leakedValues?: LeakedValue[];
 }
+
+export type DomainInfo = Record<string /*url*/, { thirdParty: boolean, tracker: boolean }>;
 
 export interface LeakedValue extends FindEntry {
 	type: 'password' | 'email';
