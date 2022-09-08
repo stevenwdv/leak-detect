@@ -117,7 +117,7 @@ async function main() {
 			    })
 			    .option('auto-consent', {
 				    description: 'try to automatically indicate consent in cookie dialog; one of optIn, optOut, noAction',
-				    type: 'boolean',
+				    type: 'string',
 				    default: 'optIn',
 			    })
 			    .option('single-browser', {
