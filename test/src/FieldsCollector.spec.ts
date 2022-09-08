@@ -77,7 +77,10 @@ void (async () => {
 						  browserContext,
 						  log: log.log.bind(log),
 						  collectors: [
-							  new FieldsCollector(options, log),
+							  new FieldsCollector({
+								  debug: true,
+								  ...options,
+							  }, log),
 						  ],
 					  },
 				);
@@ -273,6 +276,7 @@ void (async () => {
 							  log: log.log.bind(log),
 							  collectors: [
 								  new FieldsCollector({
+									  debug: true,
 									  fill: {submit: false},
 									  clickLinkCount: 0,
 								  }, log),
