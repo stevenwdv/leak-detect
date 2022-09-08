@@ -17,8 +17,6 @@ jobs:
       - run: npm ci
       - name: Build & lint
         run: npm run lint-all
-      - name: Check pack inject bundle
-        run: npm -w inject run pack
       - name: Check if crawl-config JSON schema is up-to-date
         run: |
           npm run generate-schema
