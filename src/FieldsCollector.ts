@@ -17,6 +17,7 @@ import {
 	AsBound,
 	filterUniqBy,
 	formatDuration,
+	forwardPromise,
 	getRelativeUrl,
 	MaybePromise,
 	MaybePromiseLike,
@@ -305,8 +306,10 @@ export class FieldsCollector extends BaseCollector {
 						await this.#cleanPage(this.#page);
 						await this.#closeExtraPages();
 
-						await this.#followLink(link);
-						fields.push(...await this.#processFieldsOnAllPages());
+						await this.#doWithNewCleanPageScope(this.#page, async () => {
+							await this.#followLink(link);
+							fields.push(...await this.#processFieldsOnAllPages());
+						});
 					} catch (err) {
 						this.#reportError(err, ['failed to inspect linked page for link', link], 'warn');
 					}
@@ -337,7 +340,6 @@ export class FieldsCollector extends BaseCollector {
 	/** Just click an element */
 	async #click(elem: ElementHandle) {
 		await elem.frame.page().bringToFront();
-		this.#setDirty(elem.frame.page());
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
 		await elem.evaluate(el => {
 			el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
@@ -360,20 +362,22 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
+	#doWithNewCleanPageScope<T extends MaybePromise<unknown>>(
+		  page: Page, scopeFunc: () => T): T {
+		const prevStartUrl = this.#startUrls.get(page) ?? page.url();
+		this.#startUrls.delete(page);
+		this.#dirtyPages.delete(page);
+		return forwardPromise(scopeFunc, () => {
+			this.#startUrls.set(page, prevStartUrl);
+			this.#setDirty(page);
+		});
+	}
+
 	#doWithOnCleanPage<T extends MaybePromise<unknown>>(
 		  page: Page, listener: () => MaybePromiseLike<void>, scopeFunc: () => T): T {
 		assert(!this.#postCleanListeners.has(page));
 		this.#postCleanListeners.set(page, listener);
-		let promise = false;
-		try {
-			const res = scopeFunc();
-			// noinspection SuspiciousTypeOfGuard
-			if ((promise = res instanceof Promise))
-				return res.finally(() => this.#postCleanListeners.delete(page)) as unknown as T;
-			return res;
-		} finally {
-			if (!promise) this.#postCleanListeners.delete(page);
-		}
+		return forwardPromise(scopeFunc, () => this.#postCleanListeners.delete(page));
 	}
 
 	async #goto(frame: Frame, url: string, minTimeoutMs: number) {

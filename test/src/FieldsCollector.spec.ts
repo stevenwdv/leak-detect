@@ -24,8 +24,9 @@ import {
 import {BufferingLogger, ColoredLogger, ConsoleLogger, CountingLogger, Logger} from '../../src/logger';
 import {MaybePromiseLike} from '../../src/utils';
 
-const serial = process.argv.includes('--serial');
-const headed = process.argv.includes('--headed');
+const serial          = process.argv.includes('--serial'),
+      headed          = process.argv.includes('--headed'),
+      headedAutoclose = process.argv.includes('--headed-autoclose');
 
 void (async () => {
 	const {server, baseUrl} = await
@@ -53,13 +54,14 @@ void (async () => {
 	await t.test(FieldsCollector.name, serial ? undefined : {jobs: 30, buffered: true}, t => {
 		t.teardown(() => new Promise<void>((resolve, reject) => {
 			server.close(err => err ? reject(err) : resolve());
-			void browser?.close();
+			if (!headed || headedAutoclose) void browser?.close();
 		}));
 
 		const baseCrawlOptions: CrawlOptions = {
 			log() {throw new Error('log unspecified');},
 			maxCollectionTimeMs: 120_000,
 			headed,
+			keepOpen: headed && !headedAutoclose,
 			devtools: headed,
 			throwCollectorErrors: true,
 		};
@@ -85,7 +87,8 @@ void (async () => {
 					  },
 				);
 			} finally {
-				await browserContext?.close();
+				if (!headed || headedAutoclose)
+					await browserContext?.close();
 			}
 			t.ok(!result.timeout, 'TRC should not time out');
 			const fields = (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData | null }).fields;
@@ -285,7 +288,8 @@ void (async () => {
 						  },
 					)).data as CollectorData & { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData | null };
 				} finally {
-					await browserContext?.close();
+					if (!headed || headedAutoclose)
+						await browserContext?.close();
 				}
 
 				t.ok(data.fields!.events.find(ev => ev instanceof FacebookButtonEvent), 'should add Facebook button');
@@ -346,6 +350,12 @@ void (async () => {
 					  'should make the right screenshots');
 				t.equal(screenshots.filter(t => t === 'new-page').length, 3,
 					  'should make 3 new-page screenshots');
+			}),
+			test('for links to pages with no forms', async (t, log) => {
+				const result = await runCrawler('login_link_empty_target.html', t, log);
+				t.equal(result.links?.length, 2, 'should find the 2 links');
+				t.equal(result.events.filter(ev => ev instanceof ClickLinkEvent).length, 2,
+					  'should follow the 2 links');
 			}),
 			test('for login form and linked form', async (t, log) => {
 				const result = await runCrawler('login_form_and_link.html', t, log);

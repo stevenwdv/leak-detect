@@ -105,15 +105,21 @@ function formSelectorFromRoot(elem: Element): string {
  */
 export function formSelectorChain(elem: Element): SelectorChain {
 	const chain = [];
+	let refElem = elem;
 	while (true) {
-		chain.unshift(formSelectorFromRoot(elem));
-		const root = elem.getRootNode();
+		chain.unshift(formSelectorFromRoot(refElem));
+		const root = refElem.getRootNode();
 		// root is equal to elem if it has no parent, or Document for <html>
 		if (!(root instanceof ShadowRoot)) break;
-		elem = root.host;
+		refElem = root.host;
 	}
-	if (debug && getElementBySelectorChain(chain)?.elem !== elem)
-		throw new Error(`formSelectorChain/getElementBySelectorChain did not work correctly for ${String(elem)} ${chain.join('>>>')}`);
+	if (debug) {
+		const res = getElementBySelectorChain(chain);
+		if (!res || !res.unique || res.elem !== elem)
+			throw new Error(
+				  `formSelectorChain/getElementBySelectorChain did not work correctly for ${String(elem)} ${chain.join('>>>')}, ` +
+				  `got back ${res?.unique === false ? 'non-unique ' : ''}${String(res?.elem)}`);
+	}
 	return chain;
 }
 

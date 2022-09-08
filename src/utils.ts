@@ -120,6 +120,18 @@ export function raceWithCondition<T>(
 		  })).then(() => resolve(undefined)));
 }
 
+export function forwardPromise<T extends MaybePromise<unknown>>(func: () => T, onFinally: () => void): T {
+	let promise = false;
+	try {
+		const res = func();
+		if ((promise = res instanceof Promise))
+			return res.finally(onFinally) as T;
+		return res;
+	} finally {
+		if (!promise) onFinally();
+	}
+}
+
 export function formatDuration(ms: number): string {
 	let str = '';
 	if (ms >= 3600_000) str += `${Math.floor(ms / 3600_000)}h `;

@@ -4,7 +4,7 @@ import util from 'node:util';
 import chalk, {Chalk} from 'chalk';
 import {ValueOf} from 'ts-essentials';
 
-import {MaybePromise} from './utils';
+import {forwardPromise, MaybePromise} from './utils';
 
 export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
 
@@ -27,16 +27,7 @@ export abstract class Logger {
 
 	group<T extends MaybePromise<unknown>>(name: string, func: () => T): T {
 		this.startGroup(name);
-		let promise = false;
-		try {
-			const res = func();
-			// noinspection SuspiciousTypeOfGuard
-			if ((promise = res instanceof Promise))
-				return res.finally(() => this.endGroup()) as unknown as T;
-			return res;
-		} finally {
-			if (!promise) this.endGroup();
-		}
+		return forwardPromise(func, () => this.endGroup());
 	}
 }
 
