@@ -43,6 +43,7 @@ import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, populateDefaults} from './utils';
 import {FindEntry, findValue, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
+import {WaitingCollector} from './WaitingCollector';
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -127,6 +128,11 @@ async function main() {
 			    })
 			    .option('headed', {
 				    description: 'open a browser window',
+				    type: 'boolean',
+				    default: false,
+			    })
+			    .option('headed-wait', {
+				    description: 'wait for keypress before automatic crawl',
 				    type: 'boolean',
 				    default: false,
 			    })
@@ -358,6 +364,7 @@ async function crawl(
 		  requests: boolean,
 		  autoConsent: string,
 		  headed: boolean,
+		  headedWait: boolean,
 		  headedAutoclose: boolean,
 		  devtools: boolean,
 		  timeout: number,
@@ -369,8 +376,7 @@ async function crawl(
 	  apiBreakpoints: BreakpointObject[],
 	  logger: Logger,
 ): Promise<OutputFile> {
-	const fieldsCollector                        = new FieldsCollector(fieldsCollectorOptions, logger);
-	const collectors: BaseCollector[]            = [fieldsCollector];
+	const collectors: BaseCollector[]            = [];
 	const collectorFlags: Record<string, string> = {};
 	if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
 	if (args.requests) collectors.push(new RequestCollector());
@@ -378,6 +384,13 @@ async function crawl(
 		collectors.push(new CMPCollector());
 		collectorFlags.autoconsentAction = args.autoConsent;
 	}
+	if (args.headedWait)
+		collectors.push(new WaitingCollector(
+			  '\n\x07\x1b]9;4;4;0\x1b\\⏸️ Open the form and then press ⏎ to continue...',
+			  undefined,
+			  () => console.log('\x1b]9;4;3;0\x1b\\▶️ Continuing')));
+	const fieldsCollector = new FieldsCollector(fieldsCollectorOptions, logger);
+	collectors.push(fieldsCollector);
 
 	const browserContext = await browser?.createIncognitoBrowserContext();
 	let crawlResult;
