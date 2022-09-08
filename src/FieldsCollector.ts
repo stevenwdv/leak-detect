@@ -50,7 +50,7 @@ import TimeoutError = puppeteer.TimeoutError;
 
 export class FieldsCollector extends BaseCollector {
 	/** Page function to inject leak-detect-inject */
-	static #doInjectFun: () => void;
+	static #doInjectFun: (debug: boolean) => void;
 
 	readonly options: FullFieldsCollectorOptions;
 	#log: Logger | undefined;
@@ -104,15 +104,18 @@ export class FieldsCollector extends BaseCollector {
 					  'you should probably run `npm run pack` in the `inject` folder');
 			const injectSrc = fs.readFileSync('./inject/dist/bundle.js', 'utf8');
 			// eslint-disable-next-line @typescript-eslint/no-implied-eval
-			return Function(/*language=JavaScript*/ `try {
+			return Function('debug', /*language=JavaScript*/ `'use strict';
+			try {
 				window[${JSON.stringify(PageVars.INJECTED)}] ??= (() => {
+					/** @type typeof import('leak-detect-inject') */
+					var leakDetectToBeInjected = {};
 					${injectSrc};
-					// noinspection JSUnresolvedVariable
+					if (debug) leakDetectToBeInjected.enableDebug();
 					return leakDetectToBeInjected;
 				})();
 			} catch (err) {
 				window[${JSON.stringify(PageVars.ERROR_CALLBACK)}](String(err), err instanceof Error && err.stack || Error().stack);
-			}`) as () => void;
+			}`) as (debug: boolean) => void;
 		})();
 	}
 
@@ -145,17 +148,19 @@ export class FieldsCollector extends BaseCollector {
 
 			await exposeFunction(newPage, PageVars.ERROR_CALLBACK, this.#errorCallback.bind(this));
 
-			async function evaluateOnAll(pageFunction: () => void) {
+			async function evaluateOnAll<Args extends unknown[]>(pageFunction: (...args: Args) => void, ...args: Args) {
 				// Add on new & existing frames
-				await newPage.evaluateOnNewDocument(pageFunction);
-				await Promise.all(await Promise.all(newPage.frames().map(frame => frame.evaluate(pageFunction))));
+				await newPage.evaluateOnNewDocument(pageFunction, ...args);
+				await Promise.all(newPage.frames().map(frame => frame.evaluate(pageFunction, ...args)));
 			}
 
-			await evaluateOnAll(FieldsCollector.#doInjectFun);
+			await evaluateOnAll(FieldsCollector.#doInjectFun, this.options.debug);
 
 			// May not catch all, as scripts may have already run
 			if (this.options.disableClosedShadowDom)
 				await evaluateOnAll(() => {
+					// noinspection JSNonStrictModeUsed
+					'use strict';
 					try {
 						// eslint-disable-next-line @typescript-eslint/unbound-method
 						const attachShadow: AsBound<typeof Element, 'attachShadow'> = Element.prototype.attachShadow;
@@ -321,7 +326,7 @@ export class FieldsCollector extends BaseCollector {
 		this.#log?.log('following link', selectorStr(link.selectorChain));
 		this.#events.push(new ClickLinkEvent(link.selectorChain, 'auto'));
 		const page     = this.#page;
-		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame());
+		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame(), this.options.debug);
 		if (!linkInfo) throw new Error('could not find link element anymore');
 		const waitNavigation = this.#waitForNavigation(page.mainFrame(), this.options.timeoutMs.followLink);
 		await this.#click(linkInfo.handle);
@@ -332,6 +337,7 @@ export class FieldsCollector extends BaseCollector {
 	/** Just click an element */
 	async #click(elem: ElementHandle) {
 		await elem.frame.page().bringToFront();
+		this.#setDirty(elem.frame.page());
 		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
 		await elem.evaluate(el => {
 			el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
@@ -701,6 +707,8 @@ export class FieldsCollector extends BaseCollector {
 				await exposeFunction(page, PageVars.PASSWORD_CALLBACK, this.#passwordLeakCallback.bind(this, frame));
 
 			const newlyInjected = await frame.evaluate((password: string) => {
+				// noinspection JSNonStrictModeUsed
+				'use strict';
 				if (window[PageVars.PASSWORD_OBSERVED]) return false;
 				window[PageVars.PASSWORD_OBSERVED] = true;
 
@@ -975,6 +983,9 @@ export interface FieldsCollectorOptions {
 		 */
 		target: string | ((img: Buffer, trigger: ScreenshotTrigger) => MaybePromiseLike<void>);
 	} | null;
+	/** Turn on some debugging assertions
+	 * @default false */
+	debug?: boolean;
 }
 
 /**
@@ -1026,6 +1037,7 @@ export const defaultOptions: FullFieldsCollectorOptions = {
 	disableClosedShadowDom: true,
 	interactChains: [],
 	screenshot: null,
+	debug: false,
 };
 
 //endregion

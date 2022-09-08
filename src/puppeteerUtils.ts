@@ -1,12 +1,12 @@
 import type {ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
-import {IsTuple} from 'ts-essentials';
+import {IsTuple, NonEmptyArray} from 'ts-essentials';
 
 import TypedArray = NodeJS.TypedArray;
 
 /** @return Stack starting with this frame, going up */
-export function getFrameStack(frame: Frame): [Frame] & Frame[] {
-	const frames: [Frame] & Frame[] = [frame];
-	let curFrame: Frame | null      = frame;
+export function getFrameStack(frame: Frame): NonEmptyArray<Frame> {
+	const frames: NonEmptyArray<Frame> = [frame];
+	let curFrame: Frame | null         = frame;
 	while ((curFrame = curFrame.parentFrame()))
 		frames.push(curFrame);
 	return frames;

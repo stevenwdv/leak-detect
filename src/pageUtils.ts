@@ -1,5 +1,6 @@
 import {SelectorChain} from 'leak-detect-inject';
 import type {BoundingBox, BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
+import {NonEmptyArray} from 'ts-essentials';
 
 import {stripHash} from './utils';
 import {PageVars} from './FieldsCollector';
@@ -24,7 +25,10 @@ export function selectorStr(selectorChain: SelectorChain): string {
 	return selectorChain.join('>>>');
 }
 
-export async function getElementInfoFromAttrs(attrs: ElementAttrs, frame: Frame): Promise<ElementInfo | null> {
+export async function getElementInfoFromAttrs(
+	  attrs: ElementAttrs, frame: Frame, checkUrl = false): Promise<ElementInfo | null> {
+	if (checkUrl && attrs.frameStack[0] !== frame.url())
+		throw new Error(`trying to get attributes of ${selectorStr(attrs.selectorChain)} on wrong frame ${frame.url()} instead of ${attrs.frameStack[0]}`);
 	const handle = (await getElementBySelectorChain(attrs.selectorChain, frame))?.elem;
 	return handle ? {handle, attrs} : null;
 }
@@ -65,7 +69,7 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 	});
 	return {
 		...elAttrsPartial,
-		frameStack: getFrameStack(handle.frame).map(f => f.url()),
+		frameStack: getFrameStack(handle.frame).map(f => f.url()) as NonEmptyArray<string>,
 		inView,
 		boundingBox,
 		time: Date.now(),
@@ -74,7 +78,7 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 
 export interface ElementAttrs {
 	/** URLs starting with the bottom frame, going up */
-	frameStack: string[];
+	frameStack: NonEmptyArray<string>;
 
 	id: string;
 	tagName: string;

@@ -1155,21 +1155,26 @@
         }
     },
     "properties": {
-        "clickLinkCount": {
-            "description": "Maximum number of links to click automatically on the landing page, can be 0",
-            "minimum": 0,
-            "type": "integer"
-        },
-        "disableClosedShadowDom": {
-            "default": true,
-            "description": "Transform calls to attach closed ShadowRoots into calls to attach open ones,\nto enable the crawler to search for fields etc. there.\n(May not always work.)",
-            "type": "boolean"
-        },
-        "fill": {
-            "additionalProperties": false,
-            "description": "Field fill-related settings",
-            "properties": {
-                "addFacebookButton": {
+	    "clickLinkCount": {
+		    "description": "Maximum number of links to click automatically on the landing page, can be 0",
+		    "minimum": 0,
+		    "type": "integer"
+	    },
+	    "debug": {
+		    "default": false,
+		    "description": "Turn on some debugging assertions",
+		    "type": "boolean"
+	    },
+	    "disableClosedShadowDom": {
+		    "default": true,
+		    "description": "Transform calls to attach closed ShadowRoots into calls to attach open ones,\nto enable the crawler to search for fields etc. there.\n(May not always work.)",
+		    "type": "boolean"
+	    },
+	    "fill": {
+		    "additionalProperties": false,
+		    "description": "Field fill-related settings",
+		    "properties": {
+			    "addFacebookButton": {
                     "default": true,
                     "description": "Add and click a dummy button to detect Facebook leaks",
                     "type": "boolean"

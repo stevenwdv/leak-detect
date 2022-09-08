@@ -9,6 +9,12 @@ export const detectEmailInputs    = _detectEmailInputs as (domRoot: Element) => 
 export const detectUsernameInputs = _detectUsernameInputs as (domRoot: Element) => Generator<FathomResult, void, undefined>;
 export const {isVisible}          = utils as { isVisible: (elem: Element) => boolean };
 
+let debug = false;
+
+export function enableDebug() {debug = true;}
+
+export function isDebug() {return debug;}
+
 export interface FathomResult {
 	elem: Element;
 	score: number;
@@ -106,6 +112,8 @@ export function formSelectorChain(elem: Element): SelectorChain {
 		if (!(root instanceof ShadowRoot)) break;
 		elem = root.host;
 	}
+	if (debug && getElementBySelectorChain(chain)?.elem !== elem)
+		throw new Error(`formSelectorChain/getElementBySelectorChain did not work correctly for ${String(elem)} ${chain.join('>>>')}`);
 	return chain;
 }
 

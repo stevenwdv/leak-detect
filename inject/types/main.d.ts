@@ -1,6 +1,8 @@
 export declare const detectEmailInputs: (domRoot: Element) => Generator<FathomResult, void, undefined>;
 export declare const detectUsernameInputs: (domRoot: Element) => Generator<FathomResult, void, undefined>;
 export declare const isVisible: (elem: Element) => boolean;
+export declare function enableDebug(): void;
+export declare function isDebug(): boolean;
 export interface FathomResult {
     elem: Element;
     score: number;

@@ -1,4 +1,4 @@
-import {DeepPartial} from 'ts-essentials';
+import {DeepPartial, NonEmptyArray} from 'ts-essentials';
 
 export type OmitFirstParameter<Func> = Func extends (first: never, ...args: infer Rest) => infer Return
 	  ? (...args: Rest) => Return : never;
@@ -13,8 +13,6 @@ export type AsBound<Constructor extends { prototype: object } & (abstract new (.
 
 export type MaybePromise<T> = T | Promise<T>;
 export type MaybePromiseLike<T> = T | PromiseLike<T>;
-
-export type NonEmptyArray<T> = [T] & T[];
 
 export function notFalsy<T>(v: T | null | undefined | 0 | false | ''): v is T {
 	return Boolean(v);
