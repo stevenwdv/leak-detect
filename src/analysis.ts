@@ -153,8 +153,9 @@ export async function findValue(
 				  } as const),
 		]),
 		...visitedTargets
-			  .filter(url => !requestUrls.has(url))
-			  .map((url, visitedTargetIndex) => searcher.findValueIn(Buffer.from(url))
+			  .map((url, visitedTargetIndex) => ({url, visitedTargetIndex}))
+			  .filter(({url}) => !requestUrls.has(url))
+			  .map(({url, visitedTargetIndex}) => searcher.findValueIn(Buffer.from(url))
 					.then(encoders => encoders && {
 						visitedTargetIndex,
 						part: 'url',
