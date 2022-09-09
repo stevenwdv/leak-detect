@@ -51,6 +51,7 @@ import ErrnoException = NodeJS.ErrnoException;
 import TimeoutError = puppeteer.TimeoutError;
 
 export class FieldsCollector extends BaseCollector {
+	static defaultOptions: FullFieldsCollectorOptions;
 	/** Page function to inject leak-detect-inject */
 	static #doInjectFun: (debug: boolean) => void;
 	/** @return Newly injected? */
@@ -84,7 +85,7 @@ export class FieldsCollector extends BaseCollector {
 
 	constructor(options?: FieldsCollectorOptions, logger?: Logger) {
 		super();
-		this.options = populateDefaults<FullFieldsCollectorOptions>(options ?? {}, defaultOptions);
+		this.options = populateDefaults<FullFieldsCollectorOptions>(options ?? {}, FieldsCollector.defaultOptions);
 
 		FieldsCollector.#loadInjectScripts();
 		this.#log = logger;
@@ -1059,7 +1060,7 @@ export type ScreenshotTrigger =
 export type FullFieldsCollectorOptions = DeepRequired<Omit<FieldsCollectorOptions, 'interactChains'>>
 	  & Required<Pick<FieldsCollectorOptions, 'interactChains'>>;
 
-export const defaultOptions: FullFieldsCollectorOptions = {
+FieldsCollector.defaultOptions = {
 	timeoutMs: {
 		reload: 2_500,
 		followLink: 5_000,

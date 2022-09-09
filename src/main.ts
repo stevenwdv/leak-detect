@@ -26,7 +26,7 @@ import {UnreachableCaseError} from 'ts-essentials';
 import ValueSearcher from 'value-searcher';
 import yargs from 'yargs';
 
-import {defaultOptions, FieldsCollector, FieldsCollectorData, FieldsCollectorOptions} from './FieldsCollector';
+import {FieldsCollector, FieldsCollectorData, FieldsCollectorOptions} from './FieldsCollector';
 import {
 	ColoredLogger,
 	ConsoleLogger,
@@ -216,7 +216,7 @@ async function main() {
 		throw new AggregateError(res.errors.map(String), 'config file validation failed');
 
 	const options = (readOptions ?? {}) as FieldsCollectorOptions;
-	console.debug('crawler config: %o', populateDefaults(options, defaultOptions));
+	console.debug('crawler config: %o', populateDefaults(options, FieldsCollector.defaultOptions));
 
 	if (args.logLevel)
 		if (!(logLevels as readonly string[]).includes(args.logLevel))
