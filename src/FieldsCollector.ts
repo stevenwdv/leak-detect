@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import {webcrypto} from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -52,6 +53,8 @@ import TimeoutError = puppeteer.TimeoutError;
 export class FieldsCollector extends BaseCollector {
 	/** Page function to inject leak-detect-inject */
 	static #doInjectFun: (debug: boolean) => void;
+	/** @return Newly injected? */
+	static #doInjectPasswordLeakDetectionFun: (password: string) => boolean;
 
 	readonly options: FullFieldsCollectorOptions;
 	#log: Logger | undefined;
@@ -64,6 +67,8 @@ export class FieldsCollector extends BaseCollector {
 
 	/** Landing page */
 	#page!: Page;
+	#frameIdMap               = new Map<string /*ID*/, Frame>();
+	#frameIdReverseMap        = new Map<Frame, string /*ID*/>();
 	/** Pages that password leak callback has been injected into */
 	#injectedPasswordCallback = new Set<Page>();
 	#startUrls                = new Map<Page, string>();
@@ -81,12 +86,12 @@ export class FieldsCollector extends BaseCollector {
 		super();
 		this.options = populateDefaults<FullFieldsCollectorOptions>(options ?? {}, defaultOptions);
 
-		FieldsCollector.#loadInjectScript();
+		FieldsCollector.#loadInjectScripts();
 		this.#log = logger;
 	}
 
-	static #loadInjectScript() {
-		FieldsCollector.#doInjectFun ??= (() => {
+	static #loadInjectScripts() {
+		this.#doInjectFun ??= (() => {
 			let bundleTime;
 			try {
 				bundleTime = fs.statSync('./inject/dist/bundle.js').mtimeMs;
@@ -115,9 +120,73 @@ export class FieldsCollector extends BaseCollector {
 					return leakDetectToBeInjected;
 				})();
 			} catch (err) {
-				window[${JSON.stringify(PageVars.ERROR_CALLBACK)}](String(err), err instanceof Error && err.stack || Error().stack);
+				window[${JSON.stringify(PageVars.ERROR_CALLBACK)}](window[${JSON.stringify(PageVars.FRAME_ID)}], String(err), err instanceof Error && err.stack || Error().stack);
 			}`) as (debug: boolean) => void;
 		})();
+
+		this.#doInjectPasswordLeakDetectionFun ??= (password: string) => {
+			// noinspection JSNonStrictModeUsed
+			'use strict';
+			if (window[PageVars.PASSWORD_OBSERVED] === true) return false;
+			window[PageVars.PASSWORD_OBSERVED] = true;
+
+			const observer = new MutationObserver(mutations => {
+				try {
+					for (const m of mutations)
+						for (const node of m.addedNodes)
+							inspectRecursive(node, true);
+
+					const leakSelectors = mutations
+						  .filter(m => m.attributeName && m.target instanceof Element &&
+								m.target.getAttribute(m.attributeName)?.includes(password))
+						  .map(m => ({
+							  selector: window[PageVars.INJECTED].formSelectorChain(m.target as Element),
+							  attribute: m.attributeName!,
+						  }));
+					if (leakSelectors.length)
+						void window[PageVars.PASSWORD_CALLBACK]!(window[PageVars.FRAME_ID], leakSelectors);
+				} catch (err) {
+					window[PageVars.ERROR_CALLBACK](window[PageVars.FRAME_ID], String(err), err instanceof Error && err.stack || Error().stack!);
+				}
+			});
+
+			function inspectRecursive(node: Node, checkExistingAttrs: boolean) {
+				if ([Node.DOCUMENT_NODE, Node.DOCUMENT_FRAGMENT_NODE].includes(node.nodeType))
+					observer.observe(node, {subtree: true, attributes: true, childList: true});
+				if (node instanceof Element) {
+					if (checkExistingAttrs) {
+						const leakSelectors = [...node.attributes]
+							  .filter(attr => attr.value === password)
+							  .map(attr => ({
+								  selector: window[PageVars.INJECTED].formSelectorChain(node),
+								  attribute: attr.name,
+							  }));
+						if (leakSelectors.length)
+							void window[PageVars.PASSWORD_CALLBACK]!(window[PageVars.FRAME_ID], leakSelectors);
+					}
+					if (node.shadowRoot) inspectRecursive(node.shadowRoot, checkExistingAttrs);
+				}
+				for (const child of node.childNodes)
+					inspectRecursive(child, checkExistingAttrs);
+			}
+
+			// Also catch ShadowRoots added after element was added to document
+			// eslint-disable-next-line @typescript-eslint/unbound-method
+			const attachShadow: AsBound<typeof Element, 'attachShadow'> = Element.prototype.attachShadow;
+
+			Element.prototype.attachShadow = function(...args) {
+				const shadow = attachShadow.call(this, ...args);
+				try {
+					inspectRecursive(shadow, true);
+				} catch (err) {
+					window[PageVars.ERROR_CALLBACK](window[PageVars.FRAME_ID], String(err), err instanceof Error && err.stack || Error().stack!);
+				}
+				return shadow;
+			};
+
+			inspectRecursive(document, false);
+			return true;
+		};
 	}
 
 	override id() { return 'fields' as const; }
@@ -129,14 +198,19 @@ export class FieldsCollector extends BaseCollector {
 		this.#initialUrl = url;
 		this.#siteDomain = tldts.getDomain(url.href);
 
-		this.#page                     = undefined!;  // Initialized in addTarget
-		this.#injectedPasswordCallback = new Set();
+		this.#page = undefined!;  // Initialized in addTarget
+		this.#frameIdMap.clear();
+		this.#frameIdReverseMap.clear();
+		this.#injectedPasswordCallback.clear();
+		this.#startUrls.clear();
+		this.#postCleanListeners.clear();
+		this.#dirtyPages.clear();
 
-		this.#events          = [];
-		this.#processedFields = new Set();
-		this.#passwordLeaks   = [];
-		this.#visitedTargets  = [];
-		this.#errors          = [];
+		this.#events = [];
+		this.#processedFields.clear();
+		this.#passwordLeaks  = [];
+		this.#visitedTargets = [];
+		this.#errors         = [];
 	}
 
 	override async addTarget({url, type}: Parameters<typeof BaseCollector.prototype.addTarget>[0]) {
@@ -147,7 +221,24 @@ export class FieldsCollector extends BaseCollector {
 			const newPage = pages.at(-1)!;
 			this.#page ??= newPage;  // Take first page
 
+			newPage.once('load', () => void this.#screenshot(newPage, 'new-page'));
+
 			await exposeFunction(newPage, PageVars.ERROR_CALLBACK, this.#errorCallback.bind(this));
+
+			const newFrameId = async (frame: Frame) => {
+				const frameId = webcrypto.randomUUID();
+				this.#frameIdMap.set(frameId, frame);
+				this.#frameIdReverseMap.set(frame, frameId);
+				await frame.evaluate(frameId => {
+					window[PageVars.FRAME_ID] = frameId;
+				}, frameId);
+			};
+			await Promise.all(newPage.frames().map(newFrameId));
+			newPage.on('frameattached', frame => void newFrameId(frame));
+			newPage.on('framenavigated', frame =>
+				  void frame.evaluate(frameId => {
+					  window[PageVars.FRAME_ID] = frameId;
+				  }, this.#frameIdReverseMap.get(frame)!));
 
 			async function evaluateOnAll<Args extends unknown[]>(pageFunction: (...args: Args) => void, ...args: Args) {
 				// Add on new & existing frames
@@ -173,11 +264,15 @@ export class FieldsCollector extends BaseCollector {
 								  ...args);
 						};
 					} catch (err) {
-						window[PageVars.ERROR_CALLBACK](String(err), err instanceof Error && err.stack || Error().stack!);
+						window[PageVars.ERROR_CALLBACK](window[PageVars.FRAME_ID], String(err), err instanceof Error && err.stack || Error().stack!);
 					}
 				});
 
-			newPage.once('load', () => void this.#screenshot(newPage, 'new-page'));
+			if (this.options.immediatelyInjectAttributeLeakDetection) {
+				if (tryAdd(this.#injectedPasswordCallback, newPage))
+					await exposeFunction(newPage, PageVars.PASSWORD_CALLBACK, this.#passwordLeakCallback.bind(this));
+				await evaluateOnAll(FieldsCollector.#doInjectPasswordLeakDetectionFun, this.options.fill.password);
+			}
 		}
 	}
 
@@ -708,72 +803,9 @@ export class FieldsCollector extends BaseCollector {
 		try {
 			const page = frame.page();
 			if (tryAdd(this.#injectedPasswordCallback, page))
-				await exposeFunction(page, PageVars.PASSWORD_CALLBACK, this.#passwordLeakCallback.bind(this, frame));
+				await exposeFunction(page, PageVars.PASSWORD_CALLBACK, this.#passwordLeakCallback.bind(this));
 
-			const newlyInjected = await frame.evaluate((password: string) => {
-				// noinspection JSNonStrictModeUsed
-				'use strict';
-				if (window[PageVars.PASSWORD_OBSERVED]) return false;
-				window[PageVars.PASSWORD_OBSERVED] = true;
-
-				const observer = new MutationObserver(mutations => {
-					try {
-						for (const m of mutations)
-							for (const node of m.addedNodes)
-								inspectRecursive(node, true);
-
-						const leakSelectors = mutations
-							  .filter(m => m.attributeName && m.target instanceof Element &&
-									m.target.getAttribute(m.attributeName)?.includes(password))
-							  .map(m => ({
-								  selector: window[PageVars.INJECTED].formSelectorChain(m.target as Element),
-								  attribute: m.attributeName!,
-							  }));
-						if (leakSelectors.length)
-							void window[PageVars.PASSWORD_CALLBACK](leakSelectors);
-					} catch (err) {
-						window[PageVars.ERROR_CALLBACK](String(err), err instanceof Error && err.stack || Error().stack!);
-					}
-				});
-
-				function inspectRecursive(node: Node, checkExistingAttrs: boolean) {
-					if ([Node.DOCUMENT_NODE, Node.DOCUMENT_FRAGMENT_NODE].includes(node.nodeType))
-						observer.observe(node, {subtree: true, attributes: true, childList: true});
-					if (node instanceof Element) {
-						if (checkExistingAttrs) {
-							const leakSelectors = [...node.attributes]
-								  .filter(attr => attr.value === password)
-								  .map(attr => ({
-									  selector: window[PageVars.INJECTED].formSelectorChain(node),
-									  attribute: attr.name,
-								  }));
-							if (leakSelectors.length)
-								void window[PageVars.PASSWORD_CALLBACK](leakSelectors);
-						}
-						if (node.shadowRoot) inspectRecursive(node.shadowRoot, checkExistingAttrs);
-					}
-					for (const child of node.childNodes)
-						inspectRecursive(child, checkExistingAttrs);
-				}
-
-				// Also catch ShadowRoots added after element was added to document
-				// eslint-disable-next-line @typescript-eslint/unbound-method
-				const attachShadow: AsBound<typeof Element, 'attachShadow'> = Element.prototype.attachShadow;
-
-				Element.prototype.attachShadow = function(...args) {
-					const shadow = attachShadow.call(this, ...args);
-					try {
-						inspectRecursive(shadow, true);
-					} catch (err) {
-						window[PageVars.ERROR_CALLBACK](String(err), err instanceof Error && err.stack || Error().stack!);
-					}
-					return shadow;
-				};
-
-				inspectRecursive(document, false);
-				return true;
-			}, this.options.fill.password);
-
+			const newlyInjected = await frame.evaluate(FieldsCollector.#doInjectPasswordLeakDetectionFun, this.options.fill.password);
 			if (newlyInjected) this.#log?.debug('injected password leak detection');
 		} catch (err) {
 			this.#reportError(err, ['failed to inject password leak detection on', frame.url()]);
@@ -781,23 +813,28 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	/** Called from the page when a password leak is detected */
-	async #passwordLeakCallback(frame: Frame, leaks: PagePasswordLeak[]) {
-		this.#log?.info(`password leaked on ${frame.url()} to attributes: ${
-			  leaks.map(l => `${selectorStr(l.selector)} @${l.attribute}`).join(', ')}`);
-		const time = Date.now();
-		this.#passwordLeaks.push(...await Promise.all(leaks.map(async leak => {
-			let attrs;
-			try {
-				const handle = (await getElementBySelectorChain(leak.selector, frame))?.elem;
-				if (handle) attrs = await getElementAttrs(handle);
-			} catch (err) {
-				this.#reportError(err, ['failed to get attributes for leak element', selectorStr(leak.selector)], 'warn');
-			}
-			const fullLeak: PasswordLeak = {time, ...leak};
-			if (attrs) fullLeak.attrs = attrs;
-			else fullLeak.frameStack = getFrameStack(frame).map(f => f.url());
-			return fullLeak;
-		})));
+	async #passwordLeakCallback(frameId: string, leaks: PagePasswordLeak[]) {
+		try {
+			const frame = this.#frameIdMap.get(frameId)!;
+			this.#log?.info(`password leaked on ${frame.url()} to attributes: ${
+				  leaks.map(l => `${selectorStr(l.selector)} @${l.attribute}`).join(', ')}`);
+			const time = Date.now();
+			this.#passwordLeaks.push(...await Promise.all(leaks.map(async leak => {
+				let attrs;
+				try {
+					const handle = (await getElementBySelectorChain(leak.selector, frame))?.elem;
+					if (handle) attrs = await getElementAttrs(handle);
+				} catch (err) {
+					this.#reportError(err, ['failed to get attributes for leak element', selectorStr(leak.selector)], 'warn');
+				}
+				const fullLeak: PasswordLeak = {time, ...leak};
+				if (attrs) fullLeak.attrs = attrs;
+				else fullLeak.frameStack = getFrameStack(frame).map(f => f.url());
+				return fullLeak;
+			})));
+		} catch (err) {
+			this.#reportError(err, ['error in password leak callback'], 'error');
+		}
 	}
 
 	async #clickFacebookButton(frame: Frame) {
@@ -843,8 +880,9 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	/** Called from an asynchronous page script when an error occurs */
-	#errorCallback(message: string, stack: string) {
-		this.#reportError({message, stack}, ['error in background page script']);
+	#errorCallback(frameId: string | undefined, message: string, stack: string) {
+		this.#reportError({message, stack}, ['error in background page script',
+			frameId && getFrameStack(this.#frameIdMap.get(frameId)!).map(f => f.url()).join(', ')]);
 	}
 
 	#reportError(error: unknown, context: unknown[], level: 'warn' | 'error' = 'error') {
@@ -962,6 +1000,13 @@ export interface FieldsCollectorOptions {
 		maxFields?: integer;
 	};
 	/**
+	 * Always immediately inject password to attribute leak detection,
+	 * instead of before filling a password field.
+	 * Useful for manual form filling
+	 * @default false
+	 */
+	immediatelyInjectAttributeLeakDetection?: boolean,
+	/**
 	 * Transform calls to attach closed ShadowRoots into calls to attach open ones,
 	 * to enable the crawler to search for fields etc. there.
 	 * (May not always work.)
@@ -1038,6 +1083,7 @@ export const defaultOptions: FullFieldsCollectorOptions = {
 		addFacebookButton: true,
 		maxFields: 10,
 	},
+	immediatelyInjectAttributeLeakDetection: false,
 	disableClosedShadowDom: true,
 	interactChains: [],
 	screenshot: null,
@@ -1126,6 +1172,7 @@ export interface FieldsCollectorData {
 // This is a const enum such that the TypeScript transpiler replaces names with values in the page scripts
 /** Names of in-page things */
 export const enum PageVars {
+	FRAME_ID          = '@@leakDetectFrameId',
 	INJECTED          = '@@leakDetectInjected',
 	PASSWORD_OBSERVED = '@@leakDetectPasswordObserved',
 	PASSWORD_CALLBACK = '@@leakDetectPasswordObserverCallback',
@@ -1135,9 +1182,10 @@ export const enum PageVars {
 declare global {
 	/** In-page things */
 	interface Window {
+		[PageVars.FRAME_ID]: string;
+		[PageVars.ERROR_CALLBACK]: (frameId: string | undefined, message: string, stack: string) => void;
 		[PageVars.INJECTED]: typeof import('leak-detect-inject');
-		[PageVars.PASSWORD_OBSERVED]: boolean;
-		[PageVars.PASSWORD_CALLBACK]: (leaks: PagePasswordLeak[]) => Promise<void>;
-		[PageVars.ERROR_CALLBACK]: (message: string, stack: string) => void;
+		[PageVars.PASSWORD_OBSERVED]?: boolean;
+		[PageVars.PASSWORD_CALLBACK]?: (frameId: string, leaks: PagePasswordLeak[]) => Promise<void>;
 	}
 }

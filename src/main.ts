@@ -40,7 +40,7 @@ import {
 } from './logger';
 import breakpoints from './breakpoints';
 import configSchema from './crawl-config.schema.json';
-import {appendDomainToEmail, populateDefaults} from './utils';
+import {appendDomainToEmail, populateDefaults, stripIndent} from './utils';
 import {FindEntry, findValue, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
@@ -386,6 +386,7 @@ async function crawl(
 	  apiBreakpoints: BreakpointObject[],
 	  logger: Logger,
 ): Promise<OutputFile> {
+	const fieldsCollector                        = new FieldsCollector(fieldsCollectorOptions, logger);
 	const collectors: BaseCollector[]            = [];
 	const collectorFlags: Record<string, string> = {};
 	if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
@@ -396,10 +397,14 @@ async function crawl(
 	}
 	if (args.headedWait)
 		collectors.push(new WaitingCollector(
-			  '\n\x07\x1b]9;4;4;0\x1b\\⏸️ Open the form and then press ⏎ to continue...',
+			  stripIndent`
+			      \x07\x1b]9;4;4;0\x1b\\⏸️ Open the form to crawl, or fill some forms yourself!
+				  Values that will be detected if leaked:
+				  ${'\t'}Email: ${fieldsCollector.options.fill.email}
+				  ${'\t'}Password: ${fieldsCollector.options.fill.password}
+				  Then press ⏎ to continue automatic crawl when you are done...\n`,
 			  undefined,
 			  () => console.log('\x1b]9;4;3;0\x1b\\▶️ Continuing')));
-	const fieldsCollector = new FieldsCollector(fieldsCollectorOptions, logger);
 	collectors.push(fieldsCollector);
 
 	const browserContext = await browser?.createIncognitoBrowserContext();

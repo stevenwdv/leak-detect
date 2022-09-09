@@ -1205,6 +1205,11 @@
             },
             "type": "object"
         },
+        "immediatelyInjectAttributeLeakDetection": {
+            "default": false,
+            "description": "Always immediately inject password to attribute leak detection,\ninstead of before filling a password field.\nUseful for manual form filling",
+            "type": "boolean"
+        },
         "interactChains": {
             "description": "Extra things to do to find forms",
             "items": {

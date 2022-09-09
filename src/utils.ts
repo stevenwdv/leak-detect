@@ -26,6 +26,15 @@ export function getRandomUpTo(maxValue: number) {
 	return Math.random() * maxValue;
 }
 
+/**
+ * Template tag, strips indents from the template string, excluding content of placeholders
+ */
+export function stripIndent(strings: TemplateStringsArray, ...placeholders: unknown[]) {
+	const stringsNoIndent = strings.map(s => s.replaceAll(/([\r\n])[^\S\r\n]+/g, '$1'));
+	stringsNoIndent[0]    = stringsNoIndent[0]!.replace(/^[^\S\r\n]+/, '');
+	return stringsNoIndent.reduce((acc, s, i) => acc + String(placeholders[i - 1]!) + s);
+}
+
 export function stripHash(url: string | URL): string {
 	return url.toString().match(/^[^#]*/)![0]!;
 }
