@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
+import {execPipe, map, splitGroups, takeSorted} from 'iter-tools-es';
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
 import type {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
-import {groupBy} from 'ramda';
 import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
 import {DeepRequired, UnreachableCaseError} from 'ts-essentials';
@@ -634,16 +634,19 @@ export class FieldsCollector extends BaseCollector {
 		if (!frameFields) return {fields: null, done: true};
 
 		if (this.options.fill.submit) {
-			// Key '' means no form
-			const fieldsByForm     = groupBy(field => field.attrs.form ? selectorStr(field.attrs.form) : '', frameFields);
-			// Fields without form come last
-			const fieldsByFormList = Object.entries(fieldsByForm).sort(([formA]) => formA === '' ? 1 : 0);
-			for (const [lastForm, [formSelector, formFields]] of
-				  fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
-				const res = await this.#group(`form ${formSelector}`, async () => {
+			const fieldsByForm = execPipe(
+				  frameFields,
+				  splitGroups(field => field.attrs.form && selectorStr(field.attrs.form)),
+				  // Fields without form come last
+				  takeSorted(([formA]) => !formA ? 1 : 0),
+				  map((e, i) => [i === frameFields.length - 1, e] as const),
+			);
+			for (const [lastForm, [formSelector, formFieldsIt]] of fieldsByForm) {
+				const res = await this.#group(`form ${formSelector ?? ''}`, async () => {
 					try {
+						const formFields = [...formFieldsIt];
 						// First non-processed form field
-						const field = formFields.find(field => !this.#processedFields.has(getElemIdentifier(field)));
+						const field      = formFields.find(field => !this.#processedFields.has(getElemIdentifier(field)));
 						if (!field) return null;
 
 						// Fill all fields in the form
