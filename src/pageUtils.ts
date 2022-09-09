@@ -22,7 +22,7 @@ export function getElemIdentifier(elem: ElementAttrs | ElementInfo): string {
 }
 
 export function selectorStr(selectorChain: SelectorChain): string {
-	return selectorChain.join('>>>');
+	return selectorChain.join('>>>').replaceAll(':nth-of-type', ':nth…');
 }
 
 export async function getElementInfoFromAttrs(

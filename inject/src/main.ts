@@ -88,7 +88,7 @@ function formSelectorFromRoot(elem: Element): string {
 	let sameSiblings = matchSiblings(mySelector);
 	if (sameSiblings.matchCount > 1) {
 		// Note: :nth-of-type takes selects the xth element with the matched *tag name*, unlike XPath's [x]
-		//TODO use :nth-child(x of mySelector) when it becomes available
+		//TODO use :nth-child(x of mySelector) when it becomes available, see https://caniuse.com/css-nth-child-of
 		mySelector   = elem.tagName.toLowerCase();
 		sameSiblings = matchSiblings(mySelector);
 		if (sameSiblings.matchCount > 1)

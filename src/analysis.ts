@@ -73,7 +73,7 @@ export function getSummary(
 								writeln(`\t${frame}`);
 						}
 						writeln();
-					} else writeln(` for navigation to ${collectorData.fields!.visitedTargets[leak.visitedTargetIndex!]!.url}`);
+					} else writeln(` for navigation to ${leak.visitedTarget!.url}`);
 				}
 				writeln();
 			}
