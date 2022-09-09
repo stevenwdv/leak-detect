@@ -102,6 +102,10 @@ async function main() {
 				    type: 'string',
 				    normalize: true,
 			    })
+			    .option('config-inline', {
+				    description: 'inline JSON/YAML configuration for fields collector, see src/crawl-config.schema.json for syntax',
+				    type: 'string',
+			    })
 			    .option('log-level', {
 				    description: `log level for crawl; one of ${logLevels.join(', ')}`,
 				    type: 'string',
@@ -199,11 +203,17 @@ async function main() {
 			default:
 				throw new Error(`unknown config file extension: ${extension || '<none>'}`);
 		}
-
-		const res = new jsonschema.Validator().validate(readOptions, configSchema);
-		if (res.errors.length)
-			throw new AggregateError(res.errors.map(String), 'config file validation failed');
 	}
+	if (args.configInline) {
+		const overrideOptions: unknown = JSON.parse(args.configInline);
+		readOptions                    = readOptions !== undefined
+			  ? populateDefaults(overrideOptions, readOptions)
+			  : overrideOptions;
+	}
+
+	const res = new jsonschema.Validator().validate(readOptions, configSchema);
+	if (res.errors.length)
+		throw new AggregateError(res.errors.map(String), 'config file validation failed');
 
 	const options = (readOptions ?? {}) as FieldsCollectorOptions;
 	console.debug('crawler config: %o', populateDefaults(options, defaultOptions));
