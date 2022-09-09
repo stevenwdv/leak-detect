@@ -276,7 +276,6 @@ async function main() {
 				let logger: Logger = new TaggedLogger(fileLogger);
 				logger.info(`crawling ${url.href} at ${new Date().toString()}`);
 				if (logLevel) logger = new FilteringLogger(logger, logLevel);
-				const errorTracker = logger = new ErrorTrackingLogger(logger);
 				const counter      = logger = new CountingLogger(logger);
 
 				const output = await crawl(url, args, browser, options, apiBreakpoints, logger);
@@ -291,7 +290,7 @@ async function main() {
 				await saveJson(`${fileBase}.json`, output);
 				await fileLogger.finalize();
 				if (args.summary)
-					await fsp.writeFile(`${fileBase}.txt`, getSummary(output, errorTracker.errors()));
+					await fsp.writeFile(`${fileBase}.txt`, getSummary(output));
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 			}
@@ -317,7 +316,6 @@ async function main() {
 
 		let logger: Logger = new ColoredLogger(new ConsoleLogger());
 		if (logLevel) logger = new FilteringLogger(logger, logLevel);
-		const errorTracker = logger = new ErrorTrackingLogger(logger);
 
 		process.stdout.write('\x1b]9;4;3;0\x1b\\');
 
@@ -361,7 +359,7 @@ async function main() {
 
 		if (args.summary) {
 			console.log('\n════ 📝 Summary: ════\n');
-			console.log(getSummary(output, errorTracker.errors()));
+			console.log(getSummary(output));
 		}
 	}
 	console.info('\x07');
@@ -501,34 +499,6 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 		else if (args[0].includes(' context initiated in ')) level = 'debug';
 	}
 	logger.logLevel(level, ...args);
-}
-
-class ErrorTrackingLogger extends Logger {
-	readonly #log: Logger;
-	readonly #msgs: { level: 'warn' | 'error', args: unknown[] }[] = [];
-
-	constructor(logger: Logger) {
-		super();
-		this.#log = logger;
-	}
-
-	logLevel(level: LogLevel, ...args: unknown[]) {
-		if (level === 'warn' || level === 'error')
-			this.#msgs.push({level, args});
-		this.#log.logLevel(level, ...args);
-	}
-
-	startGroup(name: string) {
-		this.#log.startGroup(name);
-	}
-
-	endGroup() {
-		this.#log.endGroup();
-	}
-
-	errors() {
-		return this.#msgs;
-	}
 }
 
 async function saveJson(file: fs.PathLike | fsp.FileHandle, output: OutputFile) {

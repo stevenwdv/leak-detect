@@ -215,9 +215,10 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	override async addTarget({url, type}: Parameters<typeof BaseCollector.prototype.addTarget>[0]) {
-		this.#visitedTargets.push({time: Date.now(), type, url});  // Save other targets as well
+		try {
+			this.#visitedTargets.push({time: Date.now(), type, url});  // Save other targets as well
+			if (type !== 'page') return;
 
-		if (type === 'page') {
 			const pages   = await this.#context.pages();
 			const newPage = pages.at(-1)!;
 			this.#page ??= newPage;  // Take first page
@@ -274,32 +275,39 @@ export class FieldsCollector extends BaseCollector {
 					await exposeFunction(newPage, PageVars.PASSWORD_CALLBACK, this.#passwordLeakCallback.bind(this));
 				await evaluateOnAll(FieldsCollector.#doInjectPasswordLeakDetectionFun, this.options.fill.password);
 			}
+		} catch (err) {
+			this.#reportError(err, ['failed to add target']);
 		}
 	}
 
 	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldsCollectorData | null> {
-		this.#dataParams = options;
+		const fields = [];
+		let links    = null;
+		try {
+			this.#dataParams = options;
 
-		if (this.#siteDomain === null && this.#initialUrl.hostname !== 'localhost') {
-			this.#log?.warn('URL has no domain with public suffix, will skip this page');
-			return null;
-		}
-
-		await this.#screenshot(this.#page, 'loaded');
-
-		// Search for fields on the landing page(s)
-		const fields = await this.#processFieldsOnAllPages();
-
-		fields.push(...await this.#executeInteractChains());
-
-		let links = null;
-		if (this.options.clickLinkCount
-			  && !(this.options.stopEarly === 'first-page-with-form' && fields.length)) {
-			const res = await this.#inspectLinkedPages();
-			if (res) {
-				links = res.links;
-				fields.push(...res.fields);
+			if (this.#siteDomain === null && this.#initialUrl.hostname !== 'localhost') {
+				this.#log?.warn('URL has no domain with public suffix, will skip this page');
+				return null;
 			}
+
+			await this.#screenshot(this.#page, 'loaded');
+
+			// Search for fields on the landing page(s)
+			fields.push(...await this.#processFieldsOnAllPages());
+
+			fields.push(...await this.#executeInteractChains());
+
+			if (this.options.clickLinkCount
+				  && !(this.options.stopEarly === 'first-page-with-form' && fields.length)) {
+				const res = await this.#inspectLinkedPages();
+				if (res) {
+					links = res.links;
+					fields.push(...res.fields);
+				}
+			}
+		} catch (err) {
+			this.#reportError(err, ['failed to get all data']);
 		}
 
 		return {
@@ -837,7 +845,7 @@ export class FieldsCollector extends BaseCollector {
 				return fullLeak;
 			})));
 		} catch (err) {
-			this.#reportError(err, ['error in password leak callback'], 'error');
+			this.#reportError(err, ['error in password leak callback']);
 		}
 	}
 

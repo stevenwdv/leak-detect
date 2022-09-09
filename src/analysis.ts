@@ -7,8 +7,7 @@ import {selectorStr} from './pageUtils';
 import {LeakDetectorCaptureData} from './breakpoints';
 import {ClickLinkEvent, FillEvent, SubmitEvent} from './FieldsCollector';
 
-export function getSummary(
-	  output: OutputFile, errors: { level: 'warn' | 'error', args: unknown[] }[]): string {
+export function getSummary(output: OutputFile): string {
 	const result = output.crawlResult;
 	const time   = (timestamp: number) =>
 		  `⌚️${((timestamp - result.testStarted) / 1e3).toFixed(1)}s`;
@@ -111,12 +110,6 @@ export function getSummary(
 				}${String(error.error)}`);
 			writeln();
 		}
-	}
-	if (errors.length) {
-		writeln('\nAll logged errors:');
-		for (const error of errors)
-			writeln(`\t${error.level === 'error' ? '❌️' : '⚠️'} ${error.args.map(String).join(' ')}`);
-		writeln();
 	}
 
 	return strings.join('');
