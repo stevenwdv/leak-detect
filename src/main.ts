@@ -404,7 +404,8 @@ async function crawl(
 				  ${'\t'}Password: ${fieldsCollector.options.fill.password}
 				  Then press ⏎ to continue automatic crawl when you are done...\n`,
 			  undefined,
-			  () => console.log('\x1b]9;4;3;0\x1b\\▶️ Continuing')));
+			  () => console.log('\x1b]9;4;3;0\x1b\\▶️ Continuing'),
+			  () => console.log('\n\x1b]9;4;3;0\x1b\\⏹️ Window was closed')));
 	collectors.push(fieldsCollector);
 
 	const browserContext = await browser?.createIncognitoBrowserContext();
