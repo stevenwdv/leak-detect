@@ -2,7 +2,7 @@
 	entry: './src/main',
 	output: {
 		filename: 'bundle.js',
-		library: 'leakDetectToBeInjected',  // Name of var
+		library: 'leakDetectInject',  // Name of var
 	},
 
 	resolve: {

@@ -33,10 +33,15 @@ function escapeAttrVal(str: string): string {
 }
 
 function formSelectorFromRoot(elem: Element): string {
+	// HTMLFormElement has a named getter that returns child elements by id/name,
+	// e.g. (<form><input id=id>).id === <input id=id>
+	// So this is more robust (calling everything via HTMLElement.prototype would be best, but verbose)
+	const id = elem.getAttribute('id');
+
 	if (!elem.parentNode) {
 		console.warn('elem is detached (or not an Element)', elem);
 		// Best-effort info
-		return elem.id ? `${elem.tagName}[id='${escapeAttrVal(elem.id)}']` : `${elem.tagName}[detached]`;
+		return id ? `${elem.tagName}[id='${escapeAttrVal(id)}']` : `${elem.tagName}[detached]`;
 	}
 	if (elem.parentNode instanceof Document) return ':root';  // <html> element
 
@@ -74,10 +79,10 @@ function formSelectorFromRoot(elem: Element): string {
 
 	let mySelector;
 
-	if (elem.id) {
-		const globalSelector = /^[a-z_][a-z0-9_-]*$/i.test(elem.id)
-			  ? `#${elem.id}`
-			  : `[id='${escapeAttrVal(elem.id)}']`;
+	if (id) {
+		const globalSelector = /^[a-z_][a-z0-9_-]*$/i.test(id)
+			  ? `#${id}`
+			  : `[id='${escapeAttrVal(id)}']`;
 		if (globallyUnique(globalSelector)) return globalSelector;
 		mySelector = validSelector(globalSelector);
 	}

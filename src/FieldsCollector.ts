@@ -115,10 +115,10 @@ export class FieldsCollector extends BaseCollector {
 			try {
 				window[${JSON.stringify(PageVars.INJECTED)}] ??= (() => {
 					/** @type typeof import('leak-detect-inject') */
-					var leakDetectToBeInjected = {};
+					var leakDetectInject = {};
 					${injectSrc};
-					if (debug) leakDetectToBeInjected.enableDebug();
-					return leakDetectToBeInjected;
+					if (debug) leakDetectInject.enableDebug();
+					return leakDetectInject;
 				})();
 			} catch (err) {
 				window[${JSON.stringify(PageVars.ERROR_CALLBACK)}](window[${JSON.stringify(PageVars.FRAME_ID)}], String(err), err instanceof Error && err.stack || Error().stack);
@@ -289,6 +289,7 @@ export class FieldsCollector extends BaseCollector {
 		let links    = null;
 		try {
 			this.#dataParams = options;
+			this.#log?.log('Final URL:', this.#dataParams.finalUrl);
 
 			if (this.#siteDomain === null && this.#initialUrl.hostname !== 'localhost') {
 				this.#log?.warn('URL has no domain with public suffix, will skip this page');
@@ -581,7 +582,7 @@ export class FieldsCollector extends BaseCollector {
 	 */
 	async #processFieldsOnPage(page: Page): Promise<FieldElementAttrs[] | null> {
 		const logPageUrl = page.url();
-		return this.#group(logPageUrl, async () => {
+		return this.#group(getRelativeUrl(new URL(logPageUrl), new URL(this.#dataParams.finalUrl)), async () => {
 			if (this.options.skipExternal !== false && tldts.getDomain(page.url()) !== this.#siteDomain) {
 				this.#log?.log('skipping external page');
 				return null;
