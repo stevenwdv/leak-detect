@@ -240,7 +240,11 @@ export class FieldsCollector extends BaseCollector {
 			newPage.on('framenavigated', frame =>
 				  void frame.evaluate(frameId => {
 					  window[PageVars.FRAME_ID] = frameId;
-				  }, this.#frameIdReverseMap.get(frame)!));
+				  }, this.#frameIdReverseMap.get(frame)!)
+						.catch(err => {
+							if (!String(err).includes('Target closed'))
+								throw err;
+						}));
 
 			async function evaluateOnAll<Args extends unknown[]>(pageFunction: (...args: Args) => void, ...args: Args) {
 				// Add on new & existing frames
