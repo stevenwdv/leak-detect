@@ -81,6 +81,7 @@ process.stdout.write('\x1b]0;leak detector\x1b\\');
 
 async function main() {
 	const args = yargs
+		  .scriptName('leak-detect')
 		  .wrap(yargs.terminalWidth())
 		  .command('crawl', 'crawl a URL', yargs => yargs
 			    .option('url', {
@@ -154,6 +155,11 @@ async function main() {
 				    description: 'open developer tools',
 				    type: 'boolean',
 				    default: false,
+			    })
+			    .option('pause-on-value-read', {
+				    description: 'when headless with devtools open, pause in debugger when input field value is read',
+				    type: 'boolean',
+				    default: true,
 			    })
 			    .option('timeout', {
 				    description: 'timeout for crawl, in seconds, or 0 to disable',
@@ -230,7 +236,7 @@ async function main() {
 			throw new Error(`invalid log level: ${args.logLevel}`);
 	const logLevel = args.logLevel as LogLevel | undefined;
 
-	const apiBreakpoints = args.headed && args.devtools
+	const apiBreakpoints = args.headed && args.devtools && args.pauseOnValueRead
 		  ? breakpoints
 		  : breakpoints.map(b => ({
 			  ...b,
@@ -369,7 +375,7 @@ async function main() {
 			console.log(getSummary(output, options));
 		}
 	}
-	console.info('\x07');
+	console.info('\x07\x1b]9;4;1;100\x1b\\');
 }
 
 async function crawl(
@@ -519,7 +525,6 @@ async function saveJson(file: fs.PathLike | fsp.FileHandle, output: OutputFile) 
 void (async () => {
 	try {
 		await main();
-		process.stdout.write('\x1b]9;4;1;100\x1b\\');
 	} catch (err) {
 		process.exitCode = 1;
 		console.error('\n\x07❌️', err);
