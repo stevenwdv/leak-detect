@@ -384,15 +384,10 @@ async function crawl(
 	  apiBreakpoints: BreakpointObject[],
 	  logger: Logger,
 ): Promise<OutputFile> {
-	const fieldsCollector                        = new FieldsCollector(fieldsCollectorOptions, logger);
 	const collectors: BaseCollector[]            = [];
 	const collectorFlags: Record<string, string> = {};
-	if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
-	if (args.requests) collectors.push(new RequestCollector());
-	if (args.autoConsent !== 'noAction') {
-		collectors.push(new CMPCollector());
-		collectorFlags.autoconsentAction = args.autoConsent;
-	}
+
+	const fieldsCollector = new FieldsCollector(fieldsCollectorOptions, logger);
 	if (args.headedWait)
 		collectors.push(new WaitingCollector(
 			  stripIndent`
@@ -405,6 +400,14 @@ async function crawl(
 			  () => console.log('\x1b]9;4;3;0\x1b\\▶️ Continuing'),
 			  () => console.log('\n\x1b]9;4;3;0\x1b\\⏹️ Window was closed')));
 	collectors.push(fieldsCollector);
+
+	// Important: collectors for which we want getData to be called after FieldsCollector must be added after it
+	if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
+	if (args.requests) collectors.push(new RequestCollector());
+	if (args.autoConsent !== 'noAction') {
+		collectors.push(new CMPCollector());
+		collectorFlags.autoconsentAction = args.autoConsent;
+	}
 
 	const browserContext = await browser?.createIncognitoBrowserContext();
 	let crawlResult;
