@@ -231,9 +231,14 @@ export class FieldsCollector extends BaseCollector {
 				const frameId = webcrypto.randomUUID();
 				this.#frameIdMap.set(frameId, frame);
 				this.#frameIdReverseMap.set(frame, frameId);
-				await frame.evaluate(frameId => {
-					window[PageVars.FRAME_ID] = frameId;
-				}, frameId);
+				try {
+					await frame.evaluate(frameId => {
+						window[PageVars.FRAME_ID] = frameId;
+					}, frameId);
+				} catch (err) {
+					if (!String(err).includes('Execution context was destroyed'))
+						throw err;
+				}
 			};
 			await Promise.all(newPage.frames().map(newFrameId));
 			newPage.on('frameattached', frame => void newFrameId(frame));
