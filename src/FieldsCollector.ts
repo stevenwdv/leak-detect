@@ -47,6 +47,7 @@ import {
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
 import {exposeFunction, getFrameStack, unwrapHandle} from './puppeteerUtils';
+import chalk from 'chalk';
 import ErrnoException = NodeJS.ErrnoException;
 import TimeoutError = puppeteer.TimeoutError;
 
@@ -93,9 +94,10 @@ export class FieldsCollector extends BaseCollector {
 
 	static #loadInjectScripts() {
 		this.#doInjectFun ??= (() => {
+			const bundle = require.resolve('leak-detect-inject/dist/bundle.js');
 			let bundleTime;
 			try {
-				bundleTime = fs.statSync('./inject/dist/bundle.js').mtimeMs;
+				bundleTime = fs.statSync(bundle).mtimeMs;
 			} catch (err) {
 				if ((err as ErrnoException).code === 'ENOENT')
 					console.error('bundle to inject not found, run `npm run pack` in the `inject` folder');
@@ -107,9 +109,9 @@ export class FieldsCollector extends BaseCollector {
 				  .reduce((a, b) => Math.max(a, b));
 			const timeDiff       = sourceFileTime - bundleTime;
 			if (timeDiff > 0)
-				console.warn(`⚠️ inject script was modified ${formatDuration(timeDiff)} after bundle creation, ` +
-					  'you should probably run `npm run pack` in the `inject` folder');
-			const injectSrc = fs.readFileSync('./inject/dist/bundle.js', 'utf8');
+				console.warn(chalk.yellow(`\n⚠️ inject script was modified ${formatDuration(timeDiff)} after bundle creation, ` +
+					  'you should probably run `npm run -w inject pack` ⚠️\n'));
+			const injectSrc = fs.readFileSync(bundle, 'utf8');
 			// eslint-disable-next-line @typescript-eslint/no-implied-eval
 			return Function('debug', /*language=JavaScript*/ `'use strict';
 			try {
@@ -294,7 +296,7 @@ export class FieldsCollector extends BaseCollector {
 		let links    = null;
 		try {
 			this.#dataParams = options;
-			this.#log?.log('Final URL:', this.#dataParams.finalUrl);
+			this.#log?.log('🌐 final URL:', this.#dataParams.finalUrl);
 
 			if (this.#siteDomain === null && this.#initialUrl.hostname !== 'localhost') {
 				this.#log?.warn('URL has no domain with public suffix, will skip this page');
@@ -337,7 +339,7 @@ export class FieldsCollector extends BaseCollector {
 		const fields: FieldElementAttrs[] = [];
 		for (const [nChain, chain] of this.options.interactChains.entries()) {
 			try {
-				this.#log?.log(`starting click chain ${nChain + 1}${
+				this.#log?.log(`🖱 starting click chain ${nChain + 1}${
 					  chain.type === 'puppeteer-replay' ? `: ${chain.flow.title}` : ''}`);
 				await this.#cleanPage(this.#page);
 				await this.#closeExtraPages();
@@ -355,7 +357,7 @@ export class FieldsCollector extends BaseCollector {
 								}
 								const selector = await formSelectorChain(elem);
 
-								this.#log?.log(`clicking element ${nElem + 1}/${chain.paths.length}`, selectorStr(selector));
+								this.#log?.log(`🖱 clicking element ${nElem + 1}/${chain.paths.length}`, selectorStr(selector));
 								this.#events.push(new ClickLinkEvent(selector, 'manual'));
 								await this.#click(elem);
 								await this.#sleep(this.options.sleepMs?.postNavigate);
@@ -400,7 +402,7 @@ export class FieldsCollector extends BaseCollector {
 			const matchTypeCounts = links.reduce((acc, attrs) =>
 				  acc.set(attrs.linkMatchType, (acc.get(attrs.linkMatchType) ?? 0) + 1), new Map<LinkMatchType, number>());
 
-			this.#log?.debug(`found ${links.length} login/register links on the landing page`, matchTypeCounts);
+			this.#log?.debug(`🔗🔍 found ${links.length} login/register links on the landing page`, matchTypeCounts);
 
 			if (links.length > this.options.clickLinkCount)
 				this.#log?.log(`skipping last ${links.length - this.options.clickLinkCount} links`);
@@ -409,7 +411,7 @@ export class FieldsCollector extends BaseCollector {
 
 			links = links.slice(0, this.options.clickLinkCount);
 			for (const link of links) {
-				await this.#group(`link ${selectorStr(link.selectorChain)}`, async () => {
+				await this.#group(`🔗 ${selectorStr(link.selectorChain)}`, async () => {
 					try {
 						if (this.options.skipExternal !== false && link.href &&
 							  tldts.getDomain(new URL(link.href, this.#dataParams.finalUrl).href) !== this.#siteDomain) {
@@ -440,7 +442,7 @@ export class FieldsCollector extends BaseCollector {
 
 	/** Click detected link & wait for navigation */
 	async #followLink(link: ElementAttrs) {
-		this.#log?.log('following link', selectorStr(link.selectorChain));
+		this.#log?.log('🔗🖱 following link', selectorStr(link.selectorChain));
 		this.#events.push(new ClickLinkEvent(link.selectorChain, 'auto'));
 		const page     = this.#page;
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame(), this.options.debug);
@@ -498,14 +500,14 @@ export class FieldsCollector extends BaseCollector {
 		const maxWaitTimeMs = Math.max(minTimeoutMs,
 			  this.#dataParams.pageLoadDurationMs * 2);
 
-		this.#log?.log(frame.url() === url ? 'will reload' : `will navigate ${frame.url()} → ${url}`);
+		this.#log?.log(frame.url() === url ? '🔙 will reload' : `🔙 will navigate ${frame.url()} → ${url}`);
 		await frame.page().bringToFront();
 		try {
 			await frame.goto(url, {timeout: maxWaitTimeMs, waitUntil: 'load'});
 			await this.#sleep(this.options.sleepMs?.postNavigate);
 		} catch (err) {
 			if (err instanceof TimeoutError) {
-				this.#log?.log('navigation timeout exceeded (will continue)');
+				this.#log?.log('⏱️ navigation timeout exceeded (will continue)');
 				return;
 			}
 			throw err;
@@ -522,7 +524,7 @@ export class FieldsCollector extends BaseCollector {
 		const frameStartUrl = frame.url(),
 		      pageStartUrl  = frame.page().url();
 
-		this.#log?.debug(`started waiting for navigation from ${frame.url()}`);
+		this.#log?.debug(`🔜 started waiting for navigation from ${frame.url()}`);
 		try {
 			const preTargets    = new Set(this.#context.targets());
 			const {msg, target} = (await raceWithCondition([
@@ -533,14 +535,14 @@ export class FieldsCollector extends BaseCollector {
 						  : null;
 					try {
 						await frame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
-						return {msg: `navigated to ${frame.url()}`, target: frame};
+						return {msg: `🧭 navigated to ${frame.url()}`, target: frame};
 					} catch (err) {
 						if (err instanceof TimeoutError) throw err;
 						// Frame may be detached due to parent navigating
 						// (Error: Navigating frame was detached)
 						if (!pageNavigate) return null;
 						await pageNavigate;
-						return {msg: `parent page navigated to ${page.url()}`, target: page.mainFrame()};
+						return {msg: `🧭 parent page navigated to ${page.url()}`, target: page.mainFrame()};
 					} finally {
 						void pageNavigate?.catch(() => {/*ignore TimeoutError or other*/});
 					}
@@ -548,7 +550,7 @@ export class FieldsCollector extends BaseCollector {
 				this.#context.waitForTarget(
 					  target => target.type() === 'page' && !preTargets.has(target),
 					  {timeout: maxWaitTimeMs})
-					  .then(async page => ({msg: `opened ${page.url()}`, target: (await page.page())!.mainFrame()})),
+					  .then(async page => ({msg: `🧭 opened ${page.url()}`, target: (await page.page())!.mainFrame()})),
 			], notFalsy))!;
 			this.#log?.log(msg);
 			await this.#sleep(this.options.sleepMs?.postNavigate);
@@ -559,7 +561,7 @@ export class FieldsCollector extends BaseCollector {
 					this.#log?.log(`parent page started navigating to ${frame.page().url()}`);
 				else if (frame.url() !== frameStartUrl)
 					this.#log?.log(`started navigating to ${frame.url()}`);
-				this.#log?.log('navigation timeout exceeded (will continue)');
+				this.#log?.log('⏱️ navigation timeout exceeded (will continue)');
 				return null;
 			}
 			throw err;
@@ -587,7 +589,7 @@ export class FieldsCollector extends BaseCollector {
 	 */
 	async #processFieldsOnPage(page: Page): Promise<FieldElementAttrs[] | null> {
 		const logPageUrl = page.url();
-		return this.#group(getRelativeUrl(new URL(logPageUrl), new URL(this.#dataParams.finalUrl)), async () => {
+		return this.#group(`📃${getRelativeUrl(new URL(logPageUrl), new URL(this.#dataParams.finalUrl))}`, async () => {
 			if (this.options.skipExternal !== false && tldts.getDomain(page.url()) !== this.#siteDomain) {
 				this.#log?.log('skipping external page');
 				return null;
@@ -613,7 +615,7 @@ export class FieldsCollector extends BaseCollector {
 							&& !completedFrames.has(frame.url()));
 				for (const frame of incompleteFrames) {
 					const {fields: frameFields, done: frameDone} = await this.#group(
-						  `frame ${getRelativeUrl(new URL(frame.url()), new URL(logPageUrl))}`,
+						  `🔳frame ${getRelativeUrl(new URL(frame.url()), new URL(logPageUrl))}`,
 						  () => this.#processFields(frame), frame !== page.mainFrame());
 					if (frameDone) {
 						completedFrames.add(frame.url());  // This frame is done
@@ -633,8 +635,8 @@ export class FieldsCollector extends BaseCollector {
 			}
 
 			if (this.#processedFields.size >= this.options.fill.maxFields)
-				this.#log?.log('reached maximum number of filled fields');
-			this.#log?.log(`processed ${pageFields.length} new fields`);
+				this.#log?.log('💯 reached maximum number of filled fields');
+			this.#log?.log(`${pageFields.length ? '🆕' : '🔚'} processed ${pageFields.length} new fields`);
 			return pageFields;
 		}, logPageUrl !== this.#dataParams.finalUrl);
 	}
@@ -659,7 +661,7 @@ export class FieldsCollector extends BaseCollector {
 			const fieldsByFormList = Object.entries(fieldsByForm).sort(([formA]) => formA === '' ? 1 : 0);
 			for (const [lastForm, [formSelector, formFields]] of
 				  fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
-				const res = await this.#group(`form ${formSelector}`, async () => {
+				const res = await this.#group(`📝form ${formSelector}`, async () => {
 					try {
 						// First non-processed form field
 						const field = formFields.find(field => !this.#processedFields.has(getElemIdentifier(field)));
@@ -724,15 +726,15 @@ export class FieldsCollector extends BaseCollector {
 			await frame.page().bringToFront();
 		}
 
-		this.#log?.debug('finding fields');
 		const url = frame.url();
 		if (this.options.skipExternal === 'frames' && tldts.getDomain(url) !== this.#siteDomain) {
 			this.#log?.log('skipping external frame');
 			return null;
 		}
 
+		this.#log?.debug('🔍 finding fields');
 		const fields = (await Promise.all([this.#getEmailFields(frame), this.#getPasswordFields(frame)])).flat();
-		this.#log?.log(`found ${fields.length} fields`);
+		this.#log?.log(`🔍 found ${fields.length} fields`);
 		return fields;
 	}
 
@@ -772,7 +774,7 @@ export class FieldsCollector extends BaseCollector {
 
 	async #submitField(field: ElementInfo<FieldElementAttrs>) {
 		this.#events.push(new SubmitEvent(field.attrs.selectorChain));
-		this.#log?.log('submitting field', selectorStr(field.attrs.selectorChain));
+		this.#log?.log('⏎ submitting field', selectorStr(field.attrs.selectorChain));
 		this.#setDirty(field.handle.frame.page());
 		try {
 			const waitNavigation = this.#waitForNavigation(field.handle.frame,
@@ -789,7 +791,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #fillFields(fields: ElementInfo<FieldElementAttrs>[]) {
-		this.#log?.log(`filling ${fields.length} fields`);
+		this.#log?.log(`🖊 filling ${fields.length} fields`);
 		const fillTimes = this.options.sleepMs?.fill ?? {clickDwell: 0, keyDwell: 0, betweenKeys: 0};
 		for (const field of fields.filter(f => !(f.attrs.filled ?? false))) {
 			this.#events.push(new FillEvent(field.attrs.selectorChain));
@@ -811,7 +813,7 @@ export class FieldsCollector extends BaseCollector {
 						throw new UnreachableCaseError(field.attrs.fieldType);
 				}
 				field.attrs.filled = true;
-				this.#log?.debug('filled field', selectorStr(field.attrs.selectorChain));
+				this.#log?.debug('✒️ filled field', selectorStr(field.attrs.selectorChain));
 			} catch (err) {
 				this.#reportError(err, ['failed to fill field', field.attrs], 'warn');
 			}
@@ -835,7 +837,7 @@ export class FieldsCollector extends BaseCollector {
 	async #passwordLeakCallback(frameId: string, leaks: PagePasswordLeak[]) {
 		try {
 			const frame = this.#frameIdMap.get(frameId)!;
-			this.#log?.info(`password leaked on ${frame.url()} to attributes: ${
+			this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes: ${
 				  leaks.map(l => `${selectorStr(l.selector)} @${l.attribute}`).join(', ')}`);
 			const time = Date.now();
 			this.#passwordLeaks.push(...await Promise.all(leaks.map(async leak => {

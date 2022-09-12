@@ -106,9 +106,9 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		if (fieldValueCalls.length) {
 			writeln('ℹ️ 🔍 Field value reads:');
 			for (const [call, times] of fieldValueCalls) {
-				write(`${times.map(time).join(' ')} access to value of ${
-					  call.value === fieldsCollectorOptions.fill.password ? '🔑 ' : ''
-				}${call.type} field`);
+				write(`${times.map(time).join(' ')} access to ${
+					  call.value === fieldsCollectorOptions.fill.password ? '🔑 ' : '📧 '
+				}value of ${call.type} field`);
 				if (call.selectorChain) write(` "${selectorStr(call.selectorChain)}"`);
 				writeln(' by:');
 				for (const frame of call.stack)
@@ -122,7 +122,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	if (fieldsData) {
 		writeln('📊 Automated crawl statistics:\n');
 		writeln(`📑 ${fieldsData.fields.length} fields found`);
-		writeln(`🖊 ${fieldsData.events.filter(ev => ev instanceof FillEvent).length} fields filled`);
+		writeln(`✒️ ${fieldsData.events.filter(ev => ev instanceof FillEvent).length} fields filled`);
 		writeln(`⏎ ${fieldsData.events.filter(ev => ev instanceof SubmitEvent).length} fields submitted`);
 		writeln(`🔗 ${fieldsData.links?.length ?? 0} links found`);
 		writeln(`🖱 ${fieldsData.events.filter(ev => ev instanceof ClickLinkEvent).length} links clicked`);

@@ -77,7 +77,7 @@ process.on('beforeExit', () => {
 });
 process.on('exit', () => process.stdout.write('\x1b]9;4;0;0\x1b\\'));
 
-process.stdout.write('\x1b]0;leak detector\x1b\\');
+process.stdout.write('\x1b]0;☔️ leak detector\x1b\\');
 
 async function main() {
 	const args = yargs
@@ -229,7 +229,7 @@ async function main() {
 	const options = populateDefaults<FullFieldsCollectorOptions>(
 		  (readOptions ?? {}) as FieldsCollectorOptions,
 		  FieldsCollector.defaultOptions);
-	console.debug('crawler config: %o', options);
+	console.debug('⚙️ crawler config: %o', options);
 
 	if (args.logLevel)
 		if (!(logLevels as readonly string[]).includes(args.logLevel))
@@ -251,7 +251,7 @@ async function main() {
 		const urlsStr = await fsp.readFile(args.urlsFile, 'utf8');
 		const urls    = [...urlsStr.matchAll(/^\s*(.*\S)\s*$/mg)].map(m => m[1]!)
 			  .filter(l => !l.startsWith('#')).map(u => new URL(u));
-		console.log(`crawling ${urls.length} URLs (max ${args.parallelism} in parallel)`);
+		console.log(`🕸 crawling ${urls.length} URLs (max ${args.parallelism} in parallel)`);
 
 		await fsp.mkdir(outputDir, {recursive: true});
 
@@ -287,7 +287,7 @@ async function main() {
 				)}`);
 				const fileLogger   = new FileLogger(`${fileBase}.log`);
 				let logger: Logger = new TaggedLogger(fileLogger);
-				logger.info(`crawling ${url.href} at ${new Date().toString()}`);
+				logger.info(`🕸 crawling ${url.href} at ${new Date().toString()}`);
 				if (logLevel) logger = new FilteringLogger(logger, logLevel);
 				const counter = logger = new CountingLogger(logger);
 
@@ -322,7 +322,7 @@ async function main() {
 			await browser?.close();
 		progressBar.terminate();
 
-		console.info('data & logs saved to', outputDir);
+		console.info('💾 data & logs saved to', outputDir);
 
 	} else {
 		const url = new URL(args.url!);
@@ -346,15 +346,19 @@ async function main() {
 				const {url} = requestIndex !== undefined ? output.crawlResult.data.requests![requestIndex]!
 					  : output.crawlResult.data.fields!.visitedTargets[visitedTargetIndex!]!;
 
+				const typeStr = {
+					email: '📧 email',
+					password: '🔑 password',
+				}[type];
 				switch (part) {
 					case 'url':
-						logger.info(`Found ${type} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+						logger.info(`💧 Found ${typeStr} in request URL: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
 						break;
 					case 'header':
-						logger.info(`Found ${type} in request header ${header!}: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+						logger.info(`💧 Found ${typeStr} in request header ${header!}: ${url}\n\tEncoded using ${encodings.join('→')}→value`);
 						break;
 					case 'body':
-						logger.info(`Found ${type} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`);
+						logger.info(`💧 Found ${typeStr} in body of request to ${url}\n\tEncoded using ${encodings.join('→')}→value`);
 						break;
 					default:
 						throw new UnreachableCaseError(part);
@@ -364,7 +368,7 @@ async function main() {
 
 		if (args.output) {
 			await saveJson(args.output, output);
-			console.info('output written to', args.output);
+			console.info('💾 output written to', args.output);
 		} else {
 			// eslint-disable-next-line no-debugger
 			debugger  // Give you the ability to inspect the result in a debugger
@@ -406,8 +410,8 @@ async function crawl(
 			  stripIndent`
 			      \x07\x1b]9;4;4;0\x1b\\⏸️ Open the form to crawl, or fill some forms yourself!
 				  Values that will be detected if leaked:
-				  ${'\t'}Email: ${fieldsCollector.options.fill.email}
-				  ${'\t'}Password: ${fieldsCollector.options.fill.password}
+				  ${'\t'}📧 Email: ${fieldsCollector.options.fill.email}
+				  ${'\t'}🔑 Password: ${fieldsCollector.options.fill.password}
 				  Then press ⏎ to continue automatic crawl when you are done...\n`,
 			  undefined,
 			  () => console.log('\x1b]9;4;3;0\x1b\\▶️ Continuing'),
@@ -449,7 +453,7 @@ async function crawl(
 
 	if (args.checkThirdParty)
 		try {
-			logger.log('checking third party & tracker info');
+			logger.log('🕵 checking third party & tracker info');
 			output.domainInfo = await getDomainInfo(crawlResult);
 		} catch (err) {
 			logger.error('error while adding third party & tracker info', err);
@@ -457,7 +461,7 @@ async function crawl(
 
 	if (args.checkLeaks)
 		try {
-			logger.log('searching for leaked values in web requests');
+			logger.log('💧 searching for leaked values in web requests');
 			output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
 		} catch (err) {
 			logger.error('error while searching for leaks', err);
@@ -513,6 +517,7 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 			  || args[0].includes('⚠')
 			  || args.some(a => a instanceof Error)) level = 'warn';
 		else if (args[0].includes(' context initiated in ')) level = 'debug';
+		args[0] = args[0].replace(/^⚠\s*/, '');
 	}
 	logger.logLevel(level, ...args);
 }
