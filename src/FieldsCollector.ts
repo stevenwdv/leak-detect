@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
 import type {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
-import {groupBy} from 'ramda';
+import {groupBy} from 'rambda';
 import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
 import {DeepRequired, UnreachableCaseError} from 'ts-essentials';

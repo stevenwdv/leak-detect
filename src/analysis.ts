@@ -1,3 +1,4 @@
+import {filter, groupBy, map, pipe} from 'rambda';
 import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher from 'value-searcher';
 
@@ -10,12 +11,12 @@ import {SavedCall} from 'tracker-radar-collector/collectors/APICallCollector';
 
 export function getSummary(output: OutputFile, fieldsCollectorOptions: FullFieldsCollectorOptions): string {
 	const result = output.crawlResult;
-	const time   = (timestamp: number) =>
+	const time = (timestamp: number) =>
 		  `⌚️${((timestamp - result.testStarted) / 1e3).toFixed(1)}s`;
 
 	const strings: string[] = [];
 	const write             = (str: string) => strings.push(str);
-	const writeln           = (str = '') => {
+	const writeln = (str = '') => {
 		if (str) strings.push(str);
 		strings.push('\n');
 	};
@@ -89,20 +90,28 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			fieldsCollectorOptions.fill.email,
 			fieldsCollectorOptions.fill.password,
 		];
-		const fieldValueCalls = (collectorData.apis.savedCalls
-			  .filter(({description}: SavedCall) => description === 'HTMLInputElement.prototype.value') as
-			  LeakDetectorSavedCall[])
-			  .filter(({custom: {value}}) => searchValues.includes(value));
+		const fieldValueCalls = pipe(
+			  filter(({description}: SavedCall) => description === 'HTMLInputElement.prototype.value'),
+			  map(call => call as LeakDetectorSavedCall),
+			  filter(({custom: {value}}) => searchValues.includes(value)),
+			  groupBy(({custom: {selectorChain, type, value}, stack}) =>
+					`${selectorChain ? selectorStr(selectorChain) : ''}\0${type}\0${value}\0${stack!.join('\n')}`),
+			  (Object.entries<LeakDetectorSavedCall[]>),
+			  map(([, calls]) => {
+				  const {custom: {selectorChain, type, value}, stack} = calls[0]!;
+				  return [{selectorChain, type, value, stack: stack!}, calls.map(({custom: {time}}) => time)] as const;
+			  }),
+		)(collectorData.apis.savedCalls);
 
 		if (fieldValueCalls.length) {
 			writeln('ℹ️ 🔍 Field value reads:');
-			for (const call of fieldValueCalls) {
-				write(`${time(call.custom.time)} access to value of ${
-					  call.custom.value === fieldsCollectorOptions.fill.password ? '🔑 ' : ''
-				}${call.custom.type} field`);
-				if (call.custom.selectorChain) write(` "${selectorStr(call.custom.selectorChain)}"`);
-				writeln(':');
-				for (const frame of call.stack!)
+			for (const [call, times] of fieldValueCalls) {
+				write(`${times.map(time).join(' ')} access to value of ${
+					  call.value === fieldsCollectorOptions.fill.password ? '🔑 ' : ''
+				}${call.type} field`);
+				if (call.selectorChain) write(` "${selectorStr(call.selectorChain)}"`);
+				writeln(' by:');
+				for (const frame of call.stack)
 					writeln(`\t${frame}`);
 				writeln();
 			}
@@ -111,7 +120,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	} else writeln('⚠️ No API call data found\n');
 
 	if (fieldsData) {
-		writeln('📊 Automatic crawl statistics:\n');
+		writeln('📊 Automated crawl statistics:\n');
 		writeln(`📑 ${fieldsData.fields.length} fields found`);
 		writeln(`🖊 ${fieldsData.events.filter(ev => ev instanceof FillEvent).length} fields filled`);
 		writeln(`⏎ ${fieldsData.events.filter(ev => ev instanceof SubmitEvent).length} fields submitted`);
