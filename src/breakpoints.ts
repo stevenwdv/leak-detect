@@ -1,3 +1,6 @@
+import {PageVars} from './FieldsCollector';
+import {SelectorChain} from 'leak-detect-inject';
+
 export const breakpoints: import('tracker-radar-collector').breakpoints.BreakpointObject[] = [
 	{
 		proto: 'HTMLInputElement',
@@ -9,12 +12,13 @@ export const breakpoints: import('tracker-radar-collector').breakpoints.Breakpoi
 				fullStack: true,
 				condition: (elem: HTMLInputElement) => ['email', 'password', 'text'].includes(elem.type),
 				pauseDebugger: true,
-				customCapture: (elem: HTMLInputElement) => ({
+				customCapture: (elem: HTMLInputElement): LeakDetectorCaptureData => ({
 					time: Date.now(),
 					value: elem.value,
 					type: elem.type,
-					id: elem.id,
-				} as LeakDetectorCaptureData),
+					selectorChain: (window[PageVars.INJECTED] as typeof window[PageVars.INJECTED] | undefined)
+						  ?.formSelectorChain(elem),
+				}),
 			},
 		],
 		methods: [],
@@ -27,5 +31,5 @@ export interface LeakDetectorCaptureData {
 	time: number;
 	value: string;
 	type: string;
-	id: string;
+	selectorChain?: SelectorChain | undefined;
 }

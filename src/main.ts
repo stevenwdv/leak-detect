@@ -26,7 +26,12 @@ import {UnreachableCaseError} from 'ts-essentials';
 import ValueSearcher from 'value-searcher';
 import yargs from 'yargs';
 
-import {FieldsCollector, FieldsCollectorData, FieldsCollectorOptions} from './FieldsCollector';
+import {
+	FieldsCollector,
+	FieldsCollectorData,
+	FieldsCollectorOptions,
+	FullFieldsCollectorOptions,
+} from './FieldsCollector';
 import {
 	ColoredLogger,
 	ConsoleLogger,
@@ -215,8 +220,10 @@ async function main() {
 	if (res.errors.length)
 		throw new AggregateError(res.errors.map(String), 'config file validation failed');
 
-	const options = (readOptions ?? {}) as FieldsCollectorOptions;
-	console.debug('crawler config: %o', populateDefaults(options, FieldsCollector.defaultOptions));
+	const options = populateDefaults<FullFieldsCollectorOptions>(
+		  (readOptions ?? {}) as FieldsCollectorOptions,
+		  FieldsCollector.defaultOptions);
+	console.debug('crawler config: %o', options);
 
 	if (args.logLevel)
 		if (!(logLevels as readonly string[]).includes(args.logLevel))
@@ -276,7 +283,7 @@ async function main() {
 				let logger: Logger = new TaggedLogger(fileLogger);
 				logger.info(`crawling ${url.href} at ${new Date().toString()}`);
 				if (logLevel) logger = new FilteringLogger(logger, logLevel);
-				const counter      = logger = new CountingLogger(logger);
+				const counter = logger = new CountingLogger(logger);
 
 				const output = await crawl(url, args, browser, options, apiBreakpoints, logger);
 
@@ -290,7 +297,7 @@ async function main() {
 				await saveJson(`${fileBase}.json`, output);
 				await fileLogger.finalize();
 				if (args.summary)
-					await fsp.writeFile(`${fileBase}.txt`, getSummary(output));
+					await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 			}
@@ -359,7 +366,7 @@ async function main() {
 
 		if (args.summary) {
 			console.log('\n════ 📝 Summary: ════\n');
-			console.log(getSummary(output));
+			console.log(getSummary(output, options));
 		}
 	}
 	console.info('\x07');

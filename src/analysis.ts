@@ -5,9 +5,10 @@ import {formatDuration, nonEmpty, notFalsy} from './utils';
 import {OutputFile} from './main';
 import {selectorStr} from './pageUtils';
 import {LeakDetectorCaptureData} from './breakpoints';
-import {ClickLinkEvent, FillEvent, SubmitEvent} from './FieldsCollector';
+import {ClickLinkEvent, FillEvent, FullFieldsCollectorOptions, SubmitEvent} from './FieldsCollector';
+import {SavedCall} from 'tracker-radar-collector/collectors/APICallCollector';
 
-export function getSummary(output: OutputFile): string {
+export function getSummary(output: OutputFile, fieldsCollectorOptions: FullFieldsCollectorOptions): string {
 	const result = output.crawlResult;
 	const time   = (timestamp: number) =>
 		  `⌚️${((timestamp - result.testStarted) / 1e3).toFixed(1)}s`;
@@ -29,7 +30,7 @@ export function getSummary(output: OutputFile): string {
 	const fieldsData    = collectorData.fields;
 	if (fieldsData) {
 		if (fieldsData.passwordLeaks.length) {
-			writeln('⚠️ Password was written to the DOM:');
+			writeln('⚠️ 🔑 Password was written to the DOM:');
 			for (const leak of fieldsData.passwordLeaks) {
 				writeln(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.selector)}"; frame stack (bottom→top):`);
 				for (const frame of leak.attrs?.frameStack ?? leak.frameStack!)
@@ -41,52 +42,66 @@ export function getSummary(output: OutputFile): string {
 
 	if (!collectorData.requests) writeln('⚠️ No request collector data found');
 	if (output.leakedValues) {
-		if (output.leakedValues.length) {
-			const annotatedLeaks = output.leakedValues
-				  .map(leak => {
-					  const request       = leak.requestIndex !== undefined ? collectorData.requests![leak.requestIndex]! : undefined,
-					        visitedTarget = leak.visitedTargetIndex !== undefined ? collectorData.fields!.visitedTargets[leak.visitedTargetIndex]! : undefined;
-					  const url           = request?.url ?? visitedTarget!.url;
-					  return {
-						  ...leak,
-						  request,
-						  visitedTarget,
-						  domainInfo: output.domainInfo?.[url],
-					  };
-				  });
-			const importantLeaks = annotatedLeaks.filter(({domainInfo}) =>
-				  !domainInfo || domainInfo.thirdParty || domainInfo.tracker);
-			if (importantLeaks.length) {
-				writeln('ℹ️ Values were sent in web requests to third parties:');
-				for (const leak of importantLeaks) {
-					const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
-					write(`${reqTime !== undefined ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
-					if (leak.request) {
-						write(' of request to');
-						if (leak.domainInfo?.thirdParty === true) write(' third party');
-						if (leak.domainInfo?.tracker === true) write(' tracker');
-						write(` "${leak.request.url}"`);
-						if (nonEmpty(leak.request.stack)) {
-							writeln(' by:');
-							for (const frame of leak.request.stack)
-								writeln(`\t${frame}`);
-						}
-						writeln();
-					} else writeln(` for navigation to ${leak.visitedTarget!.url}`);
+		const annotatedLeaks = output.leakedValues
+			  .map(leak => {
+				  const request       = leak.requestIndex !== undefined ? collectorData.requests![leak.requestIndex]! : undefined,
+				        visitedTarget = leak.visitedTargetIndex !== undefined ? collectorData.fields!.visitedTargets[leak.visitedTargetIndex]! : undefined;
+				  const url           = request?.url ?? visitedTarget!.url;
+				  return {
+					  ...leak,
+					  request,
+					  visitedTarget,
+					  domainInfo: output.domainInfo?.[url],
+				  };
+			  });
+		const importantLeaks = annotatedLeaks.filter(({domainInfo}) =>
+			  !domainInfo || domainInfo.thirdParty || domainInfo.tracker);
+		if (importantLeaks.length) {
+			writeln('ℹ️ 🖅 Values were sent in web requests to third parties:');
+			for (const leak of importantLeaks) {
+				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
+				write(`${reqTime !== undefined ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
+				if (leak.request) {
+					write(' of request to');
+					if (leak.domainInfo?.thirdParty === true) write(' third party');
+					if (leak.domainInfo?.tracker === true) write(' 🕵 tracker');
+					write(` "${leak.request.url}"`);
+					if (nonEmpty(leak.request.stack)) {
+						writeln(' by:');
+						for (const frame of leak.request.stack)
+							writeln(`\t${frame}`);
+					}
+					writeln();
+				} else {
+					writeln(' for navigation to');
+					if (leak.domainInfo?.thirdParty === true) write(' third party');
+					if (leak.domainInfo?.tracker === true) write(' 🕵 tracker');
+					writeln(` ${leak.visitedTarget!.url}`);
 				}
-				writeln();
 			}
-		}
+			writeln();
+		} else writeln('✔️ No leaks to third parties detected\n');
 	} else writeln('⚠️ No leaked value data found\n');
 
 	if (collectorData.apis) {
-		if (collectorData.apis.savedCalls.length) {
-			writeln('ℹ️ Access to relevant APIs:');
-			for (const call of collectorData.apis.savedCalls) {
-				const customData = call.custom as LeakDetectorCaptureData;
-				write(`${time(customData.time)} access to ${call.description} (="${customData.value}") of element with type=${customData.type}`);
-				if (customData.id) write(` and id="${customData.id}"`);
-				writeln(' :');
+		type LeakDetectorSavedCall = SavedCall & { custom: LeakDetectorCaptureData };
+		const searchValues    = [
+			fieldsCollectorOptions.fill.email,
+			fieldsCollectorOptions.fill.password,
+		];
+		const fieldValueCalls = (collectorData.apis.savedCalls
+			  .filter(({description}: SavedCall) => description === 'HTMLInputElement.prototype.value') as
+			  LeakDetectorSavedCall[])
+			  .filter(({custom: {value}}) => searchValues.includes(value));
+
+		if (fieldValueCalls.length) {
+			writeln('ℹ️ 🔍 Field value reads:');
+			for (const call of fieldValueCalls) {
+				write(`${time(call.custom.time)} access to value of ${
+					  call.custom.value === fieldsCollectorOptions.fill.password ? '🔑 ' : ''
+				}${call.custom.type} field`);
+				if (call.custom.selectorChain) write(` "${selectorStr(call.custom.selectorChain)}"`);
+				writeln(':');
 				for (const frame of call.stack!)
 					writeln(`\t${frame}`);
 				writeln();
@@ -95,13 +110,14 @@ export function getSummary(output: OutputFile): string {
 		}
 	} else writeln('⚠️ No API call data found\n');
 
-	writeln('\n📊 Statistics:\n');
 	if (fieldsData) {
-		writeln(`${fieldsData.fields.length} fields found`);
-		writeln(`${fieldsData.events.filter(ev => ev instanceof FillEvent).length} fields filled`);
-		writeln(`${fieldsData.events.filter(ev => ev instanceof SubmitEvent).length} fields submitted`);
-		writeln(`${fieldsData.links?.length ?? 0} links found`);
-		writeln(`${fieldsData.events.filter(ev => ev instanceof ClickLinkEvent).length} links clicked`);
+		writeln('📊 Automatic crawl statistics:\n');
+		writeln(`📑 ${fieldsData.fields.length} fields found`);
+		writeln(`🖊 ${fieldsData.events.filter(ev => ev instanceof FillEvent).length} fields filled`);
+		writeln(`⏎ ${fieldsData.events.filter(ev => ev instanceof SubmitEvent).length} fields submitted`);
+		writeln(`🔗 ${fieldsData.links?.length ?? 0} links found`);
+		writeln(`🖱 ${fieldsData.events.filter(ev => ev instanceof ClickLinkEvent).length} links clicked`);
+
 		if (fieldsData.errors.length) {
 			writeln('\nFields collector errors:');
 			for (const error of fieldsData.errors)
