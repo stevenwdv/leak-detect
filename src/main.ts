@@ -464,7 +464,9 @@ async function crawl(
 	if (args.checkLeaks)
 		try {
 			logger.log('💧 searching for leaked values in web requests');
+			const start         = Date.now();
 			output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
+			logger.debug(`took ${(Date.now() - start) / 1e3}s`);
 		} catch (err) {
 			logger.error('error while searching for leaks', err);
 		}

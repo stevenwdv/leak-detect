@@ -524,7 +524,7 @@ export class FieldsCollector extends BaseCollector {
 		const frameStartUrl = frame.url(),
 		      pageStartUrl  = frame.page().url();
 
-		this.#log?.debug(`🔜 started waiting for navigation from ${frame.url()}`);
+ 		this.#log?.debug('🔜 started waiting for navigation');
 		try {
 			const preTargets    = new Set(this.#context.targets());
 			const {msg, target} = (await raceWithCondition([
@@ -728,7 +728,7 @@ export class FieldsCollector extends BaseCollector {
 
 		const url = frame.url();
 		if (this.options.skipExternal === 'frames' && tldts.getDomain(url) !== this.#siteDomain) {
-			this.#log?.log('skipping external frame');
+			this.#log?.debug('skipping external frame');
 			return null;
 		}
 

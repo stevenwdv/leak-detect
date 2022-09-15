@@ -58,7 +58,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		const importantLeaks = annotatedLeaks.filter(({domainInfo}) =>
 			  !domainInfo || domainInfo.thirdParty || domainInfo.tracker);
 		if (importantLeaks.length) {
-			writeln('ℹ️ 🖅 Values were sent in web requests to third parties:');
+			writeln(`ℹ️ 🖅 Values were sent in web requests${output.domainInfo ? ' to third parties' : ''}:`);
 			for (const leak of importantLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
 				write(`${reqTime !== undefined ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
