@@ -19,6 +19,7 @@ import {
 	crawler,
 	puppeteer,
 	RequestCollector,
+	TargetCollector,
 } from 'tracker-radar-collector';
 import {BreakpointObject} from 'tracker-radar-collector/collectors/APICalls/breakpoints';
 import {CollectResult} from 'tracker-radar-collector/crawler';
@@ -49,6 +50,7 @@ import {appendDomainToEmail, populateDefaults, stripIndent} from './utils';
 import {FindEntry, findValue, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
+import {RequestType} from '@gorhill/ubo-core';
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -474,14 +476,38 @@ async function getDomainInfo(crawlResult: CrawlResult): Promise<DomainInfo> {
 	const thirdPartyClassifier = await ThirdPartyClassifier.get(),
 	      trackerClassifier    = await TrackerClassifier.get();
 
+	const targetTypeMap: { [targetType in TargetCollector.TargetType]?: RequestType }        = {
+		page: 'document',
+		background_page: 'document',
+	};
+	const resourceTypeMap: { [resourceType in RequestCollector.ResourceType]?: RequestType } = {
+		CSPViolationReport: 'csp_report',
+		Document: 'document',
+		Fetch: 'fetch',
+		Font: 'font',
+		Image: 'image',
+		Media: 'media',
+		Ping: 'ping',
+		Script: 'script',
+		Stylesheet: 'stylesheet',
+		WebSocket: 'websocket',
+		XHR: 'xmlhttprequest',
+	};
+
 	const domainInfo: DomainInfo = {};
-	for (const url of [
-		crawlResult.data.fields?.visitedTargets,
-		crawlResult.data.requests,
-	].flatMap(r => r?.map(({url}) => url) ?? []))
+	for (const {url, uboType} of [
+		crawlResult.data.fields?.visitedTargets.map(target => ({
+			...target,
+			uboType: targetTypeMap[target.type] ?? 'other',
+		})),
+		crawlResult.data.requests?.map(request => ({
+			...request,
+			uboType: resourceTypeMap[request.type] ?? 'other',
+		})),
+	].flatMap(r => r?.map(({url, uboType}) => ({url, uboType})) ?? []))
 		domainInfo[url] ??= {
 			thirdParty: thirdPartyClassifier.isThirdParty(url, crawlResult.finalUrl),
-			tracker: trackerClassifier.isTracker(url, crawlResult.finalUrl),
+			tracker: trackerClassifier.isTracker(url, crawlResult.finalUrl, uboType),
 		};
 	return domainInfo;
 }

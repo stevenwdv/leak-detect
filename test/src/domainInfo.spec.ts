@@ -1,4 +1,5 @@
 import t from 'tap';
+import {RequestType} from '@gorhill/ubo-core';
 
 import {ThirdPartyClassifier, TrackerClassifier} from '../../src/domainInfo';
 
@@ -23,13 +24,13 @@ void t.test(ThirdPartyClassifier.name, async t => {
 void t.test(TrackerClassifier.name, async t => {
 	const classifier = await TrackerClassifier.get();
 
-	const testCases: [url: string, originUrl: string, tracker: boolean][] = [
-		['https://github.com/', 'https://google.com/', false],
-		['https://www.facebook.com/tr/?id=123', 'https://example.com/', true],
-		['https://example.com/', 'https://www.facebook.com/tr/?id=123', false],
-		['https://rs.fullstory.com/rec/bundle?', 'https://example.com/', true],
+	const testCases: [url: string, originUrl: string, type: RequestType, tracker: boolean][] = [
+		['https://github.com/', 'https://google.com/', 'document', false],
+		['https://www.facebook.com/tr/?id=123', 'https://example.com/', 'xmlhttprequest', true],
+		['https://example.com/', 'https://www.facebook.com/tr/?id=123', 'xmlhttprequest', false],
+		['https://rs.fullstory.com/rec/bundle?', 'https://example.com/', 'xmlhttprequest', true],
 	];
-	for (const [url, originUrl, tracker] of testCases)
-		t.equal(classifier.isTracker(url, originUrl), tracker,
-			  `${url} is ${!tracker ? 'not ' : ''}a tracker on ${originUrl}`);
+	for (const [url, originUrl, type, tracker] of testCases)
+		t.equal(classifier.isTracker(url, originUrl, type), tracker,
+			  `${type} ${url} is ${!tracker ? 'not ' : ''}a tracker on ${originUrl}`);
 });

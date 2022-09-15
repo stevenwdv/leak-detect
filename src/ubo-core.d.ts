@@ -23,26 +23,44 @@ declare module '@gorhill/ubo-core' {
 		compiled: string;
 	}
 
+	// Combination of:
+	// https://help.eyeo.com/en/adblockplus/how-to-write-filters#type-options
+	// filtering-context.js: typeStrToIntMap
+	// static-net-filtering.js: typeNameToTypeValue, typeValueToTypeName
+	// I hope this is correct
 	export type RequestType =
 		  | 'no_type'
 		  | 'beacon'
+		  | 'cname'
 		  | 'csp_report'
+		  | 'document'
+		  | 'elemhide'
+		  | 'fetch'
 		  | 'font'
+		  | 'genericblock'
+		  | 'generichide'
 		  | 'image'
 		  | 'imageset'
 		  | 'main_frame'
+		  | 'match-case'
 		  | 'media'
 		  | 'object'
 		  | 'object_subrequest'
 		  | 'ping'
+		  | 'popunder'
+		  | 'popup'
 		  | 'script'
+		  | 'specifichide'
 		  | 'stylesheet'
 		  | 'sub_frame'
+		  | 'subdocument'
+		  | 'webrtc'
 		  | 'websocket'
 		  | 'xmlhttprequest'
 		  | 'inline-font'
 		  | 'inline-script'
-		  | 'other';
+		  | 'other'
+		  | 'unsupported';
 
 	export interface RequestDetails {
 		originURL: string;
