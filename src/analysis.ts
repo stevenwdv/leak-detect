@@ -154,7 +154,7 @@ export async function findValue(
 					  part: 'url',
 					  encodings: encoders.map(String),
 				  } as const),
-			...Object.entries(request.requestHeaders as Record<string, string>)
+			...Object.entries(request.requestHeaders ?? {})
 				  .map(([name, value]) =>
 						searcher.findValueIn(Buffer.from(value))
 							  .then(encoders => encoders && {
