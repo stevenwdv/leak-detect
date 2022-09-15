@@ -106,7 +106,16 @@ export class TrackerClassifier {
 			await fsp.mkdir(listCacheDir, {recursive: true});
 
 			const trackerLists = {
+				UBlockFilters: 'https://ublockorigin.pages.dev/filters/filters.txt',
+				UBlockBadware: 'https://ublockorigin.github.io/uAssetsCDN/filters/badware.txt',
+				UBlockPrivacy: 'https://combinatronics.io/uBlockOrigin/uAssetsCDN/main/filters/privacy.txt',
+				UBlockUnbreak: 'https://ublockorigin.github.io/uAssetsCDN/filters/unbreak.txt',
+
+				EasyList: 'https://easylist.to/easylist/easylist.txt',
 				EasyPrivacy: 'https://easylist.to/easylist/easyprivacy.txt',
+
+				UrlHaus: 'https://malware-filter.pages.dev/urlhaus-filter-online.txt',
+				PeterLowe: 'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=1&mimetype=plaintext',
 			};
 
 			await filter.useLists(Object.entries(trackerLists)
