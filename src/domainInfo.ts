@@ -50,6 +50,8 @@ export class ThirdPartyClassifier {
 	isThirdParty(domainOrUrl: string, originDomainOrUrl: string): boolean {
 		// Handle simple cases
 		if (domainOrUrl === originDomainOrUrl) return false;
+		// Do not count our scripts as third party
+		if (domainOrUrl.startsWith('pptr://')) return false;
 
 		// Compare full domain name
 		const domain       = tldts.getHostname(domainOrUrl),

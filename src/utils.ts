@@ -83,6 +83,14 @@ export function getRelativeUrl(url: URL, base: URL): string {
 	return res;
 }
 
+export function validUrl(url: string): URL | null {
+	try {
+		return new URL(url);
+	} catch {
+		return null;
+	}
+}
+
 /** @return `true` if `key` was newly added to `map`, `false` if it was already present */
 export function trySet<K, V>(map: Map<K, V>, key: K, value: V): boolean {
 	return trySetWith(map, key, () => value);

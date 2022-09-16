@@ -45,13 +45,14 @@ import {
 	logLevels,
 	TaggedLogger,
 } from './logger';
-import breakpoints from './breakpoints';
+import breakpoints, {LeakDetectorCaptureData} from './breakpoints';
 import configSchema from './crawl-config.schema.json';
-import {appendDomainToEmail, populateDefaults, stripIndent} from './utils';
+import {appendDomainToEmail, populateDefaults, stripIndent, validUrl} from './utils';
 import {FindEntry, findValue, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
 import {RequestType} from '@gorhill/ubo-core';
+import {stackFrameFileRegex} from './pageUtils';
 
 const {CustomStringMapTransform, HashTransform} = transformers;
 
@@ -114,7 +115,7 @@ async function main() {
 				    normalize: true,
 			    })
 			    .option('config-inline', {
-				    description: 'inline JSON/YAML configuration for fields collector, see src/crawl-config.schema.json for syntax',
+				    description: 'inline JSON configuration for fields collector, see src/crawl-config.schema.json for syntax',
 				    type: 'string',
 			    })
 			    .option('log-level', {
@@ -516,13 +517,21 @@ async function assignDomainInfo(crawlResult: CrawlResult) {
 		XHR: 'xmlhttprequest',
 	};
 
-	for (const target of crawlResult.data.fields?.visitedTargets ?? []) {
-		target.thirdParty = thirdPartyClassifier.isThirdParty(target.url, crawlResult.finalUrl);
-		target.tracker    = trackerClassifier.isTracker(target.url, crawlResult.finalUrl, targetTypeMap[target.type] ?? 'other');
-	}
-	for (const target of crawlResult.data.requests ?? []) {
-		target.thirdParty = thirdPartyClassifier.isThirdParty(target.url, crawlResult.finalUrl);
-		target.tracker    = trackerClassifier.isTracker(target.url, crawlResult.finalUrl, resourceTypeMap[target.type] ?? 'other');
+	const getDomainInfo = (url: string, type: RequestType) => ({
+		thirdParty: thirdPartyClassifier.isThirdParty(url, crawlResult.finalUrl),
+		tracker: trackerClassifier.isTracker(url, crawlResult.finalUrl, type),
+	});
+
+	for (const target of crawlResult.data.fields?.visitedTargets ?? [])
+		Object.assign(target, getDomainInfo(target.url, targetTypeMap[target.type] ?? 'other'));
+	for (const request of crawlResult.data.requests ?? [])
+		Object.assign(request, getDomainInfo(request.url, resourceTypeMap[request.type] ?? 'other'));
+	for (const call of crawlResult.data.apis?.savedCalls ?? []) {
+		if (call.stack)
+			call.stackInfo = call.stack.map(frame => {
+				const file = frame.match(stackFrameFileRegex)?.[0];
+				return file && validUrl(file) ? getDomainInfo(file, 'script') : null;
+			});
 	}
 }
 
@@ -603,11 +612,23 @@ export type FieldsCollectorDataEx = FieldsCollectorData & {
 	visitedTargets: (VisitedTarget & Partial<ThirdPartyInfo>)[]
 };
 
+export type RequestDataEx = RequestCollector.RequestData & Partial<ThirdPartyInfo>;
+
+export type SavedCallEx = APICallCollector.SavedCall & {
+	custom: LeakDetectorCaptureData,
+	stackInfo?: (ThirdPartyInfo | null)[],
+};
+
+export type APICallReportEx = APICallCollector.APICallReport & {
+	savedCalls: SavedCallEx[],
+};
+
 export type CrawlResult = CollectResult & {
 	data: {
 		[fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldsCollectorDataEx | null
 	} & {
-		requests?: (RequestCollector.RequestData & Partial<ThirdPartyInfo>)[],
+		requests?: RequestDataEx[],
+		apis?: APICallReportEx,
 	}
 };
 

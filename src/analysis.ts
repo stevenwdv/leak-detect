@@ -1,22 +1,20 @@
-import {filter, groupBy, map, pipe} from 'rambda';
+import {filter, groupBy, map, pipe, reverse, zip} from 'rambda';
 import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher from 'value-searcher';
 
 import {formatDuration, nonEmpty, notFalsy} from './utils';
-import {OutputFile} from './main';
-import {selectorStr} from './pageUtils';
-import {LeakDetectorCaptureData} from './breakpoints';
+import {OutputFile, SavedCallEx, ThirdPartyInfo} from './main';
+import {selectorStr, stackFrameFileRegex} from './pageUtils';
 import {ClickLinkEvent, FillEvent, FullFieldsCollectorOptions, SubmitEvent} from './FieldsCollector';
-import {SavedCall} from 'tracker-radar-collector/collectors/APICallCollector';
 
 export function getSummary(output: OutputFile, fieldsCollectorOptions: FullFieldsCollectorOptions): string {
 	const result = output.crawlResult;
-	const time = (timestamp: number) =>
+	const time   = (timestamp: number) =>
 		  `⌚️${((timestamp - result.testStarted) / 1e3).toFixed(1)}s`;
 
 	const strings: string[] = [];
 	const write             = (str: string) => strings.push(str);
-	const writeln = (str = '') => {
+	const writeln           = (str = '') => {
 		if (str) strings.push(str);
 		strings.push('\n');
 	};
@@ -26,6 +24,10 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		writeln(`URL after redirects: ${result.finalUrl}`);
 	writeln(`Took ${formatDuration(result.testFinished - result.testStarted)}`);
 	writeln();
+
+	const thirdPartyInfoStr = ({thirdParty, tracker}: Partial<ThirdPartyInfo>): string =>
+		  `${thirdParty === true ? 'third party ' : ''
+		  }${tracker === true ? '🕵 tracker ' : ''}`;
 
 	const collectorData = result.data;
 	const fieldsData    = collectorData.fields;
@@ -63,12 +65,9 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			for (const leak of importantLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
 				write(`${reqTime !== undefined ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
-				const {thirdParty, tracker} = leak.request ?? leak.visitedTarget!;
+				const thirdPartyInfo = leak.request ?? leak.visitedTarget!;
 				if (leak.request) {
-					write(' of request to');
-					if (thirdParty === true) write(' third party');
-					if (tracker === true) write(' 🕵 tracker');
-					write(` "${leak.request.url}"`);
+					write(` of request to ${thirdPartyInfoStr(thirdPartyInfo)}"${leak.request.url}"`);
 					if (nonEmpty(leak.request.stack)) {
 						writeln(' by:');
 						for (const frame of leak.request.stack)
@@ -76,10 +75,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					}
 					writeln();
 				} else {
-					writeln(' for navigation to');
-					if (thirdParty === true) write(' third party');
-					if (tracker === true) write(' 🕵 tracker');
-					writeln(` ${leak.visitedTarget!.url}`);
+					writeln(` for navigation to ${thirdPartyInfoStr(thirdPartyInfo)}${leak.visitedTarget!.url}`);
 				}
 			}
 			writeln();
@@ -87,21 +83,22 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	} else writeln('⚠️ No leaked value data found\n');
 
 	if (collectorData.apis) {
-		type LeakDetectorSavedCall = SavedCall & { custom: LeakDetectorCaptureData };
 		const searchValues    = [
 			fieldsCollectorOptions.fill.email,
 			fieldsCollectorOptions.fill.password,
 		];
 		const fieldValueCalls = pipe(
-			  filter(({description}: SavedCall) => description === 'HTMLInputElement.prototype.value'),
-			  map(call => call as LeakDetectorSavedCall),
+			  filter(({description}: SavedCallEx) => description === 'HTMLInputElement.prototype.value'),
 			  filter(({custom: {value}}) => searchValues.includes(value)),
 			  groupBy(({custom: {selectorChain, type, value}, stack}) =>
 					`${selectorChain ? selectorStr(selectorChain) : ''}\0${type}\0${value}\0${stack!.join('\n')}`),
-			  (Object.entries<LeakDetectorSavedCall[]>),
+			  (Object.entries<SavedCallEx[]>),
 			  map(([, calls]) => {
-				  const {custom: {selectorChain, type, value}, stack} = calls[0]!;
-				  return [{selectorChain, type, value, stack: stack!}, calls.map(({custom: {time}}) => time)] as const;
+				  const {custom: {selectorChain, type, value}, stack, stackInfo} = calls[0]!;
+				  return [
+					  {selectorChain, type, value, stack: stack!, stackInfo: stackInfo!},
+					  calls.map(({custom: {time}}) => time),
+				  ] as const;
 			  }),
 		)(collectorData.apis.savedCalls);
 
@@ -113,7 +110,21 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 				}value of ${call.type} field`);
 				if (call.selectorChain) write(` "${selectorStr(call.selectorChain)}"`);
 				writeln(' by:');
-				for (const frame of call.stack)
+
+				const displayFrames = [];
+				let prevFile: string | undefined;
+				for (const [frame, frameInfo] of reverse(zip(call.stack, call.stackInfo)))
+					displayFrames.push(
+						  frame.replace(stackFrameFileRegex,
+								file => {
+									const ret = prevFile === file
+										  ? '↓'
+										  : `${thirdPartyInfoStr(frameInfo ?? {})}${file}`;
+									prevFile  = file;
+									return ret;
+								}));
+				displayFrames.reverse();
+				for (const frame of displayFrames)
 					writeln(`\t${frame}`);
 				writeln();
 			}

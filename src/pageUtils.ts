@@ -6,6 +6,9 @@ import {stripHash} from './utils';
 import {PageVars} from './FieldsCollector';
 import {getFrameStack, unwrapHandle} from './puppeteerUtils';
 
+/** Matches file name in Chromium stack frame from which the 'at' prefix is stripped */
+export const stackFrameFileRegex = /(?<=\().+?(?=(?::\d+){0,2}\)$)|^[^()]+?(?=(?::\d+){0,2}$)/;
+
 /**
  * Close pages in `context` not in `keep`
  * @returns Closed pages
