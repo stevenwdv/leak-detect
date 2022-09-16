@@ -524,7 +524,7 @@ export class FieldsCollector extends BaseCollector {
 		const frameStartUrl = frame.url(),
 		      pageStartUrl  = frame.page().url();
 
- 		this.#log?.debug('🔜 started waiting for navigation');
+		this.#log?.debug('🔜 started waiting for navigation');
 		try {
 			const preTargets    = new Set(this.#context.targets());
 			const {msg, target} = (await raceWithCondition([
@@ -863,7 +863,7 @@ export class FieldsCollector extends BaseCollector {
 		this.#events.push(new FacebookButtonEvent());
 		this.#setDirty(frame.page());
 		try {
-			await frame.evaluate(() => {
+			await frame.evaluate(function clickFacebookButton() {
 				const btn          = document.createElement('button');
 				btn.className      = 'leak-detect-btn button';
 				btn.textContent    = 'button';
