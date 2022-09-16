@@ -32,6 +32,7 @@ import {
 	FieldsCollectorData,
 	FieldsCollectorOptions,
 	FullFieldsCollectorOptions,
+	VisitedTarget,
 } from './FieldsCollector';
 import {
 	ColoredLogger,
@@ -456,7 +457,7 @@ async function crawl(
 	if (args.checkThirdParty)
 		try {
 			logger.log('🕵 checking third party & tracker info');
-			output.domainInfo = await getDomainInfo(crawlResult);
+			await assignDomainInfo(crawlResult);
 		} catch (err) {
 			logger.error('error while adding third party & tracker info', err);
 		}
@@ -474,7 +475,7 @@ async function crawl(
 	return output;
 }
 
-async function getDomainInfo(crawlResult: CrawlResult): Promise<DomainInfo> {
+async function assignDomainInfo(crawlResult: CrawlResult) {
 	const thirdPartyClassifier = await ThirdPartyClassifier.get(),
 	      trackerClassifier    = await TrackerClassifier.get();
 
@@ -496,22 +497,14 @@ async function getDomainInfo(crawlResult: CrawlResult): Promise<DomainInfo> {
 		XHR: 'xmlhttprequest',
 	};
 
-	const domainInfo: DomainInfo = {};
-	for (const {url, uboType} of [
-		crawlResult.data.fields?.visitedTargets.map(target => ({
-			...target,
-			uboType: targetTypeMap[target.type] ?? 'other',
-		})),
-		crawlResult.data.requests?.map(request => ({
-			...request,
-			uboType: resourceTypeMap[request.type] ?? 'other',
-		})),
-	].flatMap(r => r?.map(({url, uboType}) => ({url, uboType})) ?? []))
-		domainInfo[url] ??= {
-			thirdParty: thirdPartyClassifier.isThirdParty(url, crawlResult.finalUrl),
-			tracker: trackerClassifier.isTracker(url, crawlResult.finalUrl, uboType),
-		};
-	return domainInfo;
+	for (const target of crawlResult.data.fields?.visitedTargets ?? []) {
+		target.thirdParty = thirdPartyClassifier.isThirdParty(target.url, crawlResult.finalUrl);
+		target.tracker    = trackerClassifier.isTracker(target.url, crawlResult.finalUrl, targetTypeMap[target.type] ?? 'other');
+	}
+	for (const target of crawlResult.data.requests ?? []) {
+		target.thirdParty = thirdPartyClassifier.isThirdParty(target.url, crawlResult.finalUrl);
+		target.tracker    = trackerClassifier.isTracker(target.url, crawlResult.finalUrl, resourceTypeMap[target.type] ?? 'other');
+	}
 }
 
 let passwordSearcher: ValueSearcher | undefined,
@@ -566,17 +559,27 @@ void (async () => {
 	}
 })();
 
-export type CrawlResult =
-	  CollectResult
-	  & { data: { [fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldsCollectorData | null } };
+export type FieldsCollectorDataEx = FieldsCollectorData & {
+	visitedTargets: (VisitedTarget & Partial<ThirdPartyInfo>)[]
+};
+
+export type CrawlResult = CollectResult & {
+	data: {
+		[fieldsId in ReturnType<typeof FieldsCollector.prototype.id>]?: FieldsCollectorDataEx | null
+	} & {
+		requests?: (RequestCollector.RequestData & Partial<ThirdPartyInfo>)[],
+	}
+};
 
 export interface OutputFile {
 	crawlResult: CrawlResult;
-	domainInfo?: DomainInfo;
 	leakedValues?: LeakedValue[];
 }
 
-export type DomainInfo = Record<string /*url*/, { thirdParty: boolean, tracker: boolean }>;
+export interface ThirdPartyInfo {
+	thirdParty: boolean;
+	tracker: boolean;
+}
 
 export interface LeakedValue extends FindEntry {
 	type: 'password' | 'email';

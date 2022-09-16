@@ -47,25 +47,27 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			  .map(leak => {
 				  const request       = leak.requestIndex !== undefined ? collectorData.requests![leak.requestIndex]! : undefined,
 				        visitedTarget = leak.visitedTargetIndex !== undefined ? collectorData.fields!.visitedTargets[leak.visitedTargetIndex]! : undefined;
-				  const url           = request?.url ?? visitedTarget!.url;
 				  return {
 					  ...leak,
 					  request,
 					  visitedTarget,
-					  domainInfo: output.domainInfo?.[url],
 				  };
 			  });
-		const importantLeaks = annotatedLeaks.filter(({domainInfo}) =>
-			  !domainInfo || domainInfo.thirdParty || domainInfo.tracker);
+		const hasDomainInfo  = !!annotatedLeaks[0] && (annotatedLeaks[0].request ?? annotatedLeaks[0].visitedTarget!).thirdParty !== undefined;
+		const importantLeaks = hasDomainInfo ? annotatedLeaks.filter(({request, visitedTarget}) => {
+			const {thirdParty, tracker} = request ?? visitedTarget!;
+			return thirdParty! || tracker!;
+		}) : annotatedLeaks;
 		if (importantLeaks.length) {
-			writeln(`ℹ️ 🖅 Values were sent in web requests${output.domainInfo ? ' to third parties' : ''}:`);
+			writeln(`ℹ️ 🖅 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}:`);
 			for (const leak of importantLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
 				write(`${reqTime !== undefined ? `${time(reqTime)} ` : ''}${leak.type} sent in ${leak.part}`);
+				const {thirdParty, tracker} = leak.request ?? leak.visitedTarget!;
 				if (leak.request) {
 					write(' of request to');
-					if (leak.domainInfo?.thirdParty === true) write(' third party');
-					if (leak.domainInfo?.tracker === true) write(' 🕵 tracker');
+					if (thirdParty === true) write(' third party');
+					if (tracker === true) write(' 🕵 tracker');
 					write(` "${leak.request.url}"`);
 					if (nonEmpty(leak.request.stack)) {
 						writeln(' by:');
@@ -75,13 +77,13 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					writeln();
 				} else {
 					writeln(' for navigation to');
-					if (leak.domainInfo?.thirdParty === true) write(' third party');
-					if (leak.domainInfo?.tracker === true) write(' 🕵 tracker');
+					if (thirdParty === true) write(' third party');
+					if (tracker === true) write(' 🕵 tracker');
 					writeln(` ${leak.visitedTarget!.url}`);
 				}
 			}
 			writeln();
-		} else writeln('✔️ No leaks to third parties detected\n');
+		} else writeln(`✔️ No leaks ${output.leakedValues.length ? 'to third parties ' : ''}detected\n`);
 	} else writeln('⚠️ No leaked value data found\n');
 
 	if (collectorData.apis) {
