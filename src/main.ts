@@ -24,7 +24,7 @@ import {
 import {BreakpointObject} from 'tracker-radar-collector/collectors/APICalls/breakpoints';
 import {CollectResult} from 'tracker-radar-collector/crawler';
 import {UnreachableCaseError} from 'ts-essentials';
-import ValueSearcher from 'value-searcher';
+import ValueSearcher, {defaultTransformers, transformers} from 'value-searcher';
 import yargs from 'yargs';
 
 import {
@@ -52,6 +52,8 @@ import {FindEntry, findValue, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
 import {RequestType} from '@gorhill/ubo-core';
+
+const {CustomStringMapTransform, HashTransform} = transformers;
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -178,6 +180,16 @@ async function main() {
 				    description: 'check for leaks of filled values in web requests',
 				    type: 'boolean',
 				    default: true,
+			    })
+			    .option('check-leaks-custom-encodings', {
+				    description: 'check for values encoded with custom encodings (like salted SHA) with --check-leaks',
+				    type: 'boolean',
+				    default: true,
+			    })
+			    .option('check-leaks-poorly-delimited-substrings', {
+				    description: 'besides decoding values, also encode them and search for their encodings (otherwise just search for hashes)',
+				    type: 'boolean',
+				    default: false,
 			    })
 			    .option('summary', {
 				    description: 'provide a summary of each crawl result',
@@ -398,6 +410,8 @@ async function crawl(
 		  timeout: number,
 		  checkThirdParty: boolean,
 		  checkLeaks: boolean,
+		  checkLeaksCustomEncodings: boolean,
+		  checkLeaksPoorlyDelimitedSubstrings: boolean,
 	  },
 	  browser: Browser | undefined,
 	  fieldsCollectorOptions: FieldsCollectorOptions,
@@ -465,8 +479,13 @@ async function crawl(
 	if (args.checkLeaks)
 		try {
 			logger.log('💧 searching for leaked values in web requests');
-			const start         = Date.now();
-			output.leakedValues = await getLeakedValues(fieldsCollector, crawlResult);
+			const start = Date.now();
+			output.leakedValues = await getLeakedValues(
+				  fieldsCollector,
+				  crawlResult,
+				  args.checkLeaksPoorlyDelimitedSubstrings,
+				  args.checkLeaksCustomEncodings,
+			);
 			logger.debug(`took ${(Date.now() - start) / 1e3}s`);
 		} catch (err) {
 			logger.error('error while searching for leaks', err);
@@ -511,12 +530,33 @@ let passwordSearcher: ValueSearcher | undefined,
     emailSearcher: ValueSearcher | undefined;
 
 async function getLeakedValues(
-	  fieldsCollector: FieldsCollector, crawlResult: CrawlResult): Promise<LeakedValue[]> {
+	  fieldsCollector: FieldsCollector,
+	  crawlResult: CrawlResult,
+	  searchPoorlyDelimitedSubstring: boolean,
+	  includeCustomEncodings: boolean,
+): Promise<LeakedValue[]> {
+	const createSearcher = async (value: string) => {
+		const searcher = new ValueSearcher([
+			...defaultTransformers,
+			...(includeCustomEncodings ? [
+				new HashTransform('sha256', undefined, undefined, Buffer.from('QX4QkKEU')),
+				new CustomStringMapTransform(Object.fromEntries(
+					  'kibp8A4EWRMKHa7gvyz1dOPt6UI5xYD3nqhVwZBXfCcFeJmrLN20lS9QGsjTuo'.split('')
+							.map((
+								  from,
+								  i,
+							) => [from, '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'[i]!]))),
+			] : []),
+		]);
+		await searcher.addValue(Buffer.from(value), undefined, undefined, !searchPoorlyDelimitedSubstring);
+		return searcher;
+	};
+
 	const searchers = {
 		email: fieldsCollector.options.fill.appendDomainToEmail
-			  ? await ValueSearcher.fromValues(appendDomainToEmail(fieldsCollector.options.fill.email, new URL(crawlResult.initialUrl).hostname))
-			  : emailSearcher ??= await ValueSearcher.fromValues(fieldsCollector.options.fill.email),
-		password: passwordSearcher ??= await ValueSearcher.fromValues(fieldsCollector.options.fill.password),
+			  ? await createSearcher(appendDomainToEmail(fieldsCollector.options.fill.email, new URL(crawlResult.initialUrl).hostname))
+			  : emailSearcher ??= await createSearcher(fieldsCollector.options.fill.email),
+		password: passwordSearcher ??= await createSearcher(fieldsCollector.options.fill.password),
 	};
 
 	return (await Promise.all(Object.entries(searchers).map(async ([prop, searcher]) =>
