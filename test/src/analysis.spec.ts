@@ -15,7 +15,7 @@ void t.test(findValue.name, async t => {
 				remoteIPAddress: '0.0.0.0',
 				requestHeaders: {},
 				responseHeaders: {},
-				failureReason: '',
+				wallTime: 0,
 			};
 			t.strictSame(await findValue(searcher, [request]), [{
 				requestIndex: 0,
@@ -28,12 +28,11 @@ void t.test(findValue.name, async t => {
 				url: 'https://example.com/',
 				method: 'GET',
 				type: 'Document',
-				remoteIPAddress: '0.0.0.0',
 				requestHeaders: {
 					Cookie: 'hello=The--P@s5w0rd',
 				},
 				responseHeaders: {},
-				failureReason: '',
+				wallTime: 0,
 			};
 			t.strictSame(await findValue(searcher, [request]), [{
 				requestIndex: 0,
@@ -48,10 +47,9 @@ void t.test(findValue.name, async t => {
 				method: 'POST',
 				type: 'Document',
 				postData: 'email=leak-detector%40example.com&password=The--P%40s5w0rd',
-				remoteIPAddress: '0.0.0.0',
 				requestHeaders: {},
 				responseHeaders: {},
-				failureReason: '',
+				wallTime: 0,
 			};
 			t.strictSame(await findValue(searcher, [request]), [{
 				requestIndex: 0,
