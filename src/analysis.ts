@@ -92,7 +92,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 				fieldsData.passwordLeaks.map(leak => ({type: 'password-leak', time: leak.time, leak})),
 				importantLeaks.map(leak => ({
 					type: 'request-leak',
-					time: leak.request?.time ?? leak.visitedTarget!.time,
+					time: leak.visitedTarget?.time ?? leak.request!.wallTime,
 					leak,
 				})),
 				valueAccesses.map(call => ({type: 'value-access', time: call.custom.time, call})),
