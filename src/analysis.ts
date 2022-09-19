@@ -1,11 +1,19 @@
 import {filter, groupBy, map, pipe, reverse, zip} from 'rambda';
+import * as tldts from 'tldts';
 import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher from 'value-searcher';
 
 import {formatDuration, nonEmpty, notFalsy} from './utils';
 import {OutputFile, SavedCallEx, ThirdPartyInfo} from './main';
 import {selectorStr, stackFrameFileRegex} from './pageUtils';
-import {ClickLinkEvent, FillEvent, FullFieldsCollectorOptions, SubmitEvent} from './FieldsCollector';
+import {
+	ClickLinkEvent,
+	FillEvent,
+	FullFieldsCollectorOptions,
+	ReturnEvent,
+	ScreenshotEvent,
+	SubmitEvent,
+} from './FieldsCollector';
 
 export function getSummary(output: OutputFile, fieldsCollectorOptions: FullFieldsCollectorOptions): string {
 	const result = output.crawlResult;
@@ -30,8 +38,112 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		  }${tracker === true ? '🕵 tracker ' : ''}`;
 
 	const collectorData = result.data;
-	const fieldsData    = collectorData.fields;
+
+	let importantLeaks, hasDomainInfo;
+	{
+		const annotatedLeaks = (output.leakedValues ?? [])
+			  .map(leak => {
+				  const request       = leak.requestIndex !== undefined ? collectorData.requests![leak.requestIndex]! : undefined,
+				        visitedTarget = leak.visitedTargetIndex !== undefined ? collectorData.fields!.visitedTargets[leak.visitedTargetIndex]! : undefined;
+				  return {
+					  ...leak,
+					  request,
+					  visitedTarget,
+				  };
+			  });
+		hasDomainInfo        = !!annotatedLeaks[0] && (annotatedLeaks[0].request ?? annotatedLeaks[0].visitedTarget!).thirdParty !== undefined;
+		importantLeaks       = hasDomainInfo ? annotatedLeaks.filter(({request, visitedTarget}) => {
+			const {thirdParty, tracker} = request ?? visitedTarget!;
+			return thirdParty! || tracker!;
+		}) : annotatedLeaks;
+	}
+
+	let valueAccesses;
+	{
+		const searchValues = [
+			fieldsCollectorOptions.fill.email,
+			fieldsCollectorOptions.fill.password,
+		];
+		valueAccesses      = pipe(
+			  filter(({description}: SavedCallEx) => description === 'HTMLInputElement.prototype.value'),
+			  filter(({custom: {value}}) => searchValues.includes(value)),
+		)(collectorData.apis?.savedCalls ?? []);
+	}
+
+	const fieldsData = collectorData.fields;
 	if (fieldsData) {
+		// Some selectors might clash. I think this should not be that large of a problem?
+		const fieldsMap = new Map(fieldsData.fields
+			  .map(field => [selectorStr(field.selectorChain), field]));
+		const linksMap  = new Map(fieldsData.links
+			  ?.map(link => [selectorStr(link.selectorChain), link]));
+
+		if (fieldsData.events.length) {
+			const allEvents = [
+				fieldsData.events,
+				fieldsData.passwordLeaks.map(leak => ({type: 'password-leak', time: leak.time, leak})),
+				importantLeaks.map(leak => ({
+					type: 'request-leak',
+					time: leak.request?.time ?? leak.visitedTarget!.time,
+					leak,
+				})),
+				valueAccesses.map(call => ({type: 'value-access', time: call.custom.time, call})),
+			].flat().sort((a, b) => a.time - b.time);
+
+			writeln('🕰 Timeline (see below for more details):');
+			for (const event of allEvents) {
+				switch (event.type) {
+					case 'fill':
+					case 'submit': {
+						const {field: selector} = event as FillEvent;
+						const field             = fieldsMap.get(selectorStr(selector))!;
+						writeln(`\t${time(event.time)} ✒️ ${event.type} ${field.fieldType} field ${selectorStr(selector)}`);
+						break;
+					}
+					case 'fb-button':
+						writeln(`\t${time(event.time)} click added button for Facebook tracking detection`);
+						break;
+					case 'return': {
+						const {toLanding} = event as ReturnEvent;
+						if (toLanding)
+							writeln(`${time(event.time)} 🔙 return to landing page`);
+						else writeln(`\t${time(event.time)} 🔙 reload page`);
+						break;
+					}
+					case 'link': {
+						const {link: selector, linkType} = event as ClickLinkEvent;
+						const link                       = linksMap.get(selectorStr(selector));
+						if (linkType === 'auto')
+							writeln(`${time(event.time)} 🔗🖱 follow link "${link!.innerText}" ${selectorStr(selector)} (matched ${link!.linkMatchType})`);
+						else writeln(`${time(event.time)} 🖱 click element ${selectorStr(selector)} (js-path-click interact chain)`);
+						break;
+					}
+					case 'screenshot': {
+						const {trigger, name} = event as ScreenshotEvent;
+						writeln(`\t${time(event.time)} 📸 ${trigger} ${name ?? ''}`);
+						break;
+					}
+					case 'password-leak':
+						writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to DOM`);
+						break;
+					case 'request-leak': {
+						const leak = (event as typeof event & { leak: typeof importantLeaks[0] }).leak;
+						const url  = leak.request?.url ?? leak.visitedTarget!.url;
+						writeln(`\t\t${time(event.time)} ⚠️ 🖅 ${leak.type} sent to ${tldts.getHostname(url) ?? url}`);
+						break;
+					}
+					case 'value-access': {
+						const call = (event as typeof event & { call: SavedCallEx }).call;
+						writeln(`\t\t${time(event.time)} 🔍 ${
+							  call.custom.value === fieldsCollectorOptions.fill.password ? '🔑 ' : '📧 '
+						}value of ${call.custom.type} field read`);
+						break;
+					}
+				}
+			}
+			writeln();
+		}
+
 		if (fieldsData.passwordLeaks.length) {
 			writeln('⚠️ 🔑 Password was written to the DOM:');
 			for (const leak of fieldsData.passwordLeaks) {
@@ -45,21 +157,6 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 
 	if (!collectorData.requests) writeln('⚠️ No request collector data found');
 	if (output.leakedValues) {
-		const annotatedLeaks = output.leakedValues
-			  .map(leak => {
-				  const request       = leak.requestIndex !== undefined ? collectorData.requests![leak.requestIndex]! : undefined,
-				        visitedTarget = leak.visitedTargetIndex !== undefined ? collectorData.fields!.visitedTargets[leak.visitedTargetIndex]! : undefined;
-				  return {
-					  ...leak,
-					  request,
-					  visitedTarget,
-				  };
-			  });
-		const hasDomainInfo  = !!annotatedLeaks[0] && (annotatedLeaks[0].request ?? annotatedLeaks[0].visitedTarget!).thirdParty !== undefined;
-		const importantLeaks = hasDomainInfo ? annotatedLeaks.filter(({request, visitedTarget}) => {
-			const {thirdParty, tracker} = request ?? visitedTarget!;
-			return thirdParty! || tracker!;
-		}) : annotatedLeaks;
 		if (importantLeaks.length) {
 			writeln(`ℹ️ 🖅 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}:`);
 			for (const leak of importantLeaks) {
@@ -83,13 +180,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	} else writeln('⚠️ No leaked value data found\n');
 
 	if (collectorData.apis) {
-		const searchValues    = [
-			fieldsCollectorOptions.fill.email,
-			fieldsCollectorOptions.fill.password,
-		];
 		const fieldValueCalls = pipe(
-			  filter(({description}: SavedCallEx) => description === 'HTMLInputElement.prototype.value'),
-			  filter(({custom: {value}}) => searchValues.includes(value)),
 			  groupBy(({custom: {selectorChain, type, value}, stack}) =>
 					`${selectorChain ? selectorStr(selectorChain) : ''}\0${type}\0${value}\0${stack!.join('\n')}`),
 			  (Object.entries<SavedCallEx[]>),
@@ -100,7 +191,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					  calls.map(({custom: {time}}) => time),
 				  ] as const;
 			  }),
-		)(collectorData.apis.savedCalls);
+		)(valueAccesses);
 
 		if (fieldValueCalls.length) {
 			writeln('ℹ️ 🔍 Field value reads:');

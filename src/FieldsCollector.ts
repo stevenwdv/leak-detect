@@ -473,7 +473,7 @@ export class FieldsCollector extends BaseCollector {
 		if (!startUrl) this.#startUrls.set(page, (startUrl = page.url()));
 		if (this.#dirtyPages.delete(page)) {
 			this.#events.push(new ReturnEvent(page === this.#page));
-			await this.#goto(page.mainFrame(), startUrl, this.options.timeoutMs.reload);
+			await this.#goBack(page.mainFrame(), startUrl);
 			await this.#postCleanListeners.get(page)?.();
 		}
 	}
@@ -496,8 +496,9 @@ export class FieldsCollector extends BaseCollector {
 		return forwardPromise(scopeFunc, () => this.#postCleanListeners.delete(page));
 	}
 
-	async #goto(frame: Frame, url: string, minTimeoutMs: number) {
-		const maxWaitTimeMs = Math.max(minTimeoutMs,
+	async #goBack(frame: Frame, url: string) {
+		const maxWaitTimeMs = Math.max(
+			  this.options.timeoutMs.reload,
 			  this.#dataParams.pageLoadDurationMs * 2);
 
 		this.#log?.log(frame.url() === url ? '🔙 will reload' : `🔙 will navigate ${frame.url()} → ${url}`);
@@ -887,11 +888,13 @@ export class FieldsCollector extends BaseCollector {
 				if (typeof opts.target === 'string') {
 					const name = `${Date.now()}-${trigger}.png`;
 					this.#log?.debug('📸', name);
+					this.#events.push(new ScreenshotEvent(trigger, name));
 					const dirPath = path.join(opts.target, this.#siteDomain ?? this.#initialUrl.hostname);
 					await fsp.mkdir(dirPath, {recursive: true});
 					await fsp.writeFile(path.join(dirPath, name), img);
 				} else {
 					this.#log?.debug('📸', trigger);
+					this.#events.push(new ScreenshotEvent(trigger));
 					await opts.target(img, trigger);
 				}
 			} catch (err) {
@@ -1167,6 +1170,12 @@ export class ReturnEvent extends FieldsCollectorEvent {
 export class ClickLinkEvent extends FieldsCollectorEvent {
 	constructor(public readonly link: SelectorChain, public readonly linkType: 'auto' | 'manual') {
 		super('link');
+	}
+}
+
+export class ScreenshotEvent extends FieldsCollectorEvent {
+	constructor(public readonly trigger: ScreenshotTrigger, public readonly name?: string) {
+		super('screenshot');
 	}
 }
 
