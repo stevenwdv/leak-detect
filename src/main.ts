@@ -53,6 +53,7 @@ import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
 import {RequestType} from '@gorhill/ubo-core';
 import {stackFrameFileRegex} from './pageUtils';
+import {sum} from 'rambda';
 
 const {CustomStringMapTransform, HashTransform} = transformers;
 
@@ -61,6 +62,10 @@ const eachLimit = async.eachLimit as <T, E = Error>(
 	  arr: IterableCollection<T>, limit: number,
 	  iterator: (item: T, callback: ErrorCallback<E>) => Promise<void> /*added*/ | void,
 ) => Promise<void>;
+
+// Fix type
+const parallelLimit = async.parallelLimit as unknown as <T>(
+	  items: AsyncIterable<() => T> | Iterable<() => T>, limit: number) => Promise<Awaited<T>[]>;
 
 process.on('uncaughtException', error => {
 	process.exitCode = 1;
@@ -307,7 +312,7 @@ async function main() {
 				if (logLevel) logger = new FilteringLogger(logger, logLevel);
 				const counter = logger = new CountingLogger(logger);
 
-				const output = await crawl(url, args, browser, options, apiBreakpoints, logger);
+				const output = await crawl(url, args, true, browser, options, apiBreakpoints, logger);
 
 				const errors   = counter.count('error'),
 				      warnings = counter.count('warn');
@@ -348,7 +353,7 @@ async function main() {
 
 		process.stdout.write('\x1b]9;4;3;0\x1b\\');
 
-		const output = await crawl(url, args, undefined, options, apiBreakpoints, logger);
+		const output = await crawl(url, args, false, undefined, options, apiBreakpoints, logger);
 
 		if (output.leakedValues) {
 			for (const {
@@ -414,6 +419,7 @@ async function crawl(
 		  checkLeaksCustomEncodings: boolean,
 		  checkLeaksPoorlyDelimitedSubstrings: boolean,
 	  },
+	  batchMode: boolean,
 	  browser: Browser | undefined,
 	  fieldsCollectorOptions: FieldsCollectorOptions,
 	  apiBreakpoints: BreakpointObject[],
@@ -438,7 +444,7 @@ async function crawl(
 
 	// Important: collectors for which we want getData to be called after FieldsCollector must be added after it
 	if (args.apiCalls) collectors.push(new APICallCollector(apiBreakpoints));
-	if (args.requests) collectors.push(new RequestCollector());
+	if (args.requests) collectors.push(new RequestCollector({saveResponseHash: false}));
 	if (args.autoConsent !== 'noAction') {
 		collectors.push(new CMPCollector());
 		collectorFlags.autoconsentAction = args.autoConsent;
@@ -480,14 +486,29 @@ async function crawl(
 	if (args.checkLeaks)
 		try {
 			logger.log('💧 searching for leaked values in web requests');
-			const start = Date.now();
-			output.leakedValues = await getLeakedValues(
-				  fieldsCollector,
-				  crawlResult,
-				  args.checkLeaksPoorlyDelimitedSubstrings,
-				  args.checkLeaksCustomEncodings,
-			);
-			logger.debug(`took ${(Date.now() - start) / 1e3}s`);
+			const progressBar = batchMode ? undefined
+				  : new ProgressBar(' :bar :current/:total │ ETA: :etas', {
+					  complete: chalk.green('═'),
+					  incomplete: chalk.gray('┄'),
+					  total: 0,
+					  width: 30,
+				  });
+			const start       = Date.now();
+			try {
+				output.leakedValues = await getLeakedValues(
+					  fieldsCollector,
+					  crawlResult,
+					  args.checkLeaksPoorlyDelimitedSubstrings,
+					  args.checkLeaksCustomEncodings,
+					  progressBar && ((completed, total) => {
+						  progressBar.total ||= total;
+						  progressBar.update(completed / total);
+					  }),
+				);
+			} finally {
+				if (progressBar?.complete === false) progressBar.terminate();
+			}
+			logger.debug(`search took ${(Date.now() - start) / 1e3}s`);
 		} catch (err) {
 			logger.error('error while searching for leaks', err);
 		}
@@ -543,6 +564,7 @@ async function getLeakedValues(
 	  crawlResult: CrawlResult,
 	  searchPoorlyDelimitedSubstring: boolean,
 	  includeCustomEncodings: boolean,
+	  onProgress: (completed: number, total: number) => void = () => {/**/},
 ): Promise<LeakedValue[]> {
 	const createSearcher = async (value: string) => {
 		const searcher = new ValueSearcher([
@@ -568,15 +590,21 @@ async function getLeakedValues(
 		password: passwordSearcher ??= await createSearcher(fieldsCollector.options.fill.password),
 	};
 
-	return (await Promise.all(Object.entries(searchers).map(async ([prop, searcher]) =>
+	let halfTotal: number | undefined;
+	const completedMap = Object.fromEntries(Object.entries(searchers).map(([prop]) => [prop, 0])) as
+		  Record<keyof typeof searchers, number>;
+	return (await parallelLimit(Object.entries(searchers).map(([prop, searcher]) => async () =>
 		  (await findValue(searcher,
 				crawlResult.data.requests ?? [],
-				// typescript-eslint bug
-				crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? []))
+				crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? [],
+				(completed, total) => {
+					completedMap[prop as keyof typeof searchers] = completed;
+					onProgress(sum(Object.values(completedMap)), (halfTotal ??= total) * 2);
+				}))
 				.map(entry => ({
 					...entry,
 					type: prop as keyof typeof searchers,
-				} as const))))).flat();
+				} as const))), 1)).flat();
 }
 
 function plainToLogger(logger: Logger, ...args: unknown[]) {

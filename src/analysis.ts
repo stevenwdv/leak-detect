@@ -1,3 +1,4 @@
+import async from 'async';
 import {filter, groupBy, map, pipe, reverse, zip} from 'rambda';
 import * as tldts from 'tldts';
 import {RequestCollector} from 'tracker-radar-collector';
@@ -14,6 +15,13 @@ import {
 	ScreenshotEvent,
 	SubmitEvent,
 } from './FieldsCollector';
+
+// Fix type
+const mapLimit = async.mapLimit as <T, R>(
+	  items: Iterable<T> | AsyncIterable<T>,
+	  limit: number,
+	  mapping: (item: T) => Promise<R>,
+) => Promise<R[]>;
 
 export function getSummary(output: OutputFile, fieldsCollectorOptions: FullFieldsCollectorOptions): string {
 	const result = output.crawlResult;
@@ -247,43 +255,58 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 export async function findValue(
 	  searcher: ValueSearcher,
 	  requests: readonly RequestCollector.RequestData[],
-	  visitedTargets: readonly string[] = [],
+	  visitedTargets: readonly string[]                      = [],
+	  onProgress: (completed: number, total: number) => void = () => {/**/},
 ): Promise<FindEntry[]> {
 	const requestUrls = new Set(requests.map(({url}) => url));
-	return (await Promise.all([
+
+	const queries: (() => Promise<null | FindEntry>)[] = [
 		...requests.flatMap((request, requestIndex) => [
-			searcher.findValueIn(Buffer.from(request.url))
+			() => searcher.findValueIn(Buffer.from(request.url))
 				  .then(encoders => encoders && {
 					  requestIndex,
 					  part: 'url',
 					  encodings: encoders.map(String),
 				  } as const),
 			...Object.entries(request.requestHeaders ?? {})
+				  .filter(([name]) => {
+					  name = name.toLowerCase();
+					  return name.includes('cookie') || name.startsWith('x-');
+				  })
 				  .map(([name, value]) =>
-						searcher.findValueIn(Buffer.from(value))
+						() => searcher.findValueIn(Buffer.from(value))
 							  .then(encoders => encoders && {
 								  requestIndex,
 								  part: 'header',
 								  header: name,
 								  encodings: encoders.map(String),
 							  } as const)),
-			request.postData && searcher.findValueIn(Buffer.from(request.postData))
+			request.postData && (() => searcher.findValueIn(Buffer.from(request.postData!))
 				  .then(encoders => encoders && {
 					  requestIndex,
 					  part: 'body',
 					  encodings: encoders.map(String),
-				  } as const),
+				  } as const)),
 		]),
 		...visitedTargets
 			  .map((url, visitedTargetIndex) => ({url, visitedTargetIndex}))
 			  .filter(({url}) => !requestUrls.has(url))
-			  .map(({url, visitedTargetIndex}) => searcher.findValueIn(Buffer.from(url))
-					.then(encoders => encoders && {
-						visitedTargetIndex,
-						part: 'url',
-						encodings: encoders.map(String),
-					} as const)),
-	])).filter(notFalsy);
+			  .map(({url, visitedTargetIndex}) =>
+					() => searcher.findValueIn(Buffer.from(url))
+						  .then(encoders => encoders && {
+							  visitedTargetIndex,
+							  part: 'url',
+							  encodings: encoders.map(String),
+						  } as const)),
+	].filter(notFalsy);
+	onProgress(0, queries.length);
+
+	let completed = 0;
+	return (await mapLimit(queries, 2, async query => {
+		const res = await query();
+		onProgress(++completed, queries.length);
+		return res;
+	})).filter(notFalsy);
 }
 
 export interface FindEntry {
