@@ -153,10 +153,13 @@ void (async () => {
 							.filter((ev, nEv) => !(nEv > submitIdx && ev instanceof ReturnEvent))
 							.map(ev => ev.type),
 					  [
+						  'screenshot',
 						  'fill',
 						  'fill',
+						  'screenshot',
 						  'fb-button',
 						  'submit',
+						  'screenshot',
 					  ]);
 
 				t.strictSame(screenshots, ['loaded', 'filled', 'submitted'], 'should make the right screenshots');
