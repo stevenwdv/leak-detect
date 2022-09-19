@@ -103,7 +103,7 @@ export class FieldsCollector extends BaseCollector {
 					console.error('bundle to inject not found, run `npm run pack` in the `inject` folder');
 				throw err;
 			}
-			const sourceDir      = './inject/src/';
+			const sourceDir      = path.join(path.dirname(path.dirname(bundle)), 'src/');
 			const sourceFileTime = fs.readdirSync(sourceDir)
 				  .map(fileName => fs.statSync(path.join(sourceDir, fileName)).mtimeMs)
 				  .reduce((a, b) => Math.max(a, b));
