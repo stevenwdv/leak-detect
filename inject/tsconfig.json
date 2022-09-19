@@ -13,7 +13,6 @@
 		"exactOptionalPropertyTypes": true,
 		"noUncheckedIndexedAccess": true,
 		// Output
-		"noEmit": true,
 		"outDir": "ts-out",
 		"declaration": true,
 		"emitDeclarationOnly": true,
