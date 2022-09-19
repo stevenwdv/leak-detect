@@ -27,6 +27,19 @@ export function getRandomUpTo(maxValue: number) {
 }
 
 /**
+ * Truncate str, not splitting unicode characters.
+ * Put an ellipsis at the end if truncated.
+ * Newlines will be collapsed
+ */
+export function truncateLine(str: string, maxLength: number): string {
+	let truncated = str
+		  .replaceAll(/\r\n|\n|\r/g, '⏎')
+		  .match(new RegExp(`^.{0,${maxLength}}$|^.{0,${maxLength-1}}`, 'ug'))![0]!;
+	if (truncated !== str) truncated += '…';
+	return truncated;
+}
+
+/**
  * Template tag, strips indents from the template string, excluding content of placeholders
  */
 export function stripIndent(strings: TemplateStringsArray, ...placeholders: unknown[]) {

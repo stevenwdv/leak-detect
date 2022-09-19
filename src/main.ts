@@ -47,7 +47,7 @@ import {
 } from './logger';
 import breakpoints, {LeakDetectorCaptureData} from './breakpoints';
 import configSchema from './crawl-config.schema.json';
-import {appendDomainToEmail, populateDefaults, stripIndent, validUrl} from './utils';
+import {appendDomainToEmail, populateDefaults, stripIndent, truncateLine, validUrl} from './utils';
 import {FindEntry, findValue, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
@@ -330,10 +330,8 @@ async function main() {
 			}
 
 			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
-			const maxUrlLength = 60;
 			progressBar.tick({
-				msg: ` ✓ ${
-					  url.href.length > maxUrlLength ? `${url.href.substring(0, maxUrlLength - 1)}…` : url.href}`,
+				msg: ` ✓ ${truncateLine(url.href, 60)}`,
 			});
 			process.stdout.write(`\x1b]9;4;1;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1b\\`);
 		});

@@ -4,7 +4,7 @@ import * as tldts from 'tldts';
 import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher from 'value-searcher';
 
-import {formatDuration, nonEmpty, notFalsy} from './utils';
+import {formatDuration, nonEmpty, notFalsy, truncateLine} from './utils';
 import {OutputFile, SavedCallEx, ThirdPartyInfo} from './main';
 import {selectorStr, stackFrameFileRegex} from './pageUtils';
 import {
@@ -122,7 +122,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 						const {link: selector, linkType} = event as ClickLinkEvent;
 						const link                       = linksMap.get(selectorStr(selector));
 						if (linkType === 'auto')
-							writeln(`${time(event.time)} 🔗🖱 follow link "${link!.innerText}" ${selectorStr(selector)} (matched ${link!.linkMatchType})`);
+							writeln(`${time(event.time)} 🔗🖱 follow link "${truncateLine(link!.innerText, 60)}" ${selectorStr(selector)} (matched ${link!.linkMatchType})`);
 						else writeln(`${time(event.time)} 🖱 click element ${selectorStr(selector)} (js-path-click interact chain)`);
 						break;
 					}
