@@ -271,7 +271,7 @@ export async function findValue(
 			...Object.entries(request.requestHeaders ?? {})
 				  .filter(([name]) => {
 					  name = name.toLowerCase();
-					  return name.includes('cookie') || name.startsWith('x-');
+					  return name === 'referer' || name.includes('cookie') || name.startsWith('x-');
 				  })
 				  .map(([name, value]) =>
 						() => searcher.findValueIn(Buffer.from(value))
