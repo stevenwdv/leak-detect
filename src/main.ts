@@ -47,7 +47,7 @@ import {
 } from './logger';
 import breakpoints, {LeakDetectorCaptureData} from './breakpoints';
 import configSchema from './crawl-config.schema.json';
-import {appendDomainToEmail, populateDefaults, stripIndent, truncateLine, validUrl} from './utils';
+import {appendDomainToEmail, nonEmpty, populateDefaults, stripIndent, truncateLine, validUrl} from './utils';
 import {FindEntry, findValue, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
@@ -187,6 +187,10 @@ async function main() {
 				    type: 'number',
 				    default: 20 * 60,
 			    })
+			    .option('error-exit-code', {
+				    description: 'set nonzero exit code on non-fatal error',
+				    type: 'boolean',
+			    })
 			    .option('check-third-party', {
 				    description: 'check if request URLs are of third party servers or trackers',
 				    type: 'boolean',
@@ -270,7 +274,7 @@ async function main() {
 	const options = populateDefaults<FullFieldsCollectorOptions>(
 		  (readOptions ?? {}) as FieldsCollectorOptions,
 		  FieldsCollector.defaultOptions);
-	console.debug('⚙️ crawler config: %o', options);
+	console.debug('⚙️ crawler config: %o\n', options);
 
 	if (args.logLevel)
 		if (!(logLevels as readonly string[]).includes(args.logLevel))
@@ -321,23 +325,23 @@ async function main() {
 
 		await eachLimit(urls, args.parallelism, async url => {
 			urlsInProgress.push(url.href);
-			try {
-				const fileBase     = path.join(outputDir, `${Date.now()} ${sanitizeFilename(
-					  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
-					  {replacement: '_'},
-				)}`);
-				let crawlStart: number | undefined;
-				const fileLogger   = new FileLogger(`${fileBase}.log`,
-					  args.logTimestamps
-							? () => crawlStart !== undefined
-								  ? `⌚️${((Date.now() - crawlStart) / 1e3).toFixed(1)}s`
-								  : undefined
-							: undefined);
-				let logger: Logger = new TaggedLogger(fileLogger);
-				logger.info(`🕸 crawling ${url.href} at ${new Date().toString()}`);
-				if (logLevel) logger = new FilteringLogger(logger, logLevel);
-				const counter = logger = new CountingLogger(logger);
+			const fileBase     = path.join(outputDir, `${Date.now()} ${sanitizeFilename(
+				  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
+				  {replacement: '_'},
+			)}`);
+			let crawlStart: number | undefined;
+			const fileLogger   = new FileLogger(`${fileBase}.log`,
+				  args.logTimestamps
+						? () => crawlStart !== undefined
+							  ? `⌚️${((Date.now() - crawlStart) / 1e3).toFixed(1)}s`
+							  : undefined
+						: undefined);
+			let logger: Logger = new TaggedLogger(fileLogger);
+			logger.info(`🕸 crawling ${url.href} at ${new Date().toString()}`);
+			if (logLevel) logger = new FilteringLogger(logger, logLevel);
+			const counter = logger = new CountingLogger(logger);
 
+			try {
 				const output = await crawl(url, args, true, browser, options, apiBreakpoints, logger,
 					  t => crawlStart = t);
 
@@ -354,6 +358,7 @@ async function main() {
 					await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
+				logger.error(err);
 			}
 
 			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
@@ -446,6 +451,7 @@ async function crawl(
 		  headedAutoclose: boolean,
 		  devtools: boolean,
 		  timeout: number,
+		  errorExitCode: boolean | undefined,
 		  checkThirdParty: boolean,
 		  checkLeaks: boolean,
 		  checkLeaksEncodeLayers: number,
@@ -500,6 +506,8 @@ async function crawl(
 				  collectors,
 				  collectorFlags,
 				  onError(err, context, collector) {
+					  if (args.errorExitCode ?? !batchMode)
+						  process.exitCode = 1;
 					  if (collector) logger.error(`collector ${collector.id()}:`, context, err);
 					  else logger.error(context, err);
 				  },
@@ -511,6 +519,9 @@ async function crawl(
 			await browserContext?.close();
 	}
 	logger.log();
+
+	if ((args.errorExitCode ?? !batchMode) && nonEmpty(crawlResult.data.fields?.errors))
+		process.exitCode = 1;
 
 	const output: OutputFile = {crawlResult};
 
