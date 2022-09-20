@@ -132,6 +132,11 @@ async function main() {
 				    description: `log level for crawl; one of ${logLevels.join(', ')}`,
 				    type: 'string',
 			    })
+			    .option('log-timestamps', {
+				    description: 'start each log entry with a timestamp relative to the start of the crawl',
+				    type: 'boolean',
+				    default: true,
+			    })
 			    .option('api-calls', {
 				    description: 'enable API call breakpoints collector to track field value sniffs',
 				    type: 'boolean',
@@ -321,13 +326,20 @@ async function main() {
 					  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
 					  {replacement: '_'},
 				)}`);
-				const fileLogger   = new FileLogger(`${fileBase}.log`);
+				let crawlStart: number | undefined;
+				const fileLogger   = new FileLogger(`${fileBase}.log`,
+					  args.logTimestamps
+							? () => crawlStart !== undefined
+								  ? `⌚️${((Date.now() - crawlStart) / 1e3).toFixed(1)}s`
+								  : undefined
+							: undefined);
 				let logger: Logger = new TaggedLogger(fileLogger);
 				logger.info(`🕸 crawling ${url.href} at ${new Date().toString()}`);
 				if (logLevel) logger = new FilteringLogger(logger, logLevel);
 				const counter = logger = new CountingLogger(logger);
 
-				const output = await crawl(url, args, true, browser, options, apiBreakpoints, logger);
+				const output = await crawl(url, args, true, browser, options, apiBreakpoints, logger,
+					  t => crawlStart = t);
 
 				const errors   = counter.count('error'),
 				      warnings = counter.count('warn');
@@ -361,12 +373,19 @@ async function main() {
 	} else {
 		const url = new URL(args.url!);
 
-		let logger: Logger = new ColoredLogger(new ConsoleLogger());
+		let crawlStart: number | undefined;
+		let logger: Logger = new ColoredLogger(new ConsoleLogger(
+			  args.logTimestamps ?
+					() => crawlStart !== undefined
+						  ? `⌚️${((Date.now() - crawlStart) / 1e3).toFixed(1)}s`
+						  : undefined
+					: undefined));
 		if (logLevel) logger = new FilteringLogger(logger, logLevel);
 
 		process.stdout.write('\x1b]9;4;3;0\x1b\\');
 
-		const output = await crawl(url, args, false, undefined, options, apiBreakpoints, logger);
+		const output = await crawl(url, args, false, undefined, options, apiBreakpoints, logger,
+			  t => crawlStart = t);
 
 		if (output.leakedValues) {
 			for (const {
@@ -439,6 +458,7 @@ async function crawl(
 	  fieldsCollectorOptions: FieldsCollectorOptions,
 	  apiBreakpoints: BreakpointObject[],
 	  logger: Logger,
+	  onStart: (crawlStartTime: number) => void,
 ): Promise<OutputFile> {
 	const collectors: BaseCollector[]            = [];
 	const collectorFlags: Record<string, string> = {};
@@ -474,12 +494,16 @@ async function crawl(
 				  browserContext,
 				  log: plainToLogger.bind(undefined, logger),
 				  maxCollectionTimeMs: args.timeout * 1e3,
-				  throwCollectorErrors: false,
 				  headed: args.headed,
 				  keepOpen: args.headed && !args.headedAutoclose,
 				  devtools: args.devtools,
 				  collectors,
 				  collectorFlags,
+				  onError(err, context, collector) {
+					  if (collector) logger.error(`collector ${collector.id()}:`, context, err);
+					  else logger.error(context, err);
+				  },
+				  onStart,
 			  },
 		) as CrawlResult;
 	} finally {
@@ -639,7 +663,8 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 		else if (args[0].includes('\x1b[33m' /*yellow*/)
 			  || args[0].includes('⚠')
 			  || args.some(a => a instanceof Error)) level = 'warn';
-		else if (args[0].includes(' context initiated in ')) level = 'debug';
+		else if (args[0].includes(' context initiated in ')
+			  || args[0].includes(' init took 0.')) level = 'debug';
 		args[0] = args[0].replace(/^⚠\s*/, '');
 	}
 	logger.logLevel(level, ...args);

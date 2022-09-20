@@ -33,9 +33,17 @@ export abstract class Logger {
 
 export class ConsoleLogger extends Logger {
 	readonly #groups: string[] = [];
+	readonly #prefix: undefined | (() => undefined | string);
+
+	constructor(prefix?: () => undefined | string) {
+		super();
+		this.#prefix = prefix;
+	}
 
 	logLevel(level: LogLevel, ...args: unknown[]) {
 		args.unshift(...this.#groups.map(g => chalk.gray(`${g}❯`)));
+		const prefix = this.#prefix?.();
+		if (prefix) args.unshift(prefix);
 		if (!args.length) args.push('');
 		console[level](
 			  typeof args[0] === 'string' ? '%s' : '%O',
@@ -55,16 +63,20 @@ export class ConsoleLogger extends Logger {
 export class FileLogger extends Logger {
 	readonly #groups: string[]  = [];
 	readonly #file: fs.WriteStream;
+	readonly #prefix: undefined | (() => undefined | string);
 	#error: unknown | undefined = undefined;
 
-	constructor(file: fs.PathLike | fs.WriteStream) {
+	constructor(file: fs.PathLike | fs.WriteStream, prefix?: () => undefined | string) {
 		super();
 		this.#file = file instanceof fs.WriteStream ? file : fs.createWriteStream(file, 'utf8');
 		this.#file.once('error', err => this.#error = err);
+		this.#prefix = prefix;
 	}
 
 	logLevel(level: LogLevel, ...args: unknown[]) {
 		args.unshift(...this.#groups.map(g => `${g}❯`));
+		const prefix = this.#prefix?.();
+		if (prefix) args.unshift(prefix);
 		this.#file.write(args.map(o => typeof o === 'string' ? o : util.inspect(o)).join(' ') + '\n');
 	}
 

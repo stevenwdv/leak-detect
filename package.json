@@ -34,7 +34,7 @@
 		"rambda": "^7.2.1",
 		"sanitize-filename": "^1.6.3",
 		"tldts": "^5.7.91",
-		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#8e14fa58",
+		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#6dbba9ef",
 		"value-searcher": "file:value-searcher",
 		"yargs": "^17.5.1"
 	},

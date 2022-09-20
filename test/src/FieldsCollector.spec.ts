@@ -63,13 +63,18 @@ void (async () => {
 			headed,
 			keepOpen: headed && !headedAutoclose,
 			devtools: headed,
-			throwCollectorErrors: true,
+			onError(err, context, collector) {
+				throw new Error(collector
+					  ? `${collector.id()}: ${context}`
+					  : context, {cause: err});
+			},
 		};
 
 		async function runCrawler(
 			  page: string, t: Tap.Test, log: Logger, options: FieldsCollectorOptions = {}, noError = true):
 			  Promise<FieldsCollectorData> {
-			const browserContext = await browser?.createIncognitoBrowserContext();
+			const browserContext                                                             = await browser?.createIncognitoBrowserContext();
+			const errors: { err: unknown, context: string, collector: string | undefined }[] = [];
 			let result;
 			try {
 				result = await crawler(
@@ -84,12 +89,16 @@ void (async () => {
 								  ...options,
 							  }, log),
 						  ],
+						  onError(err, context, collector) {
+							  errors.push({err, context, collector: collector?.id()});
+						  },
 					  },
 				);
 			} finally {
 				if (!headed || headedAutoclose)
 					await browserContext?.close();
 			}
+			t.strictSame(errors, [], 'TRC should not receive any errors');
 			t.ok(!result.timeout, 'TRC should not time out');
 			const fields = (result.data as { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData | null }).fields;
 			if (noError) {
@@ -271,7 +280,8 @@ void (async () => {
 			}),
 
 			test('for Facebook button leak', async (t, log) => {
-				const browserContext = await browser?.createIncognitoBrowserContext();
+				const browserContext                                                             = await browser?.createIncognitoBrowserContext();
+				const errors: { err: unknown, context: string, collector: string | undefined }[] = [];
 				let data;
 				try {
 					data = (await crawler(
@@ -288,12 +298,16 @@ void (async () => {
 								  }, log),
 								  new RequestCollector(),
 							  ],
+							  onError(err, context, collector) {
+								  errors.push({err, context, collector: collector?.id()});
+							  },
 						  },
 					)).data as CollectorData & { [f in ReturnType<typeof FieldsCollector.prototype.id>]: FieldsCollectorData | null };
 				} finally {
 					if (!headed || headedAutoclose)
 						await browserContext?.close();
 				}
+				t.strictSame(errors, [], 'TRC should not receive any errors');
 
 				t.ok(data.fields!.events.find(ev => ev instanceof FacebookButtonEvent), 'should add Facebook button');
 				t.ok(data.requests!.find(r => r.url === new URL('facebook.html', baseUrl).href),
