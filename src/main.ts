@@ -55,7 +55,12 @@ import {RequestType} from '@gorhill/ubo-core';
 import {stackFrameFileRegex} from './pageUtils';
 import {sum} from 'rambda';
 
-const {CustomStringMapTransform, HashTransform} = transformers;
+const {
+	      CompressionTransform,
+	      CustomStringMapTransform,
+	      HashTransform,
+	      LZStringTransform,
+      } = transformers;
 
 // Fix wrong type
 const eachLimit = async.eachLimit as <T, E = Error>(
@@ -186,6 +191,16 @@ async function main() {
 				    description: 'check for leaks of filled values in web requests',
 				    type: 'boolean',
 				    default: true,
+			    })
+			    .option('check-leaks-encode-layers', {
+				    description: 'maximum number of reverse encoding layers with --check-leaks',
+				    type: 'number',
+				    default: 2,
+			    })
+			    .option('check-leaks-decode-layers', {
+				    description: 'number of decoding layers with --check-leaks',
+				    type: 'number',
+				    default: 4,
 			    })
 			    .option('check-leaks-custom-encodings', {
 				    description: 'check for values encoded with custom encodings (like salted SHA) with --check-leaks',
@@ -414,6 +429,8 @@ async function crawl(
 		  timeout: number,
 		  checkThirdParty: boolean,
 		  checkLeaks: boolean,
+		  checkLeaksEncodeLayers: number,
+		  checkLeaksDecodeLayers: number,
 		  checkLeaksCustomEncodings: boolean,
 		  checkLeaksPoorlyDelimitedSubstrings: boolean,
 	  },
@@ -496,6 +513,8 @@ async function crawl(
 				output.leakedValues = await getLeakedValues(
 					  fieldsCollector,
 					  crawlResult,
+					  args.checkLeaksEncodeLayers,
+					  args.checkLeaksDecodeLayers,
 					  args.checkLeaksPoorlyDelimitedSubstrings,
 					  args.checkLeaksCustomEncodings,
 					  progressBar && ((completed, total) => {
@@ -545,13 +564,12 @@ async function assignDomainInfo(crawlResult: CrawlResult) {
 		Object.assign(target, getDomainInfo(target.url, targetTypeMap[target.type] ?? 'other'));
 	for (const request of crawlResult.data.requests ?? [])
 		Object.assign(request, getDomainInfo(request.url, resourceTypeMap[request.type] ?? 'other'));
-	for (const call of crawlResult.data.apis?.savedCalls ?? []) {
+	for (const call of crawlResult.data.apis?.savedCalls ?? [])
 		if (call.stack)
 			call.stackInfo = call.stack.map(frame => {
 				const file = frame.match(stackFrameFileRegex)?.[0];
 				return file && validUrl(file) ? getDomainInfo(file, 'script') : null;
 			});
-	}
 }
 
 let passwordSearcher: ValueSearcher | undefined,
@@ -560,6 +578,8 @@ let passwordSearcher: ValueSearcher | undefined,
 async function getLeakedValues(
 	  fieldsCollector: FieldsCollector,
 	  crawlResult: CrawlResult,
+	  encodeLayers: number,
+	  decodeLayers: number,
 	  searchPoorlyDelimitedSubstring: boolean,
 	  includeCustomEncodings: boolean,
 	  onProgress: (completed: number, total: number) => void = () => {/**/},
@@ -577,7 +597,12 @@ async function getLeakedValues(
 							) => [from, '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'[i]!]))),
 			] : []),
 		]);
-		await searcher.addValue(Buffer.from(value), undefined, undefined, !searchPoorlyDelimitedSubstring);
+		await searcher.addValue(
+			  Buffer.from(value),
+			  encodeLayers,
+			  searcher.transformers.filter(t =>
+					!(t instanceof CompressionTransform || t instanceof LZStringTransform)),
+			  !searchPoorlyDelimitedSubstring);
 		return searcher;
 	};
 
@@ -595,6 +620,8 @@ async function getLeakedValues(
 		  (await findValue(searcher,
 				crawlResult.data.requests ?? [],
 				crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? [],
+				decodeLayers,
+				undefined,
 				(completed, total) => {
 					completedMap[prop as keyof typeof searchers] = completed;
 					onProgress(sum(Object.values(completedMap)), (halfTotal ??= total) * 2);
