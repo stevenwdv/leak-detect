@@ -115,7 +115,7 @@ export class FieldsCollector extends BaseCollector {
 			// eslint-disable-next-line @typescript-eslint/no-implied-eval
 			return Function('debug', /*language=JavaScript*/ `'use strict';
 			try {
-				window[${JSON.stringify(PageVars.INJECTED)}] ??= (() => {
+				window[${JSON.stringify(PageVars.INJECTED)}] ??= (function getLeakDetectInject() {
 					/** @type typeof import('leak-detect-inject') */
 					var leakDetectInject = {};
 					${injectSrc};
@@ -127,7 +127,7 @@ export class FieldsCollector extends BaseCollector {
 			}`) as (debug: boolean) => void;
 		})();
 
-		this.#doInjectPasswordLeakDetectionFun ??= (password: string) => {
+		this.#doInjectPasswordLeakDetectionFun ??= function doInjectPasswordLeakDetection(password: string) {
 			// noinspection JSNonStrictModeUsed
 			'use strict';
 			if (window[PageVars.PASSWORD_OBSERVED] === true) return false;
@@ -147,7 +147,7 @@ export class FieldsCollector extends BaseCollector {
 							  attribute: m.attributeName!,
 						  }));
 					if (leakSelectors.length)
-						void window[PageVars.PASSWORD_CALLBACK]!(window[PageVars.FRAME_ID], leakSelectors);
+						void window[PageVars.PASSWORD_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
 				} catch (err) {
 					window[PageVars.ERROR_CALLBACK](window[PageVars.FRAME_ID], String(err), err instanceof Error && err.stack || Error().stack!);
 				}
@@ -165,7 +165,7 @@ export class FieldsCollector extends BaseCollector {
 								  attribute: attr.name,
 							  }));
 						if (leakSelectors.length)
-							void window[PageVars.PASSWORD_CALLBACK]!(window[PageVars.FRAME_ID], leakSelectors);
+							void window[PageVars.PASSWORD_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
 					}
 					if (node.shadowRoot) inspectRecursive(node.shadowRoot, checkExistingAttrs);
 				}
@@ -904,9 +904,10 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	/** Called from an asynchronous page script when an error occurs */
-	#errorCallback(frameId: string | undefined, message: string, stack: string) {
-		this.#reportError({message, stack}, ['error in background page script',
-			frameId && getFrameStack(this.#frameIdMap.get(frameId)!).map(f => f.url()).join(', ')]);
+	#errorCallback(frameId: string | undefined | null, message: string, stack: string) {
+		this.#reportError({message, stack, toString() {return message;}},
+			  ['error in background page script',
+				  frameId && getFrameStack(this.#frameIdMap.get(frameId)!).map(f => f.url()).join(', ')]);
 	}
 
 	#reportError(error: unknown, context: unknown[], level: 'warn' | 'error' = 'error') {
@@ -1212,7 +1213,7 @@ export const enum PageVars {
 declare global {
 	/** In-page things */
 	interface Window {
-		[PageVars.FRAME_ID]: string;
+		[PageVars.FRAME_ID]?: string;
 		[PageVars.ERROR_CALLBACK]: (frameId: string | undefined, message: string, stack: string) => void;
 		[PageVars.INJECTED]: typeof import('leak-detect-inject');
 		[PageVars.PASSWORD_OBSERVED]?: boolean;
