@@ -1,12 +1,12 @@
 ﻿export default {
-	entry: './src/main',
+	entry: './src/main.ts',
 	output: {
 		filename: 'bundle.js',
 		library: 'leakDetectInject',  // Name of var
 	},
 
 	resolve: {
-		extensions: ['.js', '.ts', '.mjs'],  // Resolve .mjs files in Fathom (no need for Babel)
+		extensions: ['.ts', '.mjs', '.js'],  // Resolve .mjs files in Fathom (no need for Babel)
 	},
 	module: {
 		rules: [
