@@ -16,6 +16,8 @@ import {
 	SubmitEvent,
 } from './FieldsCollector';
 
+const {HashTransform} = transformers;
+
 // Fix type
 const mapLimit = async.mapLimit as <T, R>(
 	  items: Iterable<T> | AsyncIterable<T>,
@@ -169,7 +171,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			writeln(`ℹ️ 🖅 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}:`);
 			for (const leak of importantLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
-				write(`${time(reqTime)}${leak.type} sent in ${leak.part}`);
+				write(`${time(reqTime)}${leak.type}${leak.isHash ? ' hash' : ''} sent in ${leak.part}`);
 				const thirdPartyInfo = leak.request ?? leak.visitedTarget!;
 				if (leak.request) {
 					write(` of request to ${thirdPartyInfoStr(thirdPartyInfo)}"${leak.request.url}"`);
@@ -264,13 +266,18 @@ export async function findValue(
 
 	const findValueIn = (buf: Buffer) => searcher.findValueIn(buf, maxDecodeLayers, decoders);
 
+	const getEncodings = (encoders: readonly transformers.ValueTransformer[]) => ({
+		encodings: encoders.map(String),
+		isHash: encoders.some(enc => enc instanceof HashTransform),
+	});
+
 	const queries: (() => Promise<null | FindEntry>)[] = [
 		...requests.flatMap((request, requestIndex) => [
 			() => findValueIn(Buffer.from(request.url))
 				  .then(encoders => encoders && {
 					  requestIndex,
 					  part: 'url',
-					  encodings: encoders.map(String),
+					  ...getEncodings(encoders),
 				  } as const),
 			...Object.entries(request.requestHeaders ?? {})
 				  .filter(([name]) => {
@@ -283,13 +290,13 @@ export async function findValue(
 								  requestIndex,
 								  part: 'header',
 								  header: name,
-								  encodings: encoders.map(String),
+								  ...getEncodings(encoders),
 							  } as const)),
 			request.postData && (() => findValueIn(Buffer.from(request.postData!))
 				  .then(encoders => encoders && {
 					  requestIndex,
 					  part: 'body',
-					  encodings: encoders.map(String),
+					  ...getEncodings(encoders),
 				  } as const)),
 		]),
 		...visitedTargets
@@ -300,7 +307,7 @@ export async function findValue(
 						  .then(encoders => encoders && {
 							  visitedTargetIndex,
 							  part: 'url',
-							  encodings: encoders.map(String),
+							  ...getEncodings(encoders),
 						  } as const)),
 	].filter(notFalsy);
 	onProgress(0, queries.length);
@@ -322,4 +329,6 @@ export interface FindEntry {
 	header?: string;
 	/** Encodings (e.g. `uri`) that were used to encode value, outside-in */
 	encodings: string[];
+	/** Is one of the encodings a hash? */
+	isHash: boolean;
 }
