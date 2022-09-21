@@ -426,14 +426,15 @@ async function main() {
 
 		if (args.output) {
 			await saveJson(args.output, output);
-			console.info('💾 output written to', args.output);
+			console.info('\n💾 output written to', args.output);
 		} else {
 			// eslint-disable-next-line no-debugger
 			debugger  // Give you the ability to inspect the result in a debugger
+			console.info('\nFor details in JSON form, specify --output');
 		}
 
 		if (args.summary) {
-			console.log('\n════ 📝 Summary: ════\n');
+			console.info('\n════ 📝 Summary: ════\n');
 			console.log(getSummary(output, options));
 		}
 	}
