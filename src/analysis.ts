@@ -171,7 +171,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			writeln(`ℹ️ 🖅 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}:`);
 			for (const leak of importantLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
-				write(`${time(reqTime)}${leak.type}${leak.isHash ? ' hash' : ''} sent in ${leak.part}`);
+				write(`${time(reqTime)} ${leak.type}${leak.isHash ? ' hash' : ''} sent in ${leak.part}`);
 				const thirdPartyInfo = leak.request ?? leak.visitedTarget!;
 				if (leak.request) {
 					write(` of request to ${thirdPartyInfoStr(thirdPartyInfo)}"${leak.request.url}"`);
