@@ -318,6 +318,8 @@ async function main() {
 
 		process.setMaxListeners(Infinity);
 
+		const batchCrawlStart = Date.now();
+
 		const browser = args.singleBrowser ? await puppeteer.launch({
 			headless: !args.headed,
 			devtools: args.devtools,
@@ -373,6 +375,7 @@ async function main() {
 			await browser?.close();
 		progressBar.terminate();
 
+		console.log(`Batch crawl took ${(Date.now() - batchCrawlStart) / 1e3}s`);
 		console.info('💾 data & logs saved to', outputDir);
 
 	} else {
@@ -673,7 +676,6 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 	if (typeof args[0] === 'string') {
 		if (args[0].includes('\x1b[31m' /*red*/)) level = 'error';
 		else if (args[0].includes('\x1b[33m' /*yellow*/)
-			  || args[0].includes('⚠')
 			  || args.some(a => a instanceof Error)) level = 'warn';
 		else if (args[0].includes(' context initiated in ')
 			  || args[0].includes(' init took 0.')) level = 'debug';
