@@ -197,7 +197,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			  map(([, calls]) => {
 				  const {custom: {selectorChain, type, value}, stack, stackInfo} = calls[0]!;
 				  return [
-					  {selectorChain, type, value, stack: stack!, stackInfo: stackInfo!},
+					  {selectorChain, type, value, stack: stack!, stackInfo},
 					  calls.map(({custom: {time}}) => time),
 				  ] as const;
 			  }),
@@ -214,7 +214,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 
 				const displayFrames = [];
 				let prevFile: string | undefined;
-				for (const [frame, frameInfo] of reverse(zip(call.stack, call.stackInfo)))
+				for (const [frame, frameInfo] of reverse(zip(call.stack, call.stackInfo ?? Array<undefined>(call.stack.length))))
 					displayFrames.push(
 						  frame.replace(stackFrameFileRegex,
 								file => {
