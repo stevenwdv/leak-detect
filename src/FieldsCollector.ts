@@ -238,8 +238,8 @@ export class FieldsCollector extends BaseCollector {
 						window[PageVars.FRAME_ID] = frameId;
 					}, frameId);
 				} catch (err) {
-					if (!String(err).includes('Execution context was destroyed'))
-						if (this.options.debug) throw Error('failed to add frame ID', {cause: err});
+					if (!String(err).includes('Execution context was destroyed') && this.options.debug)
+						this.#reportError(err, ['failed to add frame ID'], 'warn');
 				}
 			};
 			await Promise.all(newPage.frames().map(newFrameId));
@@ -249,9 +249,9 @@ export class FieldsCollector extends BaseCollector {
 					  window[PageVars.FRAME_ID] = frameId;
 				  }, this.#frameIdReverseMap.get(frame)!)
 						.catch(err => {
-							if (!frame.isDetached() && !String(err).includes('Target closed'))
-								if (this.options.debug)
-									throw Error('failed to add frame ID (framenavigated)', {cause: err});
+							if (!frame.isDetached() && !String(err).includes('Target closed')
+								  && this.options.debug)
+								this.#reportError(err, ['failed to add frame ID (framenavigated)'], 'warn');
 						}));
 
 			async function evaluateOnAll<Args extends unknown[]>(pageFunction: (...args: Args) => void, ...args: Args) {
