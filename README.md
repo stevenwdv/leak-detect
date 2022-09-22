@@ -1,5 +1,11 @@
 # leak-detection
 
+Clone repository including submodules:
+
+```shell
+git clone --recurse-submodules https://github.com/stevenwdv/leak-detection.git
+```
+
 Run single crawl:
 
 ```shell

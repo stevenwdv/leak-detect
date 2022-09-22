@@ -1,4 +1,4 @@
-#!npx ts-node
+#!/usr/bin/env -S npx ts-node
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
