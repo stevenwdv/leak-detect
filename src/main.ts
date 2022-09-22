@@ -119,6 +119,11 @@ async function main() {
 				    type: 'boolean',
 				    default: false,
 			    })
+			    .option('log-batch-errors', {
+				    description: 'Print error messages for non-fatal errors with --urls-file',
+				    type: 'boolean',
+				    default: false,
+			    })
 			    .option('config', {
 				    description: 'path to configuration JSON/YAML file for fields collector, see src/crawl-config.schema.json for syntax',
 				    type: 'string',
@@ -341,7 +346,10 @@ async function main() {
 			let logger: Logger = new TaggedLogger(fileLogger);
 			logger.info(`🕸 crawling ${url.href} at ${new Date().toString()}`);
 			if (logLevel) logger = new FilteringLogger(logger, logLevel);
-			const counter = logger = new CountingLogger(logger);
+			const errorCapture = args.logBatchErrors
+				  ? logger = new ErrorCaptureLogger(logger)
+				  : undefined;
+			const counter      = logger = new CountingLogger(logger);
 
 			try {
 				const output = await crawl(url, args, true, browser, options, apiBreakpoints, logger,
@@ -349,9 +357,11 @@ async function main() {
 
 				const errors   = counter.count('error'),
 				      warnings = counter.count('warn');
-				if (errors || warnings)
+				if (errors || warnings) {
 					progressBar.interrupt(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
-				else if (args.logSucceeded)
+					for (const {level, args} of errorCapture?.errors ?? [])
+						console[level](`\t${level === 'error' ? '❌️' : '⚠️'} ${args.map(String).join(' ')}`);
+				} else if (args.logSucceeded)
 					progressBar.interrupt(`✔️ ${url.href}`);
 
 				await saveJson(`${fileBase}.json`, output);
@@ -687,6 +697,26 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 async function saveJson(file: fs.PathLike | fsp.FileHandle, output: OutputFile) {
 	await fsp.writeFile(file, JSON.stringify(output, (_key, value) =>
 		  value instanceof Error ? String(value) : value as unknown, '\t'));
+}
+
+class ErrorCaptureLogger extends Logger {
+	readonly errors: { level: 'warn' | 'error', args: unknown[] }[] = [];
+	#log: Logger | undefined;
+
+	constructor(logger?: Logger) {
+		super();
+		this.#log = logger;
+	}
+
+	logLevel(level: LogLevel, ...args: unknown[]) {
+		this.#log?.logLevel(level, ...args);
+		if (level === 'error' || level === 'warn')
+			this.errors.push({level, args});
+	}
+
+	startGroup(name: string) {this.#log?.startGroup(name);}
+
+	endGroup() {this.#log?.endGroup();}
 }
 
 void (async () => {
