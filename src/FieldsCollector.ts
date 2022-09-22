@@ -912,8 +912,15 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	#reportError(error: unknown, context: unknown[], level: 'warn' | 'error' = 'error') {
-		this.#log?.[level](...context, error);
-		this.#errors.push({error, context, level});
+		if (level === 'warn' && error instanceof Error &&
+			  /^Protocol error\b.*\b(?:Session closed|Target closed)|^Execution context was destroyed\b|^Execution context is not available in detached frame\b/i
+					.test(error.message)) {
+			// Do not regard warnings due to navigation etc. as errors
+			this.#log?.log(...context, error);
+		} else {
+			this.#log?.logLevel(level, ...context, error);
+			this.#errors.push({error, context, level});
+		}
 	}
 
 	async #sleep(ms: number | undefined) {
