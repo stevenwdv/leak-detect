@@ -21,6 +21,7 @@ void t.test(findValue.name, async t => {
 				requestIndex: 0,
 				part: 'url',
 				encodings: ['uri'],
+				isHash: false,
 			}]);
 		}),
 		t.test('searches in request headers', async t => {
@@ -39,6 +40,7 @@ void t.test(findValue.name, async t => {
 				part: 'header',
 				header: 'Cookie',
 				encodings: [],
+				isHash: false,
 			}]);
 		}),
 		t.test('searches in body', async t => {
@@ -55,6 +57,7 @@ void t.test(findValue.name, async t => {
 				requestIndex: 0,
 				part: 'body',
 				encodings: ['uri'],
+				isHash: false,
 			}]);
 		}),
 
@@ -65,6 +68,16 @@ void t.test(findValue.name, async t => {
 				  visitedTargetIndex: 0,
 				  part: 'url',
 				  encodings: ['uri'],
+				  isHash: false,
+			  }])),
+		t.test('sets isHash', async t =>
+			  t.strictSame(await findValue(searcher, [],
+					['https://example.com/?h=c03131f116f6daf9e4a0faa3bc315fcb843338fef2989be54c4322dab3dfe59d'],
+			  ), [{
+				  visitedTargetIndex: 0,
+				  part: 'url',
+				  encodings: ['hex', 'sha256'],
+				  isHash: true,
 			  }])),
 	]);
 });
