@@ -360,7 +360,7 @@ async function main() {
 				if (errors || warnings) {
 					progressBar.interrupt(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
 					for (const {level, args} of errorCapture?.errors ?? [])
-						console[level](`\t${level === 'error' ? '❌️' : '⚠️'} ${args.map(String).join(' ')}`);
+						progressBar.interrupt(`\t${level === 'error' ? '❌️' : '⚠️'} ${args.map(String).join(' ')}`);
 				} else if (args.logSucceeded)
 					progressBar.interrupt(`✔️ ${url.href}`);
 
