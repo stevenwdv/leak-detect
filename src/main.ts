@@ -355,13 +355,13 @@ async function main() {
 					progressBar.interrupt(`✔️ ${url.href}`);
 
 				await saveJson(`${fileBase}.json`, output);
-				await fileLogger.finalize();
 				if (args.summary)
 					await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 				logger.error(err);
 			}
+			await fileLogger.finalize();
 
 			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
 			progressBar.tick({
