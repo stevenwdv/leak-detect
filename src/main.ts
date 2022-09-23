@@ -54,6 +54,7 @@ import {WaitingCollector} from './WaitingCollector';
 import {RequestType} from '@gorhill/ubo-core';
 import {stackFrameFileRegex} from './pageUtils';
 import {sum} from 'rambda';
+import {isNavigationError} from './puppeteerUtils';
 
 const {
 	      CompressionTransform,
@@ -527,8 +528,10 @@ async function crawl(
 				  onError(err, context, collector) {
 					  if (args.errorExitCode ?? !batchMode)
 						  process.exitCode = 1;
-					  if (collector) logger.error(`collector ${collector.id()}:`, context, err);
-					  else logger.error(context, err);
+					  let level: LogLevel = 'error';
+					  if (isNavigationError(err)) level = 'log';
+					  if (collector) logger.logLevel(level, `collector ${collector.id()}:`, context, err);
+					  else logger.logLevel(level, context, err);
 				  },
 				  onStart,
 			  },
