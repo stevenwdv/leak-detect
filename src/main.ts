@@ -366,7 +366,12 @@ async function main() {
 
 				await saveJson(`${fileBase}.json`, output);
 				if (args.summary)
-					await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
+					try {
+						await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
+					} catch (err) {
+						progressBar.interrupt(`❌️ ${url.href}: failed to create summary: ${String(err)}`);
+						logger.error('failed to create summary', err);
+					}
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 				logger.error(err);
