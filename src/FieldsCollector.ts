@@ -457,12 +457,17 @@ export class FieldsCollector extends BaseCollector {
 	/** Just click an element */
 	async #click(elem: ElementHandle) {
 		await elem.frame.page().bringToFront();
-		// Note: the alternative `ElementHandle#click` can miss if the element moves or if it is covered
-		await elem.evaluate(el => {
-			el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
-			if (el instanceof HTMLElement) el.click();
-			else el.dispatchEvent(new MouseEvent('click', {view: window, bubbles: true, cancelable: true}));
-		});
+		try {
+			// Can miss if the element moves or if it is covered
+			// But is less detectable as script click
+			await elem.click();
+		} catch {
+			await elem.evaluate(el => {
+				el.scrollIntoView({behavior: 'smooth', block: 'end', inline: 'end'});
+				if (el instanceof HTMLElement) el.click();
+				else el.dispatchEvent(new MouseEvent('click', {view: window, bubbles: true, cancelable: true}));
+			});
+		}
 	}
 
 	#setDirty(page: Page) {
