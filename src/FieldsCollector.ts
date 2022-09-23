@@ -712,10 +712,8 @@ export class FieldsCollector extends BaseCollector {
 
 				await this.#sleep(this.options.sleepMs?.postFill);
 
-				if (this.options.fill.addFacebookButton) {
+				if (this.options.fill.addFacebookButton)
 					await this.#clickFacebookButton(frame);
-					await this.#sleep(this.options.sleepMs?.postFacebookButtonClick);
-				}
 			}
 			return {fields: frameFields.map(f => f.attrs), done: true};
 		}
@@ -879,6 +877,7 @@ export class FieldsCollector extends BaseCollector {
 				btn.click();
 				btn.remove();
 			});
+			await this.#sleep(this.options.sleepMs?.postFacebookButtonClick);
 		} catch (err) {
 			this.#reportError(err, ['failed to add & click Facebook leak detect button'], 'warn');
 		}
@@ -1099,7 +1098,7 @@ FieldsCollector.defaultOptions = {
 	},
 	sleepMs: {
 		postFill: 5_000,
-		postFacebookButtonClick: 1_000,
+		postFacebookButtonClick: 3_000,
 		postNavigate: 4_000,
 		fill: {
 			clickDwell: 100,
