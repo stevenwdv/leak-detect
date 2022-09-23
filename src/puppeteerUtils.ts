@@ -3,6 +3,12 @@ import {IsTuple, NonEmptyArray} from 'ts-essentials';
 
 import TypedArray = NodeJS.TypedArray;
 
+export function isNavigationError(err: unknown): boolean {
+	return err instanceof Error
+		  && /^Protocol error\b.*\b(?:Session closed|Target closed)|^Execution context was destroyed\b|^Execution context is not available in detached frame\b/i
+				.test(err.message);
+}
+
 /** @return Stack starting with this frame, going up */
 export function getFrameStack(frame: Frame): NonEmptyArray<Frame> {
 	const frames: NonEmptyArray<Frame> = [frame];

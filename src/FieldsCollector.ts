@@ -46,7 +46,7 @@ import {
 	selectorStr,
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
-import {exposeFunction, getFrameStack, unwrapHandle} from './puppeteerUtils';
+import {exposeFunction, getFrameStack, isNavigationError, unwrapHandle} from './puppeteerUtils';
 import chalk from 'chalk';
 import ErrnoException = NodeJS.ErrnoException;
 import TimeoutError = puppeteer.TimeoutError;
@@ -238,7 +238,7 @@ export class FieldsCollector extends BaseCollector {
 						window[PageVars.FRAME_ID] = frameId;
 					}, frameId);
 				} catch (err) {
-					if (!String(err).includes('Execution context was destroyed') && this.options.debug)
+					if (this.options.debug && !isNavigationError(err))
 						this.#reportError(err, ['failed to add frame ID'], 'warn');
 				}
 			};
@@ -249,8 +249,7 @@ export class FieldsCollector extends BaseCollector {
 					  window[PageVars.FRAME_ID] = frameId;
 				  }, this.#frameIdReverseMap.get(frame)!)
 						.catch(err => {
-							if (!frame.isDetached() && !String(err).includes('Target closed')
-								  && this.options.debug)
+							if (this.options.debug && !frame.isDetached() && !isNavigationError(err))
 								this.#reportError(err, ['failed to add frame ID (framenavigated)'], 'warn');
 						}));
 
@@ -917,9 +916,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	#reportError(error: unknown, context: unknown[], level: 'warn' | 'error' = 'error') {
-		if (level === 'warn' && error instanceof Error &&
-			  /^Protocol error\b.*\b(?:Session closed|Target closed)|^Execution context was destroyed\b|^Execution context is not available in detached frame\b/i
-					.test(error.message)) {
+		if (level === 'warn' && isNavigationError(error)) {
 			// Do not regard warnings due to navigation etc. as errors
 			this.#log?.log(...context, error);
 		} else {
