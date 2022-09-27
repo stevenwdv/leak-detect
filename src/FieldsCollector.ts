@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import {webcrypto} from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import inspector from 'node:inspector';
 import path from 'node:path';
 
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
@@ -1066,8 +1067,8 @@ export interface FieldsCollectorOptions {
 		 */
 		target: string | ((img: Buffer, trigger: ScreenshotTrigger) => MaybePromiseLike<void>);
 	} | null;
-	/** Turn on some debugging assertions
-	 * @default false */
+	/** Turn on some debugging assertions.
+	 * Default false unless an inspector is activated */
 	debug?: boolean;
 }
 
@@ -1121,7 +1122,7 @@ FieldsCollector.defaultOptions = {
 	disableClosedShadowDom: true,
 	interactChains: [],
 	screenshot: null,
-	debug: false,
+	debug: !!inspector.url(),
 };
 
 //endregion
