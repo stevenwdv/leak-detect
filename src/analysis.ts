@@ -100,7 +100,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 				valueAccesses.map(call => ({type: 'value-access', time: call.custom.time, call})),
 			].flat().sort((a, b) => a.time - b.time);
 
-			writeln('🕰 Timeline (see below for more details):');
+			writeln('═══ 🕰 Timeline (see below for more details): ═══\n');
 			for (const event of allEvents) {
 				switch (event.type) {
 					case 'fill':
@@ -155,7 +155,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		}
 
 		if (fieldsData.passwordLeaks.length) {
-			writeln('⚠️ 🔑 Password was written to the DOM:');
+			writeln('═══ ⚠️ 🔑 Password was written to the DOM: ═══\n');
 			for (const leak of fieldsData.passwordLeaks) {
 				writeln(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.selector)}"; frame stack (bottom→top):`);
 				for (const frame of leak.attrs?.frameStack ?? leak.frameStack!)
@@ -168,7 +168,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	if (!collectorData.requests) writeln('⚠️ No request collector data found');
 	if (output.leakedValues) {
 		if (importantLeaks.length) {
-			writeln(`ℹ️ 🖅 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}:`);
+			writeln(`═══ ℹ️ 🖅 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}: ═══\n`);
 			for (const leak of importantLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
 				write(`${time(reqTime)} ${leak.type}${leak.isHash ? ' hash' : ''} sent in ${leak.part}`);
@@ -204,7 +204,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		)(valueAccesses);
 
 		if (fieldValueCalls.length) {
-			writeln('ℹ️ 🔍 Field value reads:');
+			writeln('═══ ℹ️ 🔍 Field value reads: ═══\n');
 			for (const [call, times] of fieldValueCalls) {
 				write(`${times.map(time).join(' ')} access to ${
 					  call.value === fieldsCollectorOptions.fill.password ? '🔑 ' : '📧 '
@@ -242,7 +242,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		writeln(`🖱 ${fieldsData.events.filter(ev => ev instanceof ClickLinkEvent).length} links clicked`);
 
 		if (fieldsData.errors.length) {
-			writeln('\nFields collector errors:');
+			writeln('\n═══ ⚠️ Fields collector errors: ═══\n');
 			for (const error of fieldsData.errors)
 				writeln(`\t${error.level === 'error' ? '❌️' : '⚠️'} ${
 					  typeof error.context[0] === 'string' ? `${error.context[0]} ` : ''
