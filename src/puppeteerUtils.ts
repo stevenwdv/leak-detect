@@ -9,6 +9,18 @@ export function isNavigationError(err: unknown): boolean {
 				.test(err.message);
 }
 
+export async function waitForLoad(frame: Frame): Promise<void> {
+	return await frame.evaluate(() => new Promise<void>(resolve => {
+		function loadHandler() {
+			removeEventListener('load', loadHandler);
+			resolve();
+		}
+
+		addEventListener('load', loadHandler);
+		if (document.readyState === 'complete') loadHandler();
+	}));
+}
+
 /** @return Stack starting with this frame, going up */
 export function getFrameStack(frame: Frame): NonEmptyArray<Frame> {
 	const frames: NonEmptyArray<Frame> = [frame];

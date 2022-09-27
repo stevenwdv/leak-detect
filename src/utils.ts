@@ -1,3 +1,5 @@
+import {setTimeout} from 'node:timers/promises';
+
 import {DeepPartial, NonEmptyArray} from 'ts-essentials';
 
 export type OmitFirstParameter<Func> = Func extends (first: never, ...args: infer Rest) => infer Return
@@ -44,7 +46,7 @@ export function truncateLine(str: string, maxLength: number): string {
  */
 export function stripIndent(strings: TemplateStringsArray, ...placeholders: unknown[]) {
 	const stringsNoIndent = strings.map(s => s.replaceAll(/([\r\n])[^\S\r\n]+/g, '$1'));
-	stringsNoIndent[0]    = stringsNoIndent[0]!.replace(/^[^\S\r\n]+/, '');
+	stringsNoIndent[0] = stringsNoIndent[0]!.replace(/^[^\S\r\n]+/, '');
 	return stringsNoIndent.reduce((acc, s, i) => acc + String(placeholders[i - 1]!) + s);
 }
 
@@ -132,6 +134,13 @@ export function tryAdd<T>(set: Set<T>, value: T): boolean {
 
 export function addAll<T>(set: Set<T>, values: Iterable<T>) {
 	for (const val of values) set.add(val);
+}
+
+export async function waitWithTimeout<T>(timeoutMs: number, promise: PromiseLike<T>): Promise<T | undefined> {
+	return await Promise.race([
+		setTimeout(timeoutMs, undefined),
+		promise,
+	]);
 }
 
 export function raceWithCondition<T>(

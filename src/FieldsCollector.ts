@@ -5,6 +5,7 @@ import fsp from 'node:fs/promises';
 import inspector from 'node:inspector';
 import path from 'node:path';
 
+import chalk from 'chalk';
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
 import type {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
 import {groupBy} from 'rambda';
@@ -28,6 +29,7 @@ import {
 	populateDefaults,
 	raceWithCondition,
 	tryAdd,
+	waitWithTimeout,
 } from './utils';
 import {ColoredLogger, Logger, PlainLogger} from './logger';
 import {fillEmailField, fillPasswordField, submitField} from './formInteraction';
@@ -47,8 +49,7 @@ import {
 	selectorStr,
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
-import {exposeFunction, getFrameStack, isNavigationError, unwrapHandle} from './puppeteerUtils';
-import chalk from 'chalk';
+import {exposeFunction, getFrameStack, isNavigationError, unwrapHandle, waitForLoad} from './puppeteerUtils';
 import ErrnoException = NodeJS.ErrnoException;
 import TimeoutError = puppeteer.TimeoutError;
 
@@ -448,7 +449,8 @@ export class FieldsCollector extends BaseCollector {
 		const page     = this.#page;
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame(), this.options.debug);
 		if (!linkInfo) throw new Error('could not find link element anymore');
-		const waitNavigation = this.#waitForNavigation(page.mainFrame(), this.options.timeoutMs.followLink);
+		const waitNavigation =
+			        this.#waitForNavigation(page.mainFrame(), this.options.timeoutMs.followLink, 'post-click-link');
 		await this.#click(linkInfo.handle);
 		const opened = await waitNavigation;
 		await this.#screenshot(opened?.page() ?? page, 'link-clicked');
@@ -524,51 +526,62 @@ export class FieldsCollector extends BaseCollector {
 	/**
 	 * @returns Main frame of opened Page or `frame` if navigated
 	 */
-	async #waitForNavigation(frame: Frame, minTimeoutMs: number): Promise<Frame | null> {
+	async #waitForNavigation(
+		  waitFrame: Frame,
+		  minTimeoutMs: number,
+		  navigateType: 'post-submit' | 'post-click-link',
+	): Promise<Frame | null> {
 		const maxWaitTimeMs = Math.max(minTimeoutMs,
 			  this.#dataParams.pageLoadDurationMs * 2);
 
-		const frameStartUrl = frame.url(),
-		      pageStartUrl  = frame.page().url();
-
 		this.#log?.debug('🔜 started waiting for navigation');
 		try {
-			const preTargets    = new Set(this.#context.targets());
-			const {msg, target} = (await raceWithCondition([
+			const preTargets         = new Set(this.#context.targets());
+			const {msg, openedFrame} = (await raceWithCondition([
 				(async () => {
-					const page         = frame.page();
-					const pageNavigate = page.mainFrame() !== frame
-						  ? page.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'})
+					const waitPage     = waitFrame.page();
+					const pageNavigate = waitPage.mainFrame() !== waitFrame
+						  ? waitPage.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'domcontentloaded'})
 						  : null;
 					try {
-						await frame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'load'});
-						return {msg: `🧭 navigated to ${frame.url()}`, target: frame};
+						await waitFrame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'domcontentloaded'});
+						return {msg: `🧭 navigated to ${waitFrame.url()}`, openedFrame: waitFrame};
 					} catch (err) {
 						if (err instanceof TimeoutError) throw err;
 						// Frame may be detached due to parent navigating
 						// (Error: Navigating frame was detached)
 						if (!pageNavigate) return null;
 						await pageNavigate;
-						return {msg: `🧭 parent page navigated to ${page.url()}`, target: page.mainFrame()};
+						return {msg: `🧭 parent page navigated to ${waitPage.url()}`, openedFrame: waitPage.mainFrame()};
 					} finally {
-						void pageNavigate?.catch(() => {/*ignore TimeoutError or other*/});
+						pageNavigate?.catch(() => {/*ignore TimeoutError or other*/});
 					}
 				})(),
 				this.#context.waitForTarget(
 					  target => target.type() === 'page' && !preTargets.has(target),
 					  {timeout: maxWaitTimeMs})
-					  .then(async page => ({msg: `🧭 opened ${page.url()}`, target: (await page.page())!.mainFrame()})),
+					  .then(async openedPage => ({
+						  msg: `🧭 opened ${openedPage.url()}`,
+						  openedFrame: (await openedPage.page())!.mainFrame(),
+					  })),
 			], notFalsy))!;
+
 			this.#log?.log(msg);
+			this.#log?.debug('waiting for page to fully load');
+			if (await waitWithTimeout(maxWaitTimeMs, waitForLoad(openedFrame).then(() => true as const))) {
+				this.#events.push(new NavigateEvent(navigateType, openedFrame.url(), true));
+				this.#log?.log('page fully loaded');
+			} else {
+				this.#events.push(new NavigateEvent(navigateType, openedFrame.url(), false));
+				this.#log?.log('⏱️ load timeout exceeded (will continue)');
+			}
+
 			await this.#sleep(this.options.sleepMs?.postNavigate);
-			return target;
+			return openedFrame;
 		} catch (err) {
 			if (err instanceof TimeoutError) {
-				if (frame.page().url() !== pageStartUrl)
-					this.#log?.log(`parent page started navigating to ${frame.page().url()}`);
-				else if (frame.url() !== frameStartUrl)
-					this.#log?.log(`started navigating to ${frame.url()}`);
 				this.#log?.log('⏱️ navigation timeout exceeded (will continue)');
+				await this.#sleep(this.options.sleepMs?.postNavigate);
 				return null;
 			}
 			throw err;
@@ -783,7 +796,7 @@ export class FieldsCollector extends BaseCollector {
 		this.#setDirty(field.handle.frame.page());
 		try {
 			const waitNavigation = this.#waitForNavigation(field.handle.frame,
-				  this.options.timeoutMs.submitField);
+				  this.options.timeoutMs.submitField, 'post-submit');
 			await submitField(field.handle, this.options.sleepMs?.fill?.clickDwell ?? 0);
 			field.attrs.submitted = true;
 
@@ -1181,6 +1194,16 @@ export class ReturnEvent extends FieldsCollectorEvent {
 export class ClickLinkEvent extends FieldsCollectorEvent {
 	constructor(public readonly link: SelectorChain, public readonly linkType: 'auto' | 'manual') {
 		super('link');
+	}
+}
+
+export class NavigateEvent extends FieldsCollectorEvent {
+	constructor(
+		  public readonly navigateType: 'post-submit' | 'post-click-link',
+		  public readonly url: string,
+		  public readonly fullyLoaded: boolean,
+	) {
+		super('navigate');
 	}
 }
 
