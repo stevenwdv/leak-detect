@@ -28,6 +28,7 @@ import {
 	notFalsy,
 	populateDefaults,
 	raceWithCondition,
+	setAll,
 	tryAdd,
 	waitWithTimeout,
 } from './utils';
@@ -80,7 +81,9 @@ export class FieldsCollector extends BaseCollector {
 	#dirtyPages               = new Set<Page>();
 
 	#events: FieldsCollectorEvent[]  = [];
-	/** Selectors of processed fields */
+	/** All found fields */
+	#fields                          = new Map<string /*elem identifier*/, FieldElementAttrs>();
+	/** Selectors of fully processed fields */
 	#processedFields                 = new Set<string>();
 	#passwordLeaks: PasswordLeak[]   = [];
 	#visitedTargets: VisitedTarget[] = [];
@@ -212,6 +215,7 @@ export class FieldsCollector extends BaseCollector {
 		this.#dirtyPages.clear();
 
 		this.#events = [];
+		this.#fields.clear();
 		this.#processedFields.clear();
 		this.#passwordLeaks  = [];
 		this.#visitedTargets = [];
@@ -294,8 +298,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	override async getData(options: Parameters<typeof BaseCollector.prototype.getData>[0]): Promise<FieldsCollectorData | null> {
-		const fields = [];
-		let links    = null;
+		let links = null;
 		try {
 			this.#dataParams = options;
 			this.#log?.log('🌐 final URL:', this.#dataParams.finalUrl);
@@ -308,17 +311,14 @@ export class FieldsCollector extends BaseCollector {
 			await this.#screenshot(this.#page, 'loaded');
 
 			// Search for fields on the landing page(s)
-			fields.push(...await this.#processFieldsOnAllPages());
+			await this.#processFieldsOnAllPages();
 
-			fields.push(...await this.#executeInteractChains());
+			await this.#executeInteractChains();
 
 			if (this.options.clickLinkCount
-				  && !(this.options.stopEarly === 'first-page-with-form' && fields.length)) {
+				  && !(this.options.stopEarly === 'first-page-with-form' && this.#fields.size)) {
 				const res = await this.#inspectLinkedPages();
-				if (res) {
-					links = res.links;
-					fields.push(...res.fields);
-				}
+				if (res) links = res.links;
 			}
 		} catch (err) {
 			this.#reportError(err, ['failed to get all data']);
@@ -326,7 +326,7 @@ export class FieldsCollector extends BaseCollector {
 
 		return {
 			visitedTargets: this.#visitedTargets,
-			fields,
+			fields: [...this.#fields.values()],
 			links,
 			passwordLeaks: this.#passwordLeaks,
 			events: this.#events,
@@ -751,8 +751,10 @@ export class FieldsCollector extends BaseCollector {
 		}
 
 		this.#log?.debug('🔍 finding fields');
-		const fields = (await Promise.all([this.#getEmailFields(frame), this.#getPasswordFields(frame)])).flat();
-		this.#log?.log(`🔍 found ${fields.length} fields`);
+		const fields        = (await Promise.all([this.#getEmailFields(frame), this.#getPasswordFields(frame)])).flat();
+		const prevFieldsLen = this.#fields.size;
+		setAll(this.#fields, fields.map(({attrs}) => [getElemIdentifier(attrs), attrs]));
+		this.#log?.log(`🔍 found ${fields.length} fields (${this.#fields.size - prevFieldsLen} new)`);
 		return fields;
 	}
 

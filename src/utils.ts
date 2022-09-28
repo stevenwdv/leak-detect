@@ -136,6 +136,10 @@ export function addAll<T>(set: Set<T>, values: Iterable<T>) {
 	for (const val of values) set.add(val);
 }
 
+export function setAll<K, V>(map: Map<K, V>, entries: Iterable<readonly [K, V]>) {
+	for (const [key, val] of entries) map.set(key, val);
+}
+
 export async function waitWithTimeout<T>(timeoutMs: number, promise: PromiseLike<T>): Promise<T | undefined> {
 	return await Promise.race([
 		setTimeout(timeoutMs, undefined),
