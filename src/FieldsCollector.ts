@@ -28,7 +28,6 @@ import {
 	notFalsy,
 	populateDefaults,
 	raceWithCondition,
-	setAll,
 	tryAdd,
 	waitWithTimeout,
 } from './utils';
@@ -37,14 +36,15 @@ import {fillEmailField, fillPasswordField, submitField} from './formInteraction'
 import {
 	closeExtraPages,
 	ElementAttrs,
+	ElementIdentifier,
 	ElementInfo,
 	FathomElementAttrs,
 	FieldElementAttrs,
 	formSelectorChain,
 	getElementAttrs,
 	getElementBySelectorChain,
-	getElementInfoFromAttrs,
-	getElemIdentifier,
+	getElementInfoFromAttrs, getElemIdentifier,
+	getElemIdentifierStr,
 	LinkElementAttrs,
 	LinkMatchType,
 	selectorStr,
@@ -357,10 +357,12 @@ export class FieldsCollector extends BaseCollector {
 									// noinspection ExceptionCaughtLocallyJS
 									throw new Error(`element for click chain not found: ${elemPath}`);
 								}
-								const selector = await formSelectorChain(elem);
+								const selectorChain = await formSelectorChain(elem);
 
-								this.#log?.log(`🖱 clicking element ${nElem + 1}/${chain.paths.length}`, selectorStr(selector));
-								this.#events.push(new ClickLinkEvent(selector, 'manual'));
+								this.#log?.log(`🖱 clicking element ${nElem + 1}/${chain.paths.length}`, selectorStr(selectorChain));
+								this.#events.push(new ClickLinkEvent(
+									  {selectorChain, frameStack: [this.#page.mainFrame().url()]},
+									  'manual'));
 								await this.#click(elem);
 								await this.#sleep(this.options.sleepMs?.postNavigate);
 							}
@@ -445,7 +447,7 @@ export class FieldsCollector extends BaseCollector {
 	/** Click detected link & wait for navigation */
 	async #followLink(link: ElementAttrs) {
 		this.#log?.log('🔗🖱 following link', selectorStr(link.selectorChain));
-		this.#events.push(new ClickLinkEvent(link.selectorChain, 'auto'));
+		this.#events.push(new ClickLinkEvent(getElemIdentifier(link), 'auto'));
 		const page     = this.#page;
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame(), this.options.debug);
 		if (!linkInfo) throw new Error('could not find link element anymore');
@@ -684,7 +686,7 @@ export class FieldsCollector extends BaseCollector {
 				const res = await this.#group(`📝form ${formSelector}`, async () => {
 					try {
 						// First non-processed form field
-						const field = formFields.find(field => !this.#processedFields.has(getElemIdentifier(field)));
+						const field = formFields.find(field => !this.#processedFields.has(getElemIdentifierStr(field)));
 						if (!field) return null;
 
 						// Fill all fields in the form
@@ -699,15 +701,15 @@ export class FieldsCollector extends BaseCollector {
 
 						await this.#submitField(field);
 
-						if (formSelector) addAll(this.#processedFields, formFields.map(getElemIdentifier));
-						else this.#processedFields.add(getElemIdentifier(field));
+						if (formSelector) addAll(this.#processedFields, formFields.map(getElemIdentifierStr));
+						else this.#processedFields.add(getElemIdentifierStr(field));
 
 						return {
 							// For a form, all fields in the form
 							// Otherwise, just the submitted field
 							fields: formSelector ? formFields.map(f => f.attrs) : [field.attrs],
 							// We are done if this was the last form or the last loose field
-							done: lastForm && this.#processedFields.has(getElemIdentifier(formFields.at(-1)!))
+							done: lastForm && this.#processedFields.has(getElemIdentifierStr(formFields.at(-1)!))
 								  || this.#processedFields.size >= this.options.fill.maxFields,
 						};
 					} catch (err) {
@@ -721,7 +723,7 @@ export class FieldsCollector extends BaseCollector {
 
 		} else {
 			if (frameFields.length) {
-				await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifier(f.attrs)));
+				await this.#fillFields(filterUniqBy(frameFields, this.#processedFields, f => getElemIdentifierStr(f.attrs)));
 				await this.#screenshot(frame.page(), 'filled');
 
 				await this.#sleep(this.options.sleepMs?.postFill);
@@ -753,7 +755,12 @@ export class FieldsCollector extends BaseCollector {
 		this.#log?.debug('🔍 finding fields');
 		const fields        = (await Promise.all([this.#getEmailFields(frame), this.#getPasswordFields(frame)])).flat();
 		const prevFieldsLen = this.#fields.size;
-		setAll(this.#fields, fields.map(({attrs}) => [getElemIdentifier(attrs), attrs]));
+		for (const field of fields) {
+			const key      = getElemIdentifierStr(field);
+			const existing = this.#fields.get(key);
+			if (existing) field.attrs = existing;
+			else this.#fields.set(key, field.attrs);
+		}
 		this.#log?.log(`🔍 found ${fields.length} fields (${this.#fields.size - prevFieldsLen} new)`);
 		return fields;
 	}
@@ -793,7 +800,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #submitField(field: ElementInfo<FieldElementAttrs>) {
-		this.#events.push(new SubmitEvent(field.attrs.selectorChain));
+		this.#events.push(new SubmitEvent(getElemIdentifier(field)));
 		this.#log?.log('⏎ submitting field', selectorStr(field.attrs.selectorChain));
 		this.#setDirty(field.handle.frame.page());
 		try {
@@ -813,8 +820,8 @@ export class FieldsCollector extends BaseCollector {
 	async #fillFields(fields: ElementInfo<FieldElementAttrs>[]) {
 		this.#log?.log(`🖊 filling ${fields.length} fields`);
 		const fillTimes = this.options.sleepMs?.fill ?? {clickDwell: 0, keyDwell: 0, betweenKeys: 0};
-		for (const field of fields.filter(f => !(f.attrs.filled ?? false))) {
-			this.#events.push(new FillEvent(field.attrs.selectorChain));
+		for (const field of fields) {
+			this.#events.push(new FillEvent(getElemIdentifier(field)));
 			this.#setDirty(field.handle.frame.page());
 			try {
 				switch (field.attrs.fieldType) {
@@ -1167,13 +1174,13 @@ export abstract class FieldsCollectorEvent {
 }
 
 export class FillEvent extends FieldsCollectorEvent {
-	constructor(public readonly field: SelectorChain) {
+	constructor(public readonly field: ElementIdentifier) {
 		super('fill');
 	}
 }
 
 export class SubmitEvent extends FieldsCollectorEvent {
-	constructor(public readonly field: SelectorChain) {
+	constructor(public readonly field: ElementIdentifier) {
 		super('submit');
 	}
 }
@@ -1194,7 +1201,7 @@ export class ReturnEvent extends FieldsCollectorEvent {
 }
 
 export class ClickLinkEvent extends FieldsCollectorEvent {
-	constructor(public readonly link: SelectorChain, public readonly linkType: 'auto' | 'manual') {
+	constructor(public readonly link: ElementIdentifier, public readonly linkType: 'auto' | 'manual') {
 		super('link');
 	}
 }

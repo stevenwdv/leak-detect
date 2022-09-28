@@ -19,9 +19,22 @@ export async function closeExtraPages(context: BrowserContext, keep: Set<Page>):
 }
 
 /** Get a string which should uniquely identify an element across pages  */
-export function getElemIdentifier(elem: ElementAttrs | ElementInfo): string {
+export function getElemIdentifierStr(elem: ElementAttrs | ElementInfo | ElementIdentifier): string {
+	const {frameStack, selectorChain} = 'attrs' in elem ? elem.attrs : elem;
+	return `${stripHash(frameStack[0])} ${selectorStr(selectorChain)}`;
+}
+
+export function getElemIdentifier(elem: ElementAttrs | ElementInfo): ElementIdentifier {
 	const attrs = 'attrs' in elem ? elem.attrs : elem;
-	return `${stripHash(attrs.frameStack[0]!)} ${selectorStr(attrs.selectorChain)}`;
+	return {
+		frameStack: attrs.frameStack,
+		selectorChain: attrs.selectorChain,
+	};
+}
+
+export interface ElementIdentifier {
+	frameStack: NonEmptyArray<string>;
+	selectorChain: SelectorChain;
 }
 
 export function selectorStr(selectorChain: SelectorChain): string {

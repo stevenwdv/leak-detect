@@ -6,7 +6,7 @@ import ValueSearcher, {transformers} from 'value-searcher';
 
 import {formatDuration, nonEmpty, notFalsy, truncateLine} from './utils';
 import {OutputFile, SavedCallEx, ThirdPartyInfo} from './main';
-import {selectorStr, stackFrameFileRegex} from './pageUtils';
+import {getElemIdentifierStr, selectorStr, stackFrameFileRegex} from './pageUtils';
 import {
 	ClickLinkEvent,
 	FillEvent,
@@ -82,11 +82,10 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 
 	const fieldsData = collectorData.fields;
 	if (fieldsData) {
-		// Some selectors might clash. I think this should not be that large of a problem?
 		const fieldsMap = new Map(fieldsData.fields
-			  .map(field => [selectorStr(field.selectorChain), field]));
+			  .map(field => [getElemIdentifierStr(field), field]));
 		const linksMap  = new Map(fieldsData.links
-			  ?.map(link => [selectorStr(link.selectorChain), link]));
+			  ?.map(link => [getElemIdentifierStr(link), link]));
 
 		if (fieldsData.events.length) {
 			const allEvents = [
@@ -105,9 +104,10 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 				switch (event.type) {
 					case 'fill':
 					case 'submit': {
-						const {field: selector} = event as FillEvent;
-						const field             = fieldsMap.get(selectorStr(selector))!;
-						writeln(`\t${time(event.time)} ✒️ ${event.type} ${field.fieldType} field ${selectorStr(selector)}`);
+						const {field: fieldIdentifier} = event as FillEvent;
+						const field                    = fieldsMap.get(getElemIdentifierStr(fieldIdentifier))!;
+						writeln(`\t${time(event.time)} ✒️ ${event.type} ${field.fieldType} field ${
+							  selectorStr(fieldIdentifier.selectorChain)}`);
 						break;
 					}
 					case 'fb-button':
@@ -121,11 +121,14 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 						break;
 					}
 					case 'link': {
-						const {link: selector, linkType} = event as ClickLinkEvent;
-						const link                       = linksMap.get(selectorStr(selector));
+						const {link: linkIdentifier, linkType} = event as ClickLinkEvent;
+						const link                             = linksMap.get(getElemIdentifierStr(linkIdentifier));
 						if (linkType === 'auto')
-							writeln(`${time(event.time)} 🔗🖱 follow link "${truncateLine(link!.innerText, 60)}" ${selectorStr(selector)} (matched ${link!.linkMatchType})`);
-						else writeln(`${time(event.time)} 🖱 click element ${selectorStr(selector)} (js-path-click interact chain)`);
+							writeln(`${time(event.time)} 🔗🖱 follow link "${
+								  truncateLine(link!.innerText, 60)
+							}" ${selectorStr(linkIdentifier.selectorChain)} (matched ${link!.linkMatchType})`);
+						else writeln(`${time(event.time)} 🖱 click element ${
+							  selectorStr(linkIdentifier.selectorChain)} (js-path-click interact chain)`);
 						break;
 					}
 					case 'screenshot': {

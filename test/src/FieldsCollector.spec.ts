@@ -191,7 +191,7 @@ void (async () => {
 			test('for a hidden popup', async (t, log) => {
 				const result       = await runCrawler('login_form_hidden.html', t, log);
 				const popupOpenIdx = result.events.findIndex(ev =>
-					        ev instanceof ClickLinkEvent && ev.link.join().includes('popupLink')),
+					        ev instanceof ClickLinkEvent && ev.link.selectorChain.join().includes('popupLink')),
 				      fillIdx      = result.events.findIndex(ev => ev instanceof FillEvent);
 				t.ok(popupOpenIdx >= 0, 'should open popup');
 				t.ok(popupOpenIdx < fillIdx, 'should fill after opening popup');
