@@ -10,7 +10,6 @@ import chalk from 'chalk';
 import {RequestType} from '@gorhill/ubo-core';
 import yaml from 'js-yaml';
 import jsonschema from 'jsonschema';
-import ProgressBar from 'progress';
 import type {Browser} from 'puppeteer';
 import {sum} from 'rambda';
 import sanitizeFilename from 'sanitize-filename';
@@ -47,6 +46,7 @@ import {
 	logLevels,
 	TaggedLogger,
 } from './logger';
+import * as progress from './progress';
 import breakpoints, {LeakDetectorCaptureData} from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, nonEmpty, populateDefaults, stripIndent, truncateLine, validUrl} from './utils';
@@ -92,9 +92,10 @@ process.on('beforeExit', () => {
 			  'this may be a bug in the Puppeteer library');
 	}
 });
-process.on('exit', () => process.stdout.write('\x1b]9;4;0;0\x1b\\'));
+process.on('exit', () => progress.terminate());
 
-process.stdout.write('\x1b]0;☔️ leak detector\x1b\\');
+if (progress.isInteractive())
+	process.stderr.write('\x1b]0;☔️ leak detector\x1b\\');
 
 async function main() {
 	const args = yargs
@@ -306,19 +307,13 @@ async function main() {
 
 		await fsp.mkdir(outputDir, {recursive: true});
 
-		const progressBar = new ProgressBar(' :bar :current/:total:msg │ ETA: :etas', {
-			complete: chalk.green('═'),
-			incomplete: chalk.gray('┄'),
-			total: urls.length,
-			width: 30,
-		});
-		progressBar.render({msg: ''});
-		process.stdout.write('\x1b]9;4;1;0\x1b\\');
+		progress.init(' :bar :current/:total:msg │ ETA: :etas', urls.length);
+		progress.update(0, {msg: ''});
 
 		const urlsInProgress: string[] = [];
 
 		process.on('uncaughtExceptionMonitor', () => {
-			process.stdout.write(`\x1b]9;4;2;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1b\\`);
+			progress.setState('error');
 			console.log(`\nURLs for which crawl was in progress:\n${urlsInProgress.join('\n')}\n`);
 		});
 
@@ -331,6 +326,7 @@ async function main() {
 			devtools: args.devtools,
 		}) : undefined;
 
+		let urlsFinished = 0;
 		await eachLimit(urls, args.parallelism, async url => {
 			urlsInProgress.push(url.href);
 			const fileBase     = path.join(outputDir, `${Date.now()} ${sanitizeFilename(
@@ -359,39 +355,38 @@ async function main() {
 				const errors   = counter.count('error'),
 				      warnings = counter.count('warn');
 				if (errors || warnings) {
-					progressBar.interrupt(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
+					progress.log(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
 					for (const {level, args} of errorCapture?.errors ?? [])
-						progressBar.interrupt(`\t${level === 'error' ? '❌️' : '⚠️'} ${args.map(String).join(' ')}`);
+						progress.log(`\t${level === 'error' ? '❌️' : '⚠️'} ${args.map(String).join(' ')}`);
 				} else if (args.logSucceeded)
-					progressBar.interrupt(`✔️ ${url.href}`);
+					progress.log(`✔️ ${url.href}`);
 
 				await saveJson(`${fileBase}.json`, output);
 				if (args.summary)
 					try {
 						await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
 					} catch (err) {
-						progressBar.interrupt(`❌️ ${url.href}: failed to create summary: ${String(err)}`);
 						logger.error('failed to create summary', err);
+						progress.log(`❌️ ${url.href}: failed to create summary: ${String(err)}`);
 					}
 			} catch (err) {
-				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 				logger.error(err);
+				progress.log(`❌️ ${url.href}: ${String(err)}`);
 			} finally {
 				logger.log('DONE.');
 				await fileLogger.finalize();
 			}
 
 			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
-			progressBar.tick({
+			progress.update(++urlsFinished / urls.length, {
 				msg: ` ✓ ${truncateLine(url.href, 60)}`,
 			});
-			process.stdout.write(`\x1b]9;4;1;${Math.floor(progressBar.curr / progressBar.total * 100)}\x1b\\`);
 		});
 		if (browser?.isConnected() === false)
 			throw new Error('Browser quit unexpectedly, this may be a bug in Chromium');
 		if (!args.headed || args.headedAutoclose)
 			await browser?.close();
-		progressBar.terminate();
+		progress.terminate();
 
 		console.log(`Batch crawl took ${(Date.now() - batchCrawlStart) / 1e3}s`);
 		console.info('💾 data & logs saved to', outputDir);
@@ -408,7 +403,7 @@ async function main() {
 					: undefined));
 		if (logLevel) logger = new FilteringLogger(logger, logLevel);
 
-		process.stdout.write('\x1b]9;4;3;0\x1b\\');
+		progress.setState('indeterminate');
 
 		const output = await crawl(url, args, false, undefined, options, apiBreakpoints, logger,
 			  t => crawlStart = t);
@@ -459,7 +454,8 @@ async function main() {
 			console.log(getSummary(output, options));
 		}
 	}
-	console.info('\x07\x1b]9;4;1;100\x1b\\');
+	process.stderr.write('\x07');
+	progress.setState('complete');
 }
 
 async function crawl(
@@ -495,14 +491,20 @@ async function crawl(
 	if (args.headedWait)
 		collectors.push(new WaitingCollector(
 			  stripIndent`
-			      \x07\x1b]9;4;4;0\x1b\\⏸️ Open the form to crawl, or fill some forms yourself!
+			      \x07⏸️ Open the form to crawl, or fill some forms yourself!
 				  Values that will be detected if leaked:
 				  ${'\t'}📧 Email: ${fieldsCollector.options.fill.email}
 				  ${'\t'}🔑 Password: ${fieldsCollector.options.fill.password}
 				  Then press ⏎ to continue automatic crawl when you are done...\n`,
-			  undefined,
-			  () => console.log('\x1b]9;4;3;0\x1b\\▶️ Continuing'),
-			  () => console.log('\n\x1b]9;4;3;0\x1b\\⏹️ Window was closed')));
+			  () => progress.setState('paused'),
+			  () => {
+				  progress.setState('indeterminate');
+				  console.log('▶️ Continuing');
+			  },
+			  () => {
+				  progress.setState('indeterminate');
+				  console.log('\n⏹️ Window was closed');
+			  }));
 	collectors.push(fieldsCollector);
 
 	// Important: collectors for which we want getData to be called after FieldsCollector must be added after it
@@ -564,13 +566,7 @@ async function crawl(
 		const start = Date.now();
 		try {
 			logger.log('💧 searching for leaked values in web requests');
-			const progressBar = batchMode ? undefined
-				  : new ProgressBar(' :bar :current/:total │ ETA: :etas', {
-					  complete: chalk.green('═'),
-					  incomplete: chalk.gray('┄'),
-					  total: 0,
-					  width: 30,
-				  });
+			let progressInitialized = false;
 			try {
 				output.leakedValues = await getLeakedValues(
 					  fieldsCollector,
@@ -579,13 +575,16 @@ async function crawl(
 					  args.checkLeaksDecodeLayers,
 					  args.checkLeaksPoorlyDelimitedSubstrings,
 					  args.checkLeaksCustomEncodings,
-					  progressBar && ((completed, total) => {
-						  progressBar.total ||= total;
-						  progressBar.update(completed / total);
-					  }),
+					  !batchMode ? ((completed, total) => {
+						  if (!progressInitialized) {
+							  progressInitialized = true;
+							  progress.init(' :bar :current/:total │ ETA: :etas', total);
+						  }
+						  progress.update(completed / total);
+					  }) : undefined,
 				);
 			} finally {
-				if (progressBar?.complete === false) progressBar.terminate();
+				if (!batchMode) progress.terminate();
 			}
 			logger.debug(`search took ${(Date.now() - start) / 1e3}s`);
 		} catch (err) {
