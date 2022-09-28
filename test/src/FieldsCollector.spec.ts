@@ -168,6 +168,7 @@ void (async () => {
 						  'screenshot',
 						  'fb-button',
 						  'submit',
+						  'navigate',
 						  'screenshot',
 					  ]);
 

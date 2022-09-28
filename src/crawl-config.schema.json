@@ -1161,8 +1161,7 @@
             "type": "integer"
         },
         "debug": {
-            "default": false,
-            "description": "Turn on some debugging assertions",
+            "description": "Turn on some debugging assertions.\nDefault false unless an inspector is activated",
             "type": "boolean"
         },
         "disableClosedShadowDom": {
