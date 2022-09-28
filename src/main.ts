@@ -7,10 +7,12 @@ import consumers from 'node:stream/consumers';
 
 import async, {ErrorCallback, IterableCollection} from 'async';
 import chalk from 'chalk';
+import {RequestType} from '@gorhill/ubo-core';
 import yaml from 'js-yaml';
 import jsonschema from 'jsonschema';
 import ProgressBar from 'progress';
 import type {Browser} from 'puppeteer';
+import {sum} from 'rambda';
 import sanitizeFilename from 'sanitize-filename';
 import {
 	APICallCollector,
@@ -51,9 +53,7 @@ import {appendDomainToEmail, nonEmpty, populateDefaults, stripIndent, truncateLi
 import {FindEntry, findValue, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
-import {RequestType} from '@gorhill/ubo-core';
 import {stackFrameFileRegex} from './pageUtils';
-import {sum} from 'rambda';
 import {isNavigationError} from './puppeteerUtils';
 
 const {
@@ -376,8 +376,10 @@ async function main() {
 			} catch (err) {
 				progressBar.interrupt(`❌️ ${url.href}: ${String(err)}`);
 				logger.error(err);
+			} finally {
+				logger.log('DONE.');
+				await fileLogger.finalize();
 			}
-			await fileLogger.finalize();
 
 			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
 			progressBar.tick({
@@ -702,7 +704,6 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 			  || args.some(a => a instanceof Error)) level = 'warn';
 		else if (args[0].includes(' context initiated in ')
 			  || args[0].includes(' init took 0.')) level = 'debug';
-		args[0] = args[0].replace(/^⚠\s*/, '');
 	}
 	logger.logLevel(level, ...args);
 }
