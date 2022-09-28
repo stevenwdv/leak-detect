@@ -453,7 +453,7 @@ async function main() {
 		}
 
 		if (args.summary) {
-			console.info('\n════ 📝 Summary: ════\n');
+			console.info(chalk.bold(chalk.blueBright('\n\n════ 📝 Summary: ════\n')));
 			console.log(getSummary(output, options));
 		}
 	}
@@ -545,17 +545,21 @@ async function crawl(
 	if ((args.errorExitCode ?? !batchMode) && nonEmpty(crawlResult.data.fields?.errors))
 		process.exitCode = 1;
 
-	const output: OutputFile = {crawlResult};
+	const output: OutputFile = {crawlResult, durationsMs: {}};
 
-	if (args.checkThirdParty)
+	if (args.checkThirdParty) {
+		const start = Date.now();
 		try {
 			logger.log('🕵 checking third party & tracker info');
 			await assignDomainInfo(crawlResult);
 		} catch (err) {
 			logger.error('error while adding third party & tracker info', err);
 		}
+		output.durationsMs.thirdPartyCheck = Date.now() - start;
+	}
 
-	if (args.checkLeaks)
+	if (args.checkLeaks) {
+		const start = Date.now();
 		try {
 			logger.log('💧 searching for leaked values in web requests');
 			const progressBar = batchMode ? undefined
@@ -565,7 +569,6 @@ async function crawl(
 					  total: 0,
 					  width: 30,
 				  });
-			const start       = Date.now();
 			try {
 				output.leakedValues = await getLeakedValues(
 					  fieldsCollector,
@@ -586,6 +589,8 @@ async function crawl(
 		} catch (err) {
 			logger.error('error while searching for leaks', err);
 		}
+		output.durationsMs.leakCheck = Date.now() - start;
+	}
 
 	return output;
 }
@@ -765,6 +770,10 @@ export type CrawlResult = CollectResult & {
 export interface OutputFile {
 	crawlResult: CrawlResult;
 	leakedValues?: LeakedValue[];
+	durationsMs: {
+		thirdPartyCheck?: number;
+		leakCheck?: number;
+	};
 }
 
 export interface ThirdPartyInfo {
