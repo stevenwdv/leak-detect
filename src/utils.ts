@@ -20,7 +20,7 @@ export function notFalsy<T>(v: T | null | undefined | 0 | false | ''): v is T {
 	return Boolean(v);
 }
 
-export function nonEmpty(array: unknown[] | null | undefined): array is NonEmptyArray<unknown> {
+export function nonEmpty<T>(array: T[] | null | undefined): array is NonEmptyArray<T> {
 	return !!(array?.length ?? 0);
 }
 

@@ -546,6 +546,8 @@ async function crawl(
 	}
 	logger.log();
 
+	if (crawlResult.timeout) logger.warn('note: we got a timeout while loading the main page');
+
 	if ((args.errorExitCode ?? !batchMode) && nonEmpty(crawlResult.data.fields?.errors))
 		process.exitCode = 1;
 
@@ -554,7 +556,7 @@ async function crawl(
 	if (args.checkThirdParty) {
 		const start = Date.now();
 		try {
-			logger.log('🕵 checking third party & tracker info');
+			logger.log('👁 checking third party & tracker info');
 			await assignDomainInfo(crawlResult);
 		} catch (err) {
 			logger.error('error while adding third party & tracker info', err);
