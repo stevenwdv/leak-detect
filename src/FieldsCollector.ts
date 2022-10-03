@@ -578,7 +578,8 @@ export class FieldsCollector extends BaseCollector {
 			await this.#sleep(this.options.sleepMs?.postNavigate);
 			return openedFrame;
 		} catch (err) {
-			if (err instanceof TimeoutError) {
+			if (err instanceof AggregateError
+				  && err.errors.every(e => e instanceof TimeoutError || isNavigationError(e))) {
 				this.#log?.log('⏱️ navigation timeout exceeded (will continue)');
 				await this.#sleep(this.options.sleepMs?.postNavigate);
 				return null;
