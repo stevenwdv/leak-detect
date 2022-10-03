@@ -123,7 +123,7 @@ export function formSelectorChain(elem: Element): SelectorChain {
 		if (!res || !res.unique || res.elem !== elem)
 			throw new Error(
 				  `formSelectorChain/getElementBySelectorChain did not work correctly for ${String(elem)} ${chain.join('>>>')}, ` +
-				  `got back ${res?.unique === false ? 'non-unique ' : ''}${String(res?.elem)}`);
+				  `got back ${res?.unique === false ? 'non-unique ' : ''}${String(res ? res.elem : res)}`);
 	}
 	return chain;
 }

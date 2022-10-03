@@ -1,4 +1,6 @@
-﻿export default {
+﻿import TerserPlugin from 'terser-webpack-plugin';
+
+export default {
 	entry: './src/main.ts',
 	output: {
 		filename: 'bundle.js',
@@ -31,5 +33,18 @@
 		],
 	},
 
+	optimization: {
+		minimizer: [
+			new TerserPlugin({
+				parallel: true,
+				terserOptions: {
+					mangle: {
+						keep_classnames: true,
+						keep_fnames: true,
+					},
+				},
+			}),
+		],
+	},
 	devtool: false,  // No source map
 };

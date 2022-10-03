@@ -10,7 +10,7 @@ const loginAttrRegex = /login|log-in|log_in|signon|sign-on|sign_on|signin|sign-i
 const registerRegex  = /create|register|reg|sign up|signup|join|new/gi;
 
 /**
- * Return a rule with a score equallying the number of keyword occurrences on
+ * Return a rule with a score equal to the number of keyword occurrences on
  * the fnode.
  *
  * Small unbucketed numbers seem to train similarly to a bucket using >= for
@@ -79,7 +79,7 @@ function* filter(iterable, predicate) {
 }
 
 function ancestorForm(element) {
-	// TOOD: Could probably be turned into upUntil(el, pred or selector), to go with plain up().
+	// TODO: Could probably be turned into upUntil(el, pred or selector), to go with plain up().
 	return first(filter(ancestors(element), e => e.tagName === 'FORM'));
 }
 
@@ -185,6 +185,9 @@ function makeRuleset() {
 }
 
 export function* detectUsernameInputs(domRoot) {
+	// Fix for querySelectorAllDeep with SVG documents
+	if (!(domRoot.ownerDocument ?? domRoot).head) return;
+
 	// Fix incorrect Prototype.js implementation
 	let af     = Array.from;
 	Array.from = it => [...it];

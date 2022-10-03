@@ -109,6 +109,9 @@ const email_detector_ruleset = ruleset([
 // so it's not actually a redeclaration.
 // eslint-disable-next-line no-unused-vars, no-redeclare
 function* detectEmailInputs(domRoot) {
+    //#LD-CHANGE Fix for querySelectorAllDeep with SVG documents
+    if (!(domRoot.ownerDocument ?? domRoot).head) return;
+
     //#LD-CHANGE Fix incorrect Prototype.js implementation
     let af     = Array.from;
     Array.from = it => [...it];

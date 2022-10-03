@@ -635,24 +635,27 @@ export class FieldsCollector extends BaseCollector {
 				const incompleteFrames = page.frames()
 					  .filter(frame => frame.url()  // Skip mixed-content frames, see puppeteer/puppeteer#8812
 							&& !completedFrames.has(frame.url()));
-				for (const frame of incompleteFrames) {
-					const {fields: frameFields, done: frameDone} = await this.#group(
-						  `🔳frame ${getRelativeUrl(new URL(frame.url()), new URL(logPageUrl))}`,
-						  () => this.#processFields(frame), frame !== page.mainFrame());
-					if (frameDone) {
-						completedFrames.add(frame.url());  // This frame is done
-						if (frame === incompleteFrames.at(-1)!)
-							allDone = true;  // All frames done, prevent extra reload even on submission
-					}
-					if (nonEmpty(frameFields)) {
-						pageFields.push(...frameFields);
-						if (this.options.fill.submit) {
-							// We submitted a field, now reload the page and try other fields
-							submitted = true;
-							break oneSubmission;
+				for (const frame of incompleteFrames)
+					try {
+						const {fields: frameFields, done: frameDone} = await this.#group(
+							  `🔳frame ${getRelativeUrl(new URL(frame.url()), new URL(logPageUrl))}`,
+							  () => this.#processFields(frame), frame !== page.mainFrame());
+						if (frameDone) {
+							completedFrames.add(frame.url());  // This frame is done
+							if (frame === incompleteFrames.at(-1)!)
+								allDone = true;  // All frames done, prevent extra reload even on submission
 						}
+						if (nonEmpty(frameFields)) {
+							pageFields.push(...frameFields);
+							if (this.options.fill.submit) {
+								// We submitted a field, now reload the page and try other fields
+								submitted = true;
+								break oneSubmission;
+							}
+						}
+					} catch (err) {
+						this.#reportError(err, ['failed to process frame', frame.url()]);
 					}
-				}
 				allDone = true;  // All frames are done
 			}
 
