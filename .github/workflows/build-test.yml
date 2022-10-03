@@ -54,6 +54,8 @@ jobs:
       - name: Start test server
         run: npm run test-server &
       - name: Crawl some test server page
-        run: npm start -- crawl --url http://localhost:8080/login_form_popup.html
+        run: >
+          npm start --pending-deprecation --trace-deprecation --trace-warnings --
+          crawl --url http://localhost:8080/login_form_popup.html --config-inline '{"debug": true}'
         env:
           FORCE_COLOR: 3

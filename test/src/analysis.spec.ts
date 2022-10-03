@@ -2,14 +2,14 @@ import t from 'tap';
 import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher from 'value-searcher';
 
-import {findValue} from '../../src/analysis';
+import {findRequestLeaks} from '../../src/analysis';
 
-void t.test(findValue.name, async t => {
+void t.test(findRequestLeaks.name, async t => {
 	const searcher = await ValueSearcher.fromValues('The--P@s5w0rd');
 	await Promise.all([
 		t.test('searches in URL', async t => {
 			const request: RequestCollector.RequestData = {
-				url: 'https://example.com/?email=leak-detector%40example.com&password=The--P%40s5w0rd',
+				url: 'https://example.com/?email=leak-detect%40example.com&password=The--P%40s5w0rd',
 				method: 'GET',
 				type: 'Document',
 				remoteIPAddress: '0.0.0.0',
@@ -17,7 +17,7 @@ void t.test(findValue.name, async t => {
 				responseHeaders: {},
 				wallTime: 0,
 			};
-			t.strictSame(await findValue(searcher, [request]), [{
+			t.strictSame(await findRequestLeaks(searcher, [request]), [{
 				requestIndex: 0,
 				part: 'url',
 				encodings: ['uri'],
@@ -35,7 +35,7 @@ void t.test(findValue.name, async t => {
 				responseHeaders: {},
 				wallTime: 0,
 			};
-			t.strictSame(await findValue(searcher, [request]), [{
+			t.strictSame(await findRequestLeaks(searcher, [request]), [{
 				requestIndex: 0,
 				part: 'header',
 				header: 'Cookie',
@@ -48,12 +48,12 @@ void t.test(findValue.name, async t => {
 				url: 'https://example.com/',
 				method: 'POST',
 				type: 'Document',
-				postData: 'email=leak-detector%40example.com&password=The--P%40s5w0rd',
+				postData: 'email=leak-detect%40example.com&password=The--P%40s5w0rd',
 				requestHeaders: {},
 				responseHeaders: {},
 				wallTime: 0,
 			};
-			t.strictSame(await findValue(searcher, [request]), [{
+			t.strictSame(await findRequestLeaks(searcher, [request]), [{
 				requestIndex: 0,
 				part: 'body',
 				encodings: ['uri'],
@@ -62,8 +62,8 @@ void t.test(findValue.name, async t => {
 		}),
 
 		t.test('searches in visited targets', async t =>
-			  t.strictSame(await findValue(searcher, [],
-					['https://example.com/?email=leak-detector%40example.com&password=The--P%40s5w0rd'],
+			  t.strictSame(await findRequestLeaks(searcher, [],
+					['https://example.com/?email=leak-detect%40example.com&password=The--P%40s5w0rd'],
 			  ), [{
 				  visitedTargetIndex: 0,
 				  part: 'url',
@@ -71,7 +71,7 @@ void t.test(findValue.name, async t => {
 				  isHash: false,
 			  }])),
 		t.test('sets isHash', async t =>
-			  t.strictSame(await findValue(searcher, [],
+			  t.strictSame(await findRequestLeaks(searcher, [],
 					['https://example.com/?h=c03131f116f6daf9e4a0faa3bc315fcb843338fef2989be54c4322dab3dfe59d'],
 			  ), [{
 				  visitedTargetIndex: 0,

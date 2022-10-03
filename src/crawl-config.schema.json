@@ -1155,11 +1155,6 @@
         }
     },
     "properties": {
-        "clickLinkCount": {
-            "description": "Maximum number of links to click automatically on the landing page, can be 0",
-            "minimum": 0,
-            "type": "integer"
-        },
         "debug": {
             "description": "Turn on some debugging assertions.\nDefault false unless an inspector is activated",
             "type": "boolean"
@@ -1204,7 +1199,7 @@
             },
             "type": "object"
         },
-        "immediatelyInjectAttributeLeakDetection": {
+        "immediatelyInjectDomLeakDetection": {
             "default": false,
             "description": "Always immediately inject password to attribute leak detection,\ninstead of before filling a password field.\nUseful for manual form filling",
             "type": "boolean"
@@ -1222,6 +1217,11 @@
                 ]
             },
             "type": "array"
+        },
+        "maxLinks": {
+            "description": "Maximum number of links to click automatically on the landing page, can be 0",
+            "minimum": 0,
+            "type": "integer"
         },
         "screenshot": {
             "anyOf": [
@@ -1341,7 +1341,7 @@
         },
         "stopEarly": {
             "default": false,
-            "description": "Whether to stop crawl early.\nSpecify \"first-page-with-form\" to stop after the first page with a form\n(after filling all forms on that page)",
+            "description": "Whether to stop crawl early.\nSpecify \"first-page-with-form\" to stop after the first page with a form\n(similar to maxFields=1 but after filling all forms on that page)",
             "enum": [
                 false,
                 "first-page-with-form"

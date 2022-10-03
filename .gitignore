@@ -6,3 +6,5 @@ ts-out/
 /urls.txt
 /tmp/
 v8logs/
+*.log
+

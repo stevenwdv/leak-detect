@@ -50,7 +50,7 @@ import * as progress from './progress';
 import breakpoints, {LeakDetectorCaptureData} from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, nonEmpty, populateDefaults, stripIndent, truncateLine, validUrl} from './utils';
-import {FindEntry, findValue, getSummary} from './analysis';
+import {RequestLeak, findRequestLeaks, getSummary} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
 import {stackFrameFileRegex} from './pageUtils';
@@ -203,7 +203,7 @@ async function main() {
 				    type: 'boolean',
 				    default: true,
 			    })
-			    .option('check-leaks', {
+			    .option('check-request-leaks', {
 				    description: 'check for leaks of filled values in web requests',
 				    type: 'boolean',
 				    default: true,
@@ -408,7 +408,7 @@ async function main() {
 		const output = await crawl(url, args, false, undefined, options, apiBreakpoints, logger,
 			  t => crawlStart = t);
 
-		if (output.leakedValues) {
+		if (output.requestLeaks) {
 			for (const {
 				           type,
 				           part,
@@ -416,7 +416,7 @@ async function main() {
 				           encodings,
 				           requestIndex,
 				           visitedTargetIndex
-			           } of output.leakedValues) {
+			           } of output.requestLeaks) {
 				const {url} = requestIndex !== undefined ? output.crawlResult.data.requests![requestIndex]!
 					  : output.crawlResult.data.fields!.visitedTargets[visitedTargetIndex!]!;
 
@@ -471,7 +471,7 @@ async function crawl(
 		  timeout: number,
 		  errorExitCode: boolean | undefined,
 		  checkThirdParty: boolean,
-		  checkLeaks: boolean,
+		  checkRequestLeaks: boolean,
 		  checkLeaksEncodeLayers: number,
 		  checkLeaksDecodeLayers: number,
 		  checkLeaksCustomEncodings: boolean,
@@ -564,13 +564,13 @@ async function crawl(
 		output.durationsMs.thirdPartyCheck = Date.now() - start;
 	}
 
-	if (args.checkLeaks) {
+	if (args.checkRequestLeaks) {
 		const start = Date.now();
 		try {
 			logger.log('💧 searching for leaked values in web requests');
 			let progressInitialized = false;
 			try {
-				output.leakedValues = await getLeakedValues(
+				output.requestLeaks = await getRequestLeaks(
 					  fieldsCollector,
 					  crawlResult,
 					  args.checkLeaksEncodeLayers,
@@ -590,9 +590,9 @@ async function crawl(
 			}
 			logger.debug(`search took ${(Date.now() - start) / 1e3}s`);
 		} catch (err) {
-			logger.error('error while searching for leaks', err);
+			logger.error('error while searching for request leaks', err);
 		}
-		output.durationsMs.leakCheck = Date.now() - start;
+		output.durationsMs.requestLeakCheck = Date.now() - start;
 	}
 
 	return output;
@@ -640,15 +640,15 @@ async function assignDomainInfo(crawlResult: CrawlResult) {
 let passwordSearcher: ValueSearcher | undefined,
     emailSearcher: ValueSearcher | undefined;
 
-async function getLeakedValues(
+async function getRequestLeaks(
 	  fieldsCollector: FieldsCollector,
 	  crawlResult: CrawlResult,
 	  encodeLayers: number,
 	  decodeLayers: number,
 	  searchPoorlyDelimitedSubstring: boolean,
 	  includeCustomEncodings: boolean,
-	  onProgress: (completed: number, total: number) => void = () => {/**/},
-): Promise<LeakedValue[]> {
+	  onProgress?: (completed: number, total: number) => void,
+): Promise<RequestLeakEx[]> {
 	const createSearcher = async (value: string) => {
 		const searcher = new ValueSearcher([
 			...defaultTransformers,
@@ -682,15 +682,15 @@ async function getLeakedValues(
 	const completedMap = Object.fromEntries(Object.entries(searchers).map(([prop]) => [prop, 0])) as
 		  Record<keyof typeof searchers, number>;
 	return (await parallelLimit(Object.entries(searchers).map(([prop, searcher]) => async () =>
-		  (await findValue(searcher,
+		  (await findRequestLeaks(searcher,
 				crawlResult.data.requests ?? [],
 				crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? [],
 				decodeLayers,
 				undefined,
-				(completed, total) => {
+				onProgress && ((completed, total) => {
 					completedMap[prop as keyof typeof searchers] = completed;
 					onProgress(sum(Object.values(completedMap)), (halfTotal ??= total) * 2);
-				}))
+				})))
 				.map(entry => ({
 					...entry,
 					type: prop as keyof typeof searchers,
@@ -771,10 +771,10 @@ export type CrawlResult = CollectResult & {
 
 export interface OutputFile {
 	crawlResult: CrawlResult;
-	leakedValues?: LeakedValue[];
+	requestLeaks?: RequestLeakEx[];
 	durationsMs: {
 		thirdPartyCheck?: number;
-		leakCheck?: number;
+		requestLeakCheck?: number;
 	};
 }
 
@@ -783,6 +783,6 @@ export interface ThirdPartyInfo {
 	tracker: boolean;
 }
 
-export interface LeakedValue extends FindEntry {
+export interface RequestLeakEx extends RequestLeak {
 	type: 'password' | 'email';
 }

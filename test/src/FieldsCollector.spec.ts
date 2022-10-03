@@ -206,10 +206,10 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 
-				t.equal(result.passwordLeaks.length, 1, 'should find 1 password leak');
-				const leak = result.passwordLeaks[0];
-				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
-				t.ok(leak?.attrs, 'should have password leak element attrs set');
+				t.equal(result.domLeaks.length, 1, 'should find 1 DOM leak');
+				const leak = result.domLeaks[0];
+				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
+				t.ok(leak?.attrs, 'should have DOM leak element attrs set');
 			}),
 			test('for an open shadow form', async (t, log) => {
 				const result = await runCrawler('login_form_shadow.html', t, log);
@@ -221,10 +221,10 @@ void (async () => {
 
 				t.ok(emailField?.submitted, 'should submit field');
 
-				t.equal(result.passwordLeaks.length, 1, 'should find 1 password leak');
-				const leak = result.passwordLeaks[0];
-				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
-				t.ok(leak?.attrs, 'should have password leak element attrs set');
+				t.equal(result.domLeaks.length, 1, 'should find 1 DOM leak');
+				const leak = result.domLeaks[0];
+				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
+				t.ok(leak?.attrs, 'should have DOM leak element attrs set');
 			}),
 			test('for a closed shadow form', async (t, log) => {
 				const result = await runCrawler('login_form_shadow_closed.html', t, log);
@@ -236,10 +236,10 @@ void (async () => {
 
 				t.ok(emailField?.submitted, 'should submit field');
 
-				t.equal(result.passwordLeaks.length, 1, 'should find 1 password leak');
-				const leak = result.passwordLeaks[0];
-				t.equal(leak?.attribute, 'value', 'should have password leak attr "value"');
-				t.ok(leak?.attrs, 'should have password leak element attrs set');
+				t.equal(result.domLeaks.length, 1, 'should find 1 DOM leak');
+				const leak = result.domLeaks[0];
+				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
+				t.ok(leak?.attrs, 'should have DOM leak element attrs set');
 			}),
 
 			test('for email input with type=text', async (t, log) => {
@@ -295,7 +295,7 @@ void (async () => {
 								  new FieldsCollector({
 									  debug: true,
 									  fill: {submit: false},
-									  clickLinkCount: 0,
+									  maxLinks: 0,
 								  }, log),
 								  new RequestCollector(),
 							  ],

@@ -51,9 +51,9 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 
 	const collectorData = result.data;
 
-	let importantLeaks, hasDomainInfo;
+	let hasDomainInfo, relevantRequestLeaks;
 	{
-		const annotatedLeaks = (output.leakedValues ?? [])
+		const annotatedLeaks = (output.requestLeaks ?? [])
 			  .map(leak => {
 				  const request       = leak.requestIndex !== undefined ? collectorData.requests![leak.requestIndex]! : undefined,
 				        visitedTarget = leak.visitedTargetIndex !== undefined ? collectorData.fields!.visitedTargets[leak.visitedTargetIndex]! : undefined;
@@ -64,19 +64,19 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 				  };
 			  });
 		hasDomainInfo        = !!annotatedLeaks[0] && (annotatedLeaks[0].request ?? annotatedLeaks[0].visitedTarget!).thirdParty !== undefined;
-		importantLeaks       = hasDomainInfo ? annotatedLeaks.filter(({request, visitedTarget}) => {
+		relevantRequestLeaks = hasDomainInfo ? annotatedLeaks.filter(({request, visitedTarget}) => {
 			const {thirdParty, tracker} = request ?? visitedTarget!;
 			return thirdParty! || tracker!;
 		}) : annotatedLeaks;
 	}
 
-	let valueAccesses;
+	let valueSniffs;
 	{
 		const searchValues = [
 			fieldsCollectorOptions.fill.email,
 			fieldsCollectorOptions.fill.password,
 		];
-		valueAccesses      = pipe(
+		valueSniffs = pipe(
 			  filter(({description}: SavedCallEx) => description === 'HTMLInputElement.prototype.value'),
 			  filter(({custom: {value}}) => searchValues.includes(value)),
 		)(collectorData.apis?.savedCalls ?? []);
@@ -92,13 +92,13 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		if (fieldsData.events.length) {
 			const allEvents = [
 				fieldsData.events,
-				fieldsData.passwordLeaks.map(leak => ({type: 'password-leak', time: leak.time, leak})),
-				importantLeaks.map(leak => ({
+				fieldsData.domLeaks.map(leak => ({type: 'dom-leak', time: leak.time, leak})),
+				relevantRequestLeaks.map(leak => ({
 					type: 'request-leak',
 					time: leak.visitedTarget?.time ?? leak.request!.wallTime,
 					leak,
 				})),
-				valueAccesses.map(call => ({type: 'value-access', time: call.custom.time, call})),
+				valueSniffs.map(call => ({type: 'value-sniff', time: call.custom.time, call})),
 			].flat().sort((a, b) => a.time - b.time);
 
 			writeln('═══ 🕰 Timeline (see below for more details): ═══\n');
@@ -146,17 +146,17 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 						writeln(`\t${time(event.time)} 📸 ${trigger} ${name ?? ''}`);
 						break;
 					}
-					case 'password-leak':
+					case 'dom-leak':
 						writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to DOM`);
 						break;
 					case 'request-leak': {
-						const leak = (event as typeof event & { leak: typeof importantLeaks[0] }).leak;
+						const leak = (event as typeof event & { leak: typeof relevantRequestLeaks[0] }).leak;
 						const url  = leak.request?.url ?? leak.visitedTarget!.url;
 						writeln(`\t\t${time(event.time)} ${leak.type === 'password' ? '🚨' : '⚠️'} 📤 ${
 							  leak.type === 'password' ? '🔑' : '📧'} ${leak.type} sent to ${tldts.getHostname(url) ?? url}`);
 						break;
 					}
-					case 'value-access': {
+					case 'value-sniff': {
 						const call   = (event as typeof event & { call: SavedCallEx }).call;
 						const topUrl = call.stack?.[0]?.match(stackFrameFileRegex)?.[0];
 						writeln(`\t\t${time(event.time)} 🔍 ${
@@ -169,22 +169,22 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			writeln();
 		}
 
-		if (fieldsData.passwordLeaks.length) {
+		if (fieldsData.domLeaks.length) {
 			writeln('═══ ⚠️ 🔑 Password was written to the DOM: ═══\n');
-			for (const leak of fieldsData.passwordLeaks) {
+			for (const leak of fieldsData.domLeaks) {
 				writeln(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.selector)}"; frame stack (bottom→top):`);
 				for (const frame of leak.attrs?.frameStack ?? leak.frameStack!)
 					writeln(`\t${frame}`);
 			}
-			writeln('If a script then extracts the DOM it might leak the password\n');
+			writeln('If a script then extracts the DOM it might leak the password in a web request\n');
 		}
 	} else writeln('❌️ No fields collector data, it probably crashed\n');
 
 	if (!collectorData.requests) writeln('⚠️ No request collector data found');
-	if (output.leakedValues) {
-		if (importantLeaks.length) {
+	if (output.requestLeaks) {
+		if (relevantRequestLeaks.length) {
 			writeln(`═══ ⚠️ 📤 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}: ═══\n`);
-			for (const leak of importantLeaks) {
+			for (const leak of relevantRequestLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
 				write(`${time(reqTime)} ${leak.type}${
 					  leak.isHash ? ' hash' : ''} (${leak.encodings.join('→')}) sent in ${leak.part}`);
@@ -213,8 +213,8 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 				}
 			}
 			writeln();
-		} else writeln(`✔️ No leaks ${output.leakedValues.length ? 'to third parties ' : ''}detected\n`);
-	} else writeln('⚠️ No leaked value data found\n');
+		} else writeln(`✔️ No leaks ${output.requestLeaks.length ? 'to third parties ' : ''}detected\n`);
+	} else writeln('⚠️ No request leaks data found\n');
 
 	if (collectorData.apis) {
 		const fieldValueCalls = pipe(
@@ -228,7 +228,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					  calls.map(({custom: {time}}) => time),
 				  ] as const;
 			  }),
-		)(valueAccesses);
+		)(valueSniffs);
 
 		if (fieldValueCalls.length) {
 			writeln('═══ ℹ️ 🔍 Field value reads: ═══\n');
@@ -284,14 +284,14 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	return strings.join('');
 }
 
-export async function findValue(
+export async function findRequestLeaks(
 	  searcher: ValueSearcher,
 	  requests: readonly RequestCollector.RequestData[],
 	  visitedTargets: readonly string[]                              = [],
 	  maxDecodeLayers: number | undefined                            = undefined,
 	  decoders: readonly transformers.ValueTransformer[] | undefined = undefined,
-	  onProgress: (completed: number, total: number) => void         = () => {/**/},
-): Promise<FindEntry[]> {
+	  onProgress?: (completed: number, total: number) => void,
+): Promise<RequestLeak[]> {
 	const requestUrls = new Set(requests.map(({url}) => url));
 
 	const findValueIn = (buf: Buffer) => searcher.findValueIn(buf, maxDecodeLayers, decoders);
@@ -301,7 +301,7 @@ export async function findValue(
 		isHash: encoders.some(enc => enc instanceof HashTransform),
 	});
 
-	const queries: (() => Promise<null | FindEntry>)[] = [
+	const queries: (() => Promise<null | RequestLeak>)[] = [
 		...requests.flatMap((request, requestIndex) => [
 			() => findValueIn(Buffer.from(request.url))
 				  .then(encoders => encoders && {
@@ -340,17 +340,18 @@ export async function findValue(
 							  ...getEncodings(encoders),
 						  } as const)),
 	].filter(notFalsy);
-	onProgress(0, queries.length);
+	onProgress?.(0, queries.length);
 
 	let completed = 0;
 	return (await mapLimit(queries, 4, async query => {
 		const res = await query();
-		onProgress(++completed, queries.length);
+		++completed;
+		onProgress?.(completed, queries.length);
 		return res;
 	})).filter(notFalsy);
 }
 
-export interface FindEntry {
+export interface RequestLeak {
 	/** Index in requests */
 	requestIndex?: number;
 	/** Index in visitedTargets, mutually exclusive with {@link requestIndex} */

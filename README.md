@@ -1,9 +1,9 @@
-# leak-detection
+# leak-detect
 
 Clone repository including submodules:
 
 ```shell
-git clone --recurse-submodules https://github.com/stevenwdv/leak-detection.git
+git clone --recurse-submodules https://github.com/stevenwdv/leak-detect.git
 ```
 
 Run single crawl:

@@ -1,5 +1,5 @@
 import {PageVars} from './FieldsCollector';
-import {SelectorChain} from 'leak-detect-inject';
+import type {SelectorChain} from 'leak-detect-inject';
 
 export const breakpoints: import('tracker-radar-collector').breakpoints.BreakpointObject[] = [
 	{

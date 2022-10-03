@@ -13,7 +13,7 @@ import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
 import {DeepRequired, UnreachableCaseError} from 'ts-essentials';
 
-import {SelectorChain} from 'leak-detect-inject';
+import type {SelectorChain} from 'leak-detect-inject';
 import {
 	addAll,
 	appendDomainToEmail,
@@ -59,7 +59,7 @@ export class FieldsCollector extends BaseCollector {
 	/** Page function to inject leak-detect-inject */
 	static #doInjectFun: (debug: boolean) => void;
 	/** @return Newly injected? */
-	static #doInjectPasswordLeakDetectionFun: (password: string) => boolean;
+	static #doInjectDomLeakDetectFun: (password: string) => boolean;
 
 	readonly options: FullFieldsCollectorOptions;
 	#log: Logger | undefined;
@@ -72,20 +72,20 @@ export class FieldsCollector extends BaseCollector {
 
 	/** Landing page */
 	#page!: Page;
-	#frameIdMap               = new Map<string /*ID*/, Frame>();
-	#frameIdReverseMap        = new Map<Frame, string /*ID*/>();
+	#frameIdMap              = new Map<string /*ID*/, Frame>();
+	#frameIdReverseMap       = new Map<Frame, string /*ID*/>();
 	/** Pages that password leak callback has been injected into */
-	#injectedPasswordCallback = new Set<Page>();
-	#startUrls                = new Map<Page, string>();
-	#postCleanListeners       = new Map<Page, () => MaybePromiseLike<void>>();
-	#dirtyPages               = new Set<Page>();
+	#injectedDomLeakCallback = new Set<Page>();
+	#startUrls               = new Map<Page, string>();
+	#postCleanListeners      = new Map<Page, () => MaybePromiseLike<void>>();
+	#dirtyPages              = new Set<Page>();
 
 	#events: FieldsCollectorEvent[]  = [];
 	/** All found fields */
 	#fields                          = new Map<string /*elem identifier*/, FieldElementAttrs>();
 	/** Selectors of fully processed fields */
 	#processedFields                 = new Set<string>();
-	#passwordLeaks: PasswordLeak[]   = [];
+	#domLeaks: DomPasswordLeak[]     = [];
 	#visitedTargets: VisitedTarget[] = [];
 	#errors: ErrorInfo[]             = [];
 
@@ -132,11 +132,11 @@ export class FieldsCollector extends BaseCollector {
 			}`) as (debug: boolean) => void;
 		})();
 
-		this.#doInjectPasswordLeakDetectionFun ??= function doInjectPasswordLeakDetection(password: string) {
+		this.#doInjectDomLeakDetectFun ??= function doInjectDomLeakDetect(password: string) {
 			// noinspection JSNonStrictModeUsed
 			'use strict';
-			if (window[PageVars.PASSWORD_OBSERVED] === true) return false;
-			window[PageVars.PASSWORD_OBSERVED] = true;
+			if (window[PageVars.DOM_OBSERVED] === true) return false;
+			window[PageVars.DOM_OBSERVED] = true;
 
 			const observer = new MutationObserver(mutations => {
 				try {
@@ -152,7 +152,7 @@ export class FieldsCollector extends BaseCollector {
 							  attribute: m.attributeName!,
 						  }));
 					if (leakSelectors.length)
-						void window[PageVars.PASSWORD_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
+						void window[PageVars.DOM_LEAK_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
 				} catch (err) {
 					window[PageVars.ERROR_CALLBACK](window[PageVars.FRAME_ID], String(err), err instanceof Error && err.stack || Error().stack!);
 				}
@@ -170,7 +170,7 @@ export class FieldsCollector extends BaseCollector {
 								  attribute: attr.name,
 							  }));
 						if (leakSelectors.length)
-							void window[PageVars.PASSWORD_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
+							void window[PageVars.DOM_LEAK_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
 					}
 					if (node.shadowRoot) inspectRecursive(node.shadowRoot, checkExistingAttrs);
 				}
@@ -209,17 +209,17 @@ export class FieldsCollector extends BaseCollector {
 		this.#page = undefined!;  // Initialized in addTarget
 		this.#frameIdMap.clear();
 		this.#frameIdReverseMap.clear();
-		this.#injectedPasswordCallback.clear();
+		this.#injectedDomLeakCallback.clear();
 		this.#startUrls.clear();
 		this.#postCleanListeners.clear();
 		this.#dirtyPages.clear();
 
-		this.#events = [];
+		this.#events.length = 0;
 		this.#fields.clear();
 		this.#processedFields.clear();
-		this.#passwordLeaks  = [];
-		this.#visitedTargets = [];
-		this.#errors         = [];
+		this.#domLeaks.length       = 0;
+		this.#visitedTargets.length = 0;
+		this.#errors.length         = 0;
 	}
 
 	override async addTarget({url, type}: Parameters<typeof BaseCollector.prototype.addTarget>[0]) {
@@ -287,10 +287,10 @@ export class FieldsCollector extends BaseCollector {
 					}
 				});
 
-			if (this.options.immediatelyInjectAttributeLeakDetection) {
-				if (tryAdd(this.#injectedPasswordCallback, newPage))
-					await exposeFunction(newPage, PageVars.PASSWORD_CALLBACK, this.#passwordLeakCallback.bind(this));
-				await evaluateOnAll(FieldsCollector.#doInjectPasswordLeakDetectionFun, this.options.fill.password);
+			if (this.options.immediatelyInjectDomLeakDetection) {
+				if (tryAdd(this.#injectedDomLeakCallback, newPage))
+					await exposeFunction(newPage, PageVars.DOM_LEAK_CALLBACK, this.#domLeakCallback.bind(this));
+				await evaluateOnAll(FieldsCollector.#doInjectDomLeakDetectFun, this.options.fill.password);
 			}
 		} catch (err) {
 			this.#reportError(err, ['failed to add target']);
@@ -315,7 +315,7 @@ export class FieldsCollector extends BaseCollector {
 
 			await this.#executeInteractChains();
 
-			if (this.options.clickLinkCount
+			if (this.options.maxLinks
 				  && !(this.options.stopEarly === 'first-page-with-form' && this.#fields.size)) {
 				const res = await this.#inspectLinkedPages();
 				if (res) links = res.links;
@@ -328,7 +328,7 @@ export class FieldsCollector extends BaseCollector {
 			visitedTargets: this.#visitedTargets,
 			fields: [...this.#fields.values()],
 			links,
-			passwordLeaks: this.#passwordLeaks,
+			domLeaks: this.#domLeaks,
 			events: this.#events,
 			errors: this.#errors,
 		};
@@ -408,12 +408,12 @@ export class FieldsCollector extends BaseCollector {
 
 			this.#log?.debug(`🔗🔍 found ${links.length} login/register links on the landing page`, matchTypeCounts);
 
-			if (links.length > this.options.clickLinkCount)
-				this.#log?.log(`skipping last ${links.length - this.options.clickLinkCount} links`);
+			if (links.length > this.options.maxLinks)
+				this.#log?.log(`skipping last ${links.length - this.options.maxLinks} links`);
 
 			const fields: FieldElementAttrs[] = [];
 
-			links = links.slice(0, this.options.clickLinkCount);
+			links = links.slice(0, this.options.maxLinks);
 			for (const link of links) {
 				await this.#group(`🔗 ${selectorStr(link.selectorChain)}`, async () => {
 					try {
@@ -835,7 +835,7 @@ export class FieldsCollector extends BaseCollector {
 									: this.options.fill.email, fillTimes);
 						break;
 					case 'password':
-						await this.#injectPasswordLeakDetection(field.handle.frame);
+						await this.#injectDomLeakDetection(field.handle.frame);
 						await fillPasswordField(field.handle, this.options.fill.password, fillTimes);
 						break;
 					default:
@@ -850,41 +850,43 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	async #injectPasswordLeakDetection(frame: Frame) {
+	async #injectDomLeakDetection(frame: Frame) {
 		try {
 			const page = frame.page();
-			if (tryAdd(this.#injectedPasswordCallback, page))
-				await exposeFunction(page, PageVars.PASSWORD_CALLBACK, this.#passwordLeakCallback.bind(this));
+			if (tryAdd(this.#injectedDomLeakCallback, page))
+				await exposeFunction(page, PageVars.DOM_LEAK_CALLBACK, this.#domLeakCallback.bind(this));
 
-			const newlyInjected = await frame.evaluate(FieldsCollector.#doInjectPasswordLeakDetectionFun, this.options.fill.password);
-			if (newlyInjected) this.#log?.debug('injected password leak detection');
+			const newlyInjected = await frame.evaluate(FieldsCollector.#doInjectDomLeakDetectFun, this.options.fill.password);
+			if (newlyInjected) this.#log?.debug('injected DOM password leak detection');
 		} catch (err) {
-			this.#reportError(err, ['failed to inject password leak detection on', frame.url()]);
+			this.#reportError(err, ['failed to inject DOM password leak detection on', frame.url()]);
 		}
 	}
 
-	/** Called from the page when a password leak is detected */
-	async #passwordLeakCallback(frameId: string, leaks: PagePasswordLeak[]) {
+	/** Called from the page when a DOM password leak is detected */
+	async #domLeakCallback(frameId: string, leaks: PagePasswordLeak[]) {
 		try {
 			const frame = this.#frameIdMap.get(frameId)!;
 			this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes: ${
 				  leaks.map(l => `${selectorStr(l.selector)} @${l.attribute}`).join(', ')}`);
 			const time = Date.now();
-			this.#passwordLeaks.push(...await Promise.all(leaks.map(async leak => {
+			this.#domLeaks.push(...await Promise.all(leaks.map(async leak => {
 				let attrs;
 				try {
 					const handle = (await getElementBySelectorChain(leak.selector, frame))?.elem;
 					if (handle) attrs = await getElementAttrs(handle);
 				} catch (err) {
-					this.#reportError(err, ['failed to get attributes for leak element', selectorStr(leak.selector)], 'warn');
+					this.#reportError(err, [
+							  'failed to get attributes for DOM password leak element', selectorStr(leak.selector)],
+						  'warn');
 				}
-				const fullLeak: PasswordLeak = {time, ...leak};
+				const fullLeak: DomPasswordLeak = {time, ...leak};
 				if (attrs) fullLeak.attrs = attrs;
 				else fullLeak.frameStack = getFrameStack(frame).map(f => f.url());
 				return fullLeak;
 			})));
 		} catch (err) {
-			this.#reportError(err, ['error in password leak callback']);
+			this.#reportError(err, ['error in DOM password leak callback']);
 		}
 	}
 
@@ -1032,11 +1034,11 @@ export interface FieldsCollectorOptions {
 	skipExternal?: 'frames' | 'pages' | false;
 	/** Maximum number of links to click automatically on the landing page, can be 0
 	 * @minimum 0 */
-	clickLinkCount?: integer;
+	maxLinks?: integer;
 	/**
 	 * Whether to stop crawl early.
 	 * Specify "first-page-with-form" to stop after the first page with a form
-	 * (after filling all forms on that page)
+	 * (similar to maxFields=1 but after filling all forms on that page)
 	 * @default false
 	 */
 	stopEarly?: 'first-page-with-form' | false;
@@ -1065,7 +1067,7 @@ export interface FieldsCollectorOptions {
 	 * Useful for manual form filling
 	 * @default false
 	 */
-	immediatelyInjectAttributeLeakDetection?: boolean,
+	immediatelyInjectDomLeakDetection?: boolean,
 	/**
 	 * Transform calls to attach closed ShadowRoots into calls to attach open ones,
 	 * to enable the crawler to search for fields etc. there.
@@ -1132,7 +1134,7 @@ FieldsCollector.defaultOptions = {
 			betweenKeys: 250,
 		},
 	},
-	clickLinkCount: 5,
+	maxLinks: 5,
 	skipExternal: 'frames',
 	stopEarly: false,
 	fill: {
@@ -1143,7 +1145,7 @@ FieldsCollector.defaultOptions = {
 		addFacebookButton: true,
 		maxFields: 10,
 	},
-	immediatelyInjectAttributeLeakDetection: false,
+	immediatelyInjectDomLeakDetection: false,
 	disableClosedShadowDom: true,
 	interactChains: [],
 	screenshot: null,
@@ -1159,7 +1161,7 @@ export interface PagePasswordLeak {
 }
 
 /** Password leak as reported in the data */
-export interface PasswordLeak extends PagePasswordLeak {
+export interface DomPasswordLeak extends PagePasswordLeak {
 	time: number;
 	attrs?: ElementAttrs;
 	frameStack?: string[];
@@ -1240,7 +1242,7 @@ export interface FieldsCollectorData {
 	fields: FieldElementAttrs[];
 	/** `null` on fail */
 	links: LinkElementAttrs[] | null;
-	passwordLeaks: PasswordLeak[];
+	domLeaks: DomPasswordLeak[];
 	events: FieldsCollectorEvent[];
 	errors: ErrorInfo[];
 }
@@ -1250,8 +1252,8 @@ export interface FieldsCollectorData {
 export const enum PageVars {
 	FRAME_ID          = '@@leakDetectFrameId',
 	INJECTED          = '@@leakDetectInjected',
-	PASSWORD_OBSERVED = '@@leakDetectPasswordObserved',
-	PASSWORD_CALLBACK = '@@leakDetectPasswordObserverCallback',
+	DOM_OBSERVED      = '@@leakDetectPasswordObserved',
+	DOM_LEAK_CALLBACK = '@@leakDetectPasswordObserverCallback',
 	ERROR_CALLBACK    = '@@leakDetectError',
 }
 
@@ -1261,7 +1263,7 @@ declare global {
 		[PageVars.FRAME_ID]?: string;
 		[PageVars.ERROR_CALLBACK]: (frameId: string | undefined, message: string, stack: string) => void;
 		[PageVars.INJECTED]: typeof import('leak-detect-inject');
-		[PageVars.PASSWORD_OBSERVED]?: boolean;
-		[PageVars.PASSWORD_CALLBACK]?: (frameId: string, leaks: PagePasswordLeak[]) => Promise<void>;
+		[PageVars.DOM_OBSERVED]?: boolean;
+		[PageVars.DOM_LEAK_CALLBACK]?: (frameId: string, leaks: PagePasswordLeak[]) => Promise<void>;
 	}
 }
