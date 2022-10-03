@@ -24,7 +24,7 @@ export class ThirdPartyClassifier {
 
 	static get() {
 		return this.#instancePromise ??= (async () => {
-			const cacheDir = './tmp/';
+			const cacheDir = path.join(__dirname, '../tmp/');
 			await fsp.mkdir(cacheDir, {recursive: true});
 
 			const file = path.join(cacheDir, 'simple-domain-map.json');
