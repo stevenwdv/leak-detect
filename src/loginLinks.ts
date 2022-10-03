@@ -26,7 +26,7 @@ export async function getLoginLinks(frame: Frame, matchTypes: Set<LinkMatchType>
 		infos.sort(({attrs: a}, {attrs: b}) =>
 			  (isButtonOrLink(b.tagName) ? 1 : 0) - (isButtonOrLink(a.tagName) ? 1 : 0)
 			  || (b.onTop ? 1 : 0) - (a.onTop ? 1 : 0)
-			  || (b.inView ? 1 : 0) - (a.inView ? 1 : 0));
+			  || (b.inView === true ? 1 : 0) - (a.inView === true ? 1 : 0));
 		links.push(...infos);
 	}
 
