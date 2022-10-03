@@ -88,7 +88,8 @@ let mainExited = false;
 process.on('beforeExit', () => {
 	if (!mainExited) {
 		process.exitCode ??= 13;
-		console.error('\n\n\x07❌️ Unexpected exit: It seems Node.js prevented a hang due to a Promise that can never be fulfilled, ' +
+		console.error('\n\n\x07❌️ Unexpected exit: Either the Node.js was killed or ' +
+			  'Node.js prevented a hang due to a Promise that can never be fulfilled, ' +
 			  'this may be a bug in the Puppeteer library');
 	}
 });
