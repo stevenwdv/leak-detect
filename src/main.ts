@@ -446,7 +446,7 @@ async function main() {
 		} else {
 			// eslint-disable-next-line no-debugger
 			debugger  // Give you the ability to inspect the result in a debugger
-			console.info('\nFor details in JSON form, specify --output');
+			console.info('\nTo save details in JSON form, specify --output');
 		}
 
 		if (args.summary) {
