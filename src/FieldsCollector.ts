@@ -25,9 +25,7 @@ import {
 	MaybePromise,
 	MaybePromiseLike,
 	nonEmpty,
-	notFalsy,
 	populateDefaults,
-	raceWithCondition,
 	tryAdd,
 	waitWithTimeout,
 } from './utils';
@@ -542,26 +540,22 @@ export class FieldsCollector extends BaseCollector {
 		this.#log?.debug('🔜 started waiting for navigation');
 		try {
 			const preTargets         = new Set(this.#context.targets());
-			const {msg, openedFrame} = (await raceWithCondition([
-				(async () => {
-					const waitPage     = waitFrame.page();
-					const pageNavigate = waitPage.mainFrame() !== waitFrame
-						  ? waitPage.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'domcontentloaded'})
-						  : null;
-					try {
-						await waitFrame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'domcontentloaded'});
-						return {msg: `🧭 navigated to ${waitFrame.url()}`, openedFrame: waitFrame};
-					} catch (err) {
-						if (err instanceof TimeoutError) throw err;
-						// Frame may be detached due to parent navigating
-						// (Error: Navigating frame was detached)
-						if (!pageNavigate) return null;
-						await pageNavigate;
-						return {msg: `🧭 parent page navigated to ${waitPage.url()}`, openedFrame: waitPage.mainFrame()};
-					} finally {
-						pageNavigate?.catch(() => {/*ignore TimeoutError or other*/});
-					}
-				})(),
+			const waitPage           = waitFrame.page();
+			const {msg, openedFrame} = await Promise.any([
+				waitFrame.waitForNavigation({timeout: maxWaitTimeMs, waitUntil: 'domcontentloaded'})
+					  .then(() => ({
+						  msg: `🧭 navigated to ${waitFrame.url()}`,
+						  openedFrame: waitFrame,
+					  })),
+				...(waitPage.mainFrame() !== waitFrame ? [
+					waitPage.waitForNavigation({
+						timeout: maxWaitTimeMs,
+						waitUntil: 'domcontentloaded',
+					}).then(() => ({
+						msg: `🧭 parent page navigated to ${waitPage.url()}`,
+						openedFrame: waitPage.mainFrame(),
+					})),
+				] : []),
 				this.#context.waitForTarget(
 					  target => target.type() === 'page' && !preTargets.has(target),
 					  {timeout: maxWaitTimeMs})
@@ -569,7 +563,7 @@ export class FieldsCollector extends BaseCollector {
 						  msg: `🧭 opened ${openedPage.url()}`,
 						  openedFrame: (await openedPage.page())!.mainFrame(),
 					  })),
-			], notFalsy))!;
+			]);
 
 			this.#log?.log(msg);
 			this.#log?.debug('waiting for page to fully load');
