@@ -10,6 +10,8 @@ import type {RequestType, StaticNetFilteringEngine} from '@gorhill/ubo-core';
 
 import ErrnoException = NodeJS.ErrnoException;
 
+const cacheDir = path.join(__dirname, '../tmp/');
+
 export class ThirdPartyClassifier {
 	static #instancePromise?: Promise<ThirdPartyClassifier>;
 	static #instance?: ThirdPartyClassifier;
@@ -24,9 +26,7 @@ export class ThirdPartyClassifier {
 
 	static get() {
 		return this.#instancePromise ??= (async () => {
-			const cacheDir = path.join(__dirname, '../tmp/');
 			await fsp.mkdir(cacheDir, {recursive: true});
-
 			const file = path.join(cacheDir, 'simple-domain-map.json');
 
 			// Download entity map and cache, or used cached version
@@ -113,7 +113,7 @@ export class TrackerClassifier {
 			const {StaticNetFilteringEngine} = await eval('import(\'@gorhill/ubo-core\')') as typeof import('@gorhill/ubo-core');
 			const filter                     = await StaticNetFilteringEngine.create();
 
-			const listCacheDir = './tmp/block-lists/';
+			const listCacheDir = path.join(cacheDir, 'block-lists/');
 			await fsp.mkdir(listCacheDir, {recursive: true});
 
 			const trackerLists = {
