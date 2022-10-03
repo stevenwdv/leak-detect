@@ -452,10 +452,10 @@ export class FieldsCollector extends BaseCollector {
 		const page     = this.#page;
 		const linkInfo = await getElementInfoFromAttrs(link, page.mainFrame(), this.options.debug);
 		if (!linkInfo) throw new Error('could not find link element anymore');
-		const waitNavigation =
-			        this.#waitForNavigation(page.mainFrame(), this.options.timeoutMs.followLink, 'post-click-link');
-		await this.#click(linkInfo.handle);
-		const opened = await waitNavigation;
+		const [opened] = await Promise.all([
+			this.#waitForNavigation(page.mainFrame(), this.options.timeoutMs.followLink, 'post-click-link'),
+			this.#click(linkInfo.handle),
+		]);
 		await this.#screenshot(opened?.page() ?? page, 'link-clicked');
 	}
 
@@ -809,14 +809,14 @@ export class FieldsCollector extends BaseCollector {
 		this.#log?.log('⏎ submitting field', selectorStr(field.attrs.selectorChain));
 		this.#setDirty(field.handle.frame.page());
 		try {
-			const waitNavigation = this.#waitForNavigation(field.handle.frame,
-				  this.options.timeoutMs.submitField, 'post-submit');
-			await submitField(field.handle, this.options.sleepMs?.fill?.clickDwell ?? 0);
-			field.attrs.submitted = true;
+			const [opened] = await Promise.all([
+				this.#waitForNavigation(field.handle.frame,
+					  this.options.timeoutMs.submitField, 'post-submit'),
+				submitField(field.handle, this.options.sleepMs?.fill?.clickDwell ?? 0)
+					  .then(() => field.attrs.submitted = true),
+			]);
 
-			const frame  = field.handle.frame;
-			const opened = await waitNavigation;
-			await this.#screenshot((opened ?? frame).page(), 'submitted');
+			await this.#screenshot((opened ?? field.handle.frame).page(), 'submitted');
 		} catch (err) {
 			this.#reportError(err, ['failed to submit field', field.attrs], 'warn');
 		}
