@@ -60,7 +60,7 @@ export function formSelectorChain(handle: ElementHandle): Promise<SelectorChain>
 }
 
 export async function getElementAttrs(handle: ElementHandle): Promise<ElementAttrs> {
-	const inView         = await handle.isIntersectingViewport();
+	const inView         = await handle.isIntersectingViewport().catch(() => null);
 	const boundingBox    = await handle.boundingBox();
 	const elAttrsPartial = await handle.evaluate(el => {
 		const form = (el as Element & { form?: HTMLFormElement }).form;
@@ -110,7 +110,7 @@ export interface ElementAttrs {
 	form: SelectorChain | null;
 
 	onTop: boolean;
-	inView: boolean;
+	inView: boolean | null;
 	visible: boolean;
 	boundingBox: BoundingBox | null;
 
