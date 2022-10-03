@@ -43,7 +43,8 @@ import {
 	formSelectorChain,
 	getElementAttrs,
 	getElementBySelectorChain,
-	getElementInfoFromAttrs, getElemIdentifier,
+	getElementInfoFromAttrs,
+	getElemIdentifier,
 	getElemIdentifierStr,
 	LinkElementAttrs,
 	LinkMatchType,
@@ -398,6 +399,7 @@ export class FieldsCollector extends BaseCollector {
 	 * @returns Used links & processed fields
 	 */
 	async #inspectLinkedPages(): Promise<{ links: LinkElementAttrs[], fields: FieldElementAttrs[] } | null> {
+		if (this.#maxFieldsReached()) return {links: [], fields: []};
 		try {
 			await this.#cleanPage(this.#page);
 			let links = (await getLoginLinks(this.#page.mainFrame(), new Set(['exact', 'loose', 'coords'])))
@@ -434,7 +436,8 @@ export class FieldsCollector extends BaseCollector {
 						this.#reportError(err, ['failed to inspect linked page for link', link], 'warn');
 					}
 				});
-				if (this.options.stopEarly === 'first-page-with-form' && fields.length)
+				if (this.options.stopEarly === 'first-page-with-form' && fields.length
+					  || this.#maxFieldsReached())
 					break;
 			}
 			return {links, fields};
@@ -659,7 +662,7 @@ export class FieldsCollector extends BaseCollector {
 				allDone = true;  // All frames are done
 			}
 
-			if (this.#processedFields.size >= this.options.fill.maxFields)
+			if (this.#maxFieldsReached())
 				this.#log?.log('💯 reached maximum number of filled fields');
 			this.#log?.log(`${pageFields.length ? '🆕' : '🔚'} processed ${pageFields.length} new fields`);
 			return pageFields;
@@ -674,7 +677,7 @@ export class FieldsCollector extends BaseCollector {
 	 *  Also includes previously processed fields in forms which have new fields.
 	 */
 	async #processFields(frame: Frame): Promise<{ fields: FieldElementAttrs[] | null, done: boolean }> {
-		if (this.#processedFields.size >= this.options.fill.maxFields)
+		if (this.#maxFieldsReached())
 			return {fields: null, done: true};
 		const frameFields = await this.#findFields(frame);
 		if (!frameFields) return {fields: null, done: true};
@@ -713,7 +716,7 @@ export class FieldsCollector extends BaseCollector {
 							fields: formSelector ? formFields.map(f => f.attrs) : [field.attrs],
 							// We are done if this was the last form or the last loose field
 							done: lastForm && this.#processedFields.has(getElemIdentifierStr(formFields.at(-1)!))
-								  || this.#processedFields.size >= this.options.fill.maxFields,
+								  || this.#maxFieldsReached(),
 						};
 					} catch (err) {
 						this.#reportError(err, ['failed to process form', formSelector], 'warn');
@@ -803,6 +806,10 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #submitField(field: ElementInfo<FieldElementAttrs>) {
+		if (!(field.attrs.filled ?? false)) {
+			this.#log?.log(`skip submitting ${selectorStr(field.attrs.selectorChain)} because it was not filled`);
+			return;
+		}
 		this.#events.push(new SubmitEvent(getElemIdentifier(field)));
 		this.#log?.log('⏎ submitting field', selectorStr(field.attrs.selectorChain));
 		this.#setDirty(field.handle.frame.page());
@@ -933,6 +940,10 @@ export class FieldsCollector extends BaseCollector {
 				this.#reportError(err, [`failed to make ${trigger} screenshot`, page.url()], 'warn');
 			}
 		}
+	}
+
+	#maxFieldsReached() {
+		return this.#processedFields.size >= this.options.fill.maxFields;
 	}
 
 	/** Called from an asynchronous page script when an error occurs */
@@ -1252,8 +1263,8 @@ export interface FieldsCollectorData {
 export const enum PageVars {
 	FRAME_ID          = '@@leakDetectFrameId',
 	INJECTED          = '@@leakDetectInjected',
-	DOM_OBSERVED      = '@@leakDetectPasswordObserved',
-	DOM_LEAK_CALLBACK = '@@leakDetectPasswordObserverCallback',
+	DOM_OBSERVED      = '@@leakDetectDomObserved',
+	DOM_LEAK_CALLBACK = '@@leakDetectDomObserverCallback',
 	ERROR_CALLBACK    = '@@leakDetectError',
 }
 
