@@ -50,7 +50,7 @@ import * as progress from './progress';
 import breakpoints, {LeakDetectorCaptureData} from './breakpoints';
 import configSchema from './crawl-config.schema.json';
 import {appendDomainToEmail, nonEmpty, populateDefaults, stripIndent, truncateLine, validUrl} from './utils';
-import {RequestLeak, findRequestLeaks, getSummary} from './analysis';
+import {findRequestLeaks, getSummary, RequestLeak} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
 import {stackFrameFileRegex} from './pageUtils';
@@ -189,7 +189,12 @@ async function main() {
 				    type: 'boolean',
 				    default: true,
 			    })
-			    .option('timeout', {
+			    .option('load-timeout', {
+				    description: 'timeout for loading the main page, in seconds',
+				    type: 'number',
+				    default: 30,
+			    })
+			    .option('collect-timeout', {
 				    description: 'timeout for crawl, in seconds, or 0 to disable',
 				    type: 'number',
 				    default: 20 * 60,
@@ -310,11 +315,13 @@ async function main() {
 		progress.init(' :bar :current/:total:msg │ ETA: :etas', urls.length);
 		progress.update(0, {msg: ''});
 
-		const urlsInProgress: string[] = [];
+		const urlsInProgress: { url: string, startTime: number }[] = [];
 
 		process.on('uncaughtExceptionMonitor', () => {
 			progress.setState('error');
-			console.log(`\nURLs for which crawl was in progress:\n${urlsInProgress.join('\n')}\n`);
+			console.log(`\nURLs for which crawl was in progress:\n${
+				  urlsInProgress.map(({url, startTime}) => `⏱️${(Date.now() - startTime) / 1e3}s ${url}`)
+						.join('\n')}\n`);
 		});
 
 		process.setMaxListeners(Infinity);
@@ -328,7 +335,7 @@ async function main() {
 
 		let urlsFinished = 0;
 		await eachLimit(urls, args.parallelism, async url => {
-			urlsInProgress.push(url.href);
+			urlsInProgress.push({url: url.href, startTime: Date.now()});
 			const fileBase     = path.join(outputDir, `${Date.now()} ${sanitizeFilename(
 				  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
 				  {replacement: '_'},
@@ -377,7 +384,7 @@ async function main() {
 				await fileLogger.finalize();
 			}
 
-			urlsInProgress.splice(urlsInProgress.indexOf(url.href), 1);
+			urlsInProgress.splice(urlsInProgress.findIndex(e => e.url === url.href), 1);
 			progress.update(++urlsFinished / urls.length, {
 				msg: ` ✓ ${truncateLine(url.href, 60)}`,
 			});
@@ -468,7 +475,8 @@ async function crawl(
 		  headedWait: boolean,
 		  headedAutoclose: boolean,
 		  devtools: boolean,
-		  timeout: number,
+		  collectTimeout: number,
+		  loadTimeout: number,
 		  errorExitCode: boolean | undefined,
 		  checkThirdParty: boolean,
 		  checkRequestLeaks: boolean,
@@ -523,7 +531,8 @@ async function crawl(
 			  {
 				  browserContext,
 				  log: plainToLogger.bind(undefined, logger),
-				  maxCollectionTimeMs: args.timeout * 1e3,
+				  maxLoadTimeMs: args.loadTimeout * 1e3,
+				  maxCollectionTimeMs: args.collectTimeout * 1e3,
 				  headed: args.headed,
 				  keepOpen: args.headed && !args.headedAutoclose,
 				  devtools: args.devtools,
