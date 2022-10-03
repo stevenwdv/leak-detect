@@ -29,7 +29,7 @@ export function isOnTop(elem: Element): boolean {
 }
 
 function escapeAttrVal(str: string): string {
-	return str.replaceAll('\\', '\\\\').replaceAll('\'', '\\\'');
+	return str.replaceAll(/\\/g, '\\\\').replaceAll(/'/g, '\\\'');
 }
 
 function formSelectorFromRoot(elem: Element): string {
