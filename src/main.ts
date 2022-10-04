@@ -337,58 +337,62 @@ async function main() {
 		let urlsFinished = 0;
 		await eachLimit(urls, args.parallelism, async url => {
 			urlsInProgress.push({url: url.href, startTime: Date.now()});
-			const fileBase     = path.join(outputDir, `${Date.now()} ${sanitizeFilename(
-				  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
-				  {replacement: '_'},
-			)}`);
-			let crawlStart: number | undefined;
-			const fileLogger   = new FileLogger(`${fileBase}.log`,
-				  args.logTimestamps
-						? () => crawlStart !== undefined
-							  ? `⌚️${((Date.now() - crawlStart) / 1e3).toFixed(1)}s`
-							  : undefined
-						: undefined);
-			let logger: Logger = new TaggedLogger(fileLogger);
-			logger.info(`🕸 crawling ${url.href} at ${new Date().toString()}`);
-			if (logLevel) logger = new FilteringLogger(logger, logLevel);
-			const errorCapture = args.logBatchErrors
-				  ? logger = new ErrorCaptureLogger(logger)
-				  : undefined;
-			const counter      = logger = new CountingLogger(logger);
-
 			try {
-				const output = await crawl(url, args, true, browser, options, apiBreakpoints, logger,
-					  t => crawlStart = t);
+				const fileBase     = path.join(outputDir, truncateLine(`${Date.now()} ${sanitizeFilename(
+					  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
+					  {replacement: '_'},
+				)}`, 50));
+				let crawlStart: number | undefined;
+				const fileLogger   = new FileLogger(`${fileBase}.log`,
+					  args.logTimestamps
+							? () => crawlStart !== undefined
+								  ? `⌚️${((Date.now() - crawlStart) / 1e3).toFixed(1)}s`
+								  : undefined
+							: undefined);
+				let logger: Logger = new TaggedLogger(fileLogger);
+				logger.info(`🕸 crawling ${url.href} at ${new Date().toString()}`);
+				if (logLevel) logger = new FilteringLogger(logger, logLevel);
+				const errorCapture = args.logBatchErrors
+					  ? logger = new ErrorCaptureLogger(logger)
+					  : undefined;
+				const counter      = logger = new CountingLogger(logger);
 
-				const errors   = counter.count('error'),
-				      warnings = counter.count('warn');
-				if (errors || warnings) {
-					progress.log(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
-					for (const {level, args} of errorCapture?.errors ?? [])
-						progress.log(`\t${level === 'error' ? '❌️' : '⚠️'} ${args.map(String).join(' ')}`);
-				} else if (args.logSucceeded)
-					progress.log(`✔️ ${url.href}`);
+				try {
+					const output = await crawl(url, args, true, browser, options, apiBreakpoints, logger,
+						  t => crawlStart = t);
 
-				await saveJson(`${fileBase}.json`, output);
-				if (args.summary)
-					try {
-						await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
-					} catch (err) {
-						logger.error('failed to create summary', err);
-						progress.log(`❌️ ${url.href}: failed to create summary: ${String(err)}`);
-					}
+					const errors   = counter.count('error'),
+					      warnings = counter.count('warn');
+					if (errors || warnings) {
+						progress.log(`${errors ? `❌️${errors} ` : ''}${warnings ? `⚠️${warnings} ` : ''}${url.href}`);
+						for (const {level, args} of errorCapture?.errors ?? [])
+							progress.log(`\t${level === 'error' ? '❌️' : '⚠️'} ${args.map(String).join(' ')}`);
+					} else if (args.logSucceeded)
+						progress.log(`✔️ ${url.href}`);
+
+					await saveJson(`${fileBase}.json`, output);
+					if (args.summary)
+						try {
+							await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
+						} catch (err) {
+							logger.error('failed to create summary', err);
+							progress.log(`❌️ ${url.href}: failed to create summary: ${String(err)}`);
+						}
+				} catch (err) {
+					logger.error(err);
+					progress.log(`❌️ ${url.href}: ${String(err)}`);
+				} finally {
+					logger.log('DONE.');
+					await fileLogger.finalize();
+				}
 			} catch (err) {
-				logger.error(err);
-				progress.log(`❌️ ${url.href}: ${String(err)}`);
+				progress.log(`❌️ Unexpected error: ${url.href}: ${String(err)}`);
 			} finally {
-				logger.log('DONE.');
-				await fileLogger.finalize();
+				urlsInProgress.splice(urlsInProgress.findIndex(e => e.url === url.href), 1);
+				progress.update(++urlsFinished / urls.length, {
+					msg: ` ✓ ${truncateLine(url.href, 60)}`,
+				});
 			}
-
-			urlsInProgress.splice(urlsInProgress.findIndex(e => e.url === url.href), 1);
-			progress.update(++urlsFinished / urls.length, {
-				msg: ` ✓ ${truncateLine(url.href, 60)}`,
-			});
 		});
 		if (browser?.isConnected() === false)
 			throw new Error('Browser quit unexpectedly, this may be a bug in Chromium');
