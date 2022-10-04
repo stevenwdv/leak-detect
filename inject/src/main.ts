@@ -43,7 +43,8 @@ function formSelectorFromRoot(elem: Element): string {
 		// Best-effort info
 		return id ? `${elem.tagName}[id='${escapeAttrVal(id)}']` : `${elem.tagName}[detached]`;
 	}
-	if (elem.parentNode instanceof Document) return ':root';  // <html> element
+	// MooTools overwrites Document
+	if (elem.parentNode.nodeType === Node.DOCUMENT_NODE) return ':root';  // <html> element
 
 	function globallyUnique(selector: string): boolean {
 		try {

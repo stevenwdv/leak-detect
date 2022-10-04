@@ -49,7 +49,14 @@ import {
 	selectorStr,
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
-import {exposeFunction, getFrameStack, isNavigationError, unwrapHandle, waitForLoad} from './puppeteerUtils';
+import {
+	exposeFunction,
+	getFrameStack,
+	isNavigationError,
+	robustPierceQueryHandler,
+	unwrapHandle,
+	waitForLoad,
+} from './puppeteerUtils';
 import ErrnoException = NodeJS.ErrnoException;
 import TimeoutError = puppeteer.TimeoutError;
 
@@ -199,6 +206,9 @@ export class FieldsCollector extends BaseCollector {
 	override id() { return 'fields' as const; }
 
 	override init({log, url, context}: BaseCollector.CollectorInitOptions) {
+		if (!puppeteer.customQueryHandlerNames().includes('robustpierce'))
+			puppeteer.registerCustomQueryHandler('robustpierce', robustPierceQueryHandler);
+
 		this.#log ??= new ColoredLogger(new PlainLogger(log));
 		this.#context    = context;
 		this.#headless   = context.browser().process()?.spawnargs.includes('--headless') ?? true;
@@ -790,7 +800,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #getPasswordFields(frame: Frame): Promise<ElementInfo<FieldElementAttrs>[]> {
-		const elHandles = await frame.$$('pierce/input[type=password]');
+		const elHandles = await frame.$$('robustpierce/input[type=password]');
 		return (await Promise.all(elHandles.map(async handle => ({
 			handle,
 			attrs: {
