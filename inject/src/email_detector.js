@@ -113,26 +113,35 @@ function* detectEmailInputs(domRoot) {
     if (!(domRoot.ownerDocument ?? domRoot).head) return;
 
     //#LD-CHANGE Fix incorrect Prototype.js implementation
-    let af     = Array.from;
-    Array.from = it => [...it];
+    let theirArrayFrom = Array.from;
+    Array.from         = it => [...it];
+    let theirReduce    = Array.prototype.reduce;
+    if (Array.prototype.reduce.length === 0)
+        Array.prototype.reduce = function(...args) {
+            return [...this].reverse().reduceRight(...args);
+        };
 
-    // First return <input type='email'>
-    //#LD-CHANGE use querySelectorAllDeep
-    const typeEmailInputs = Array.from(querySelectorAllDeep('input[type=\'email\']'));
-    for (const input of typeEmailInputs) {
-        //#LD-CHANGE yield score
-        yield {elem: input, score: 2};
-    }
-
-    // Then run ruleset and return detected fields
-    const detectedInputs = email_detector_ruleset.against(domRoot).get('email');
-    for (const input of detectedInputs) {
-        //#LD-CHANGE yield score
-        const score = input.scoreFor('email');
-        if (score > 0.5) {
-            yield {elem: input.element, score};
+    try {
+        // First return <input type='email'>
+        //#LD-CHANGE use querySelectorAllDeep
+        const typeEmailInputs = Array.from(querySelectorAllDeep('input[type=\'email\']'));
+        for (const input of typeEmailInputs) {
+            //#LD-CHANGE yield score
+            yield {elem: input, score: 2};
         }
+
+        // Then run ruleset and return detected fields
+        const detectedInputs = email_detector_ruleset.against(domRoot).get('email');
+        for (const input of detectedInputs) {
+            //#LD-CHANGE yield score
+            const score = input.scoreFor('email');
+            if (score > 0.5) {
+                yield {elem: input.element, score};
+            }
+        }
+    } finally {
+        //#LD-CHANGE
+        Array.from             = theirArrayFrom;
+        Array.prototype.reduce = theirReduce;
     }
-    //#LD-CHANGE
-    Array.from = af;
 }

@@ -189,13 +189,22 @@ export function* detectUsernameInputs(domRoot) {
 	if (!(domRoot.ownerDocument ?? domRoot).head) return;
 
 	// Fix incorrect Prototype.js implementation
-	let af     = Array.from;
-	Array.from = it => [...it];
+	let theirArrayFrom = Array.from;
+	Array.from         = it => [...it];
+	let theirReduce    = Array.prototype.reduce;
+	if (Array.prototype.reduce.length === 0)
+		Array.prototype.reduce = function(...args) {
+			return [...this].reverse().reduceRight(...args);
+		};
 
-	const detectedInputs = makeRuleset().against(domRoot).get('username');
-	for (const input of detectedInputs) {
-		const score = input.scoreFor('username');
-		if (score > .5) yield {elem: input.element, score};
+	try {
+		const detectedInputs = makeRuleset().against(domRoot).get('username');
+		for (const input of detectedInputs) {
+			const score = input.scoreFor('username');
+			if (score > .5) yield {elem: input.element, score};
+		}
+	} finally {
+		Array.from             = theirArrayFrom;
+		Array.prototype.reduce = theirReduce;
 	}
-	Array.from = af;
 }
