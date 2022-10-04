@@ -695,16 +695,17 @@ async function getRequestLeaks(
 	let halfTotal: number | undefined;
 	const completedMap = Object.fromEntries(Object.entries(searchers).map(([prop]) => [prop, 0])) as
 		  Record<keyof typeof searchers, number>;
+	const requests     = crawlResult.data.requests?.slice();
 	return (await parallelLimit(Object.entries(searchers).map(([prop, searcher]) => async () =>
 		  (await findRequestLeaks(searcher,
-				crawlResult.data.requests ?? [],
-				crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? [],
-				decodeLayers,
-				undefined,
-				onProgress && ((completed, total) => {
-					completedMap[prop as keyof typeof searchers] = completed;
-					onProgress(sum(Object.values(completedMap)), (halfTotal ??= total) * 2);
-				})))
+			    requests ?? [],
+			    crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? [],
+			    decodeLayers,
+			    undefined,
+			    onProgress && ((completed, total) => {
+				    completedMap[prop as keyof typeof searchers] = completed;
+				    onProgress(sum(Object.values(completedMap)), (halfTotal ??= total) * 2);
+			    })))
 				.map(entry => ({
 					...entry,
 					type: prop as keyof typeof searchers,
