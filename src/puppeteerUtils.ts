@@ -37,55 +37,62 @@ export async function exposeFunction<Name extends keyof Window & string,
 }
 
 export const robustPierceQueryHandler: CustomQueryHandler = {
-	queryOne(node: Node, selector: string): Node | null {
+	queryAll(node: Node, selector: string): Node[] {
+		// For some Nodes child elements can overwrite properties, so we do this
+		// Also, MooTools overwrites Document & Element
+		const elementProto = Object.getPrototypeOf(HTMLElement.prototype) as typeof window.Element.prototype;
+		/* eslint-disable @typescript-eslint/unbound-method */
+		const shadowRoot = Object.getOwnPropertyDescriptor(elementProto, 'shadowRoot')!.get! as (this: Element) => ShadowRoot | null,
+		      matches    = Object.getOwnPropertyDescriptor(elementProto, 'matches')!.value as (
+			        this: Element, selectors: string) => boolean;
+		/* eslint-enable @typescript-eslint/unbound-method */
+
 		function* examineChildren(node: Node): Generator<Element, void, void> {
-			// MooTools overwrites Document & Element
-			const elementProto = Object.getPrototypeOf(HTMLElement.prototype) as typeof window.Element.prototype;
-			/* eslint-disable @typescript-eslint/unbound-method */
-			const shadowRoot = Object.getOwnPropertyDescriptor(elementProto, 'shadowRoot')!.get! as (this: Element) => ShadowRoot | null,
-			      matches    = Object.getOwnPropertyDescriptor(elementProto, 'matches')!.value as (
-				        this: Element, selectors: string) => boolean;
-			/* eslint-enable @typescript-eslint/unbound-method */
+			if (node instanceof elementProto.constructor) {
+				const nodeShadow = shadowRoot.call(node as Element);
+				if (nodeShadow) yield* examineChildren(nodeShadow);
+			}
 
 			// Note: document does not actually matter
 			const iter = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
 			// First result would be node itself
 			while (iter.nextNode()) {
-				const child      = iter.currentNode as Element;
-				const nodeShadow = shadowRoot.call(child);
-				if (nodeShadow) yield* examineChildren(nodeShadow);
+				const child = iter.currentNode as Element;
+				if (matches.call(child, selector)) yield child;
+			}
+		}
 
+		return [...examineChildren(node)];
+	},
+	// Code duplicated from queryAll because these will be injected
+	queryOne(node: Node, selector: string): Node | null {
+		// For some Nodes child elements can overwrite properties, so we do this
+		// Also, MooTools overwrites Document & Element
+		const elementProto = Object.getPrototypeOf(HTMLElement.prototype) as typeof window.Element.prototype;
+		/* eslint-disable @typescript-eslint/unbound-method */
+		const shadowRoot = Object.getOwnPropertyDescriptor(elementProto, 'shadowRoot')!.get! as (this: Element) => ShadowRoot | null,
+		      matches    = Object.getOwnPropertyDescriptor(elementProto, 'matches')!.value as (
+			        this: Element, selectors: string) => boolean;
+
+		/* eslint-enable @typescript-eslint/unbound-method */
+
+		function* examineChildren(node: Node): Generator<Element, void, void> {
+			if (node instanceof elementProto.constructor) {
+				const nodeShadow = shadowRoot.call(node as Element);
+				if (nodeShadow) yield* examineChildren(nodeShadow);
+			}
+
+			// Note: document does not actually matter
+			const iter = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
+			// First result would be node itself
+			while (iter.nextNode()) {
+				const child = iter.currentNode as Element;
 				if (matches.call(child, selector)) yield child;
 			}
 		}
 
 		const [first] = examineChildren(node);
 		return first ?? null;
-	},
-	queryAll(node: Node, selector: string): Node[] {
-		function* examineChildren(node: Node): Generator<Element, void, void> {
-			// For some Nodes child elements can overwrite properties, so we do this
-			// Also, MooTools overwrites Document & Element
-			const elementProto = Object.getPrototypeOf(HTMLElement.prototype) as typeof window.Element.prototype;
-			/* eslint-disable @typescript-eslint/unbound-method */
-			const shadowRoot = Object.getOwnPropertyDescriptor(elementProto, 'shadowRoot')!.get! as (this: Element) => ShadowRoot | null,
-			      matches    = Object.getOwnPropertyDescriptor(elementProto, 'matches')!.value as (
-				        this: Element, selectors: string) => boolean;
-			/* eslint-enable @typescript-eslint/unbound-method */
-
-			// Note: document does not actually matter
-			const iter = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
-			// First result would be node itself
-			while (iter.nextNode()) {
-				const child      = iter.currentNode as Element;
-				const nodeShadow = shadowRoot.call(child);
-				if (nodeShadow) yield* examineChildren(nodeShadow);
-
-				if (matches.call(child, selector)) yield child;
-			}
-		}
-
-		return [...examineChildren(node)];
 	},
 };
 
