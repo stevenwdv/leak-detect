@@ -1245,7 +1245,7 @@ export class ScreenshotEvent extends FieldsCollectorEvent {
 
 //endregion
 
-interface ErrorInfo {
+export interface ErrorInfo {
 	time: number;
 	error: unknown;
 	/** messages / objects with more info */

@@ -9,6 +9,7 @@ import {OutputFile, SavedCallEx, ThirdPartyInfo} from './main';
 import {getElemIdentifierStr, selectorStr, stackFrameFileRegex} from './pageUtils';
 import {
 	ClickLinkEvent,
+	ErrorInfo,
 	FillEvent,
 	FullFieldsCollectorOptions,
 	NavigateEvent,
@@ -92,6 +93,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		if (fieldsData.events.length) {
 			const allEvents = [
 				fieldsData.events,
+				fieldsData.errors.map(error => ({type: 'error', time: error.time, error})),
 				fieldsData.domLeaks.map(leak => ({type: 'dom-leak', time: leak.time, leak})),
 				relevantRequestLeaks.map(leak => ({
 					type: 'request-leak',
@@ -137,8 +139,9 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 						const {url: urlStr, fullyLoaded} = event as NavigateEvent;
 						const url                        = new URL(urlStr);
 						url.search                       = url.hash = '';
-						writeln(`\t${time(event.time)} 🧭 navigated to ${getRelativeUrl(url, new URL(result.finalUrl))}${
-							  !fullyLoaded ? ' (load timeout)' : ''}`);
+						writeln(`\t${time(event.time)} 🧭 navigated to ${
+							  getRelativeUrl(url, new URL(result.finalUrl)) || 'landing page'
+						}${!fullyLoaded ? ' (load timeout)' : ''}`);
 						break;
 					}
 					case 'screenshot': {
@@ -150,18 +153,25 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 						writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to DOM`);
 						break;
 					case 'request-leak': {
-						const leak = (event as typeof event & { leak: typeof relevantRequestLeaks[0] }).leak;
-						const url  = leak.request?.url ?? leak.visitedTarget!.url;
+						const {leak} = event as typeof event & { leak: typeof relevantRequestLeaks[0] };
+						const url    = leak.request?.url ?? leak.visitedTarget!.url;
 						writeln(`\t\t${time(event.time)} ${leak.type === 'password' ? '🚨' : '⚠️'} 📤 ${
 							  leak.type === 'password' ? '🔑' : '📧'} ${leak.type} sent to ${tldts.getHostname(url) ?? url}`);
 						break;
 					}
 					case 'value-sniff': {
-						const call   = (event as typeof event & { call: SavedCallEx }).call;
+						const {call} = event as typeof event & { call: SavedCallEx };
 						const topUrl = call.stack?.[0]?.match(stackFrameFileRegex)?.[0];
 						writeln(`\t\t${time(event.time)} 🔍 ${
 							  call.custom.value === fieldsCollectorOptions.fill.password ? '🔑 password' : '📧 email'
 						} value of field read by script${topUrl ? ` from ${tldts.getHostname(topUrl) ?? topUrl}` : ''}`);
+						break;
+					}
+					case 'error': {
+						const {error} = event as typeof event & { error: ErrorInfo };
+						writeln(`\t\t${time(event.time)} ${error.level === 'error' ? '❌️' : '⚠️'} ${
+							  typeof error.context[0] === 'string' ? `${error.context[0]} ` : ''
+						}${truncateLine(String(error.error).match(/.*/)![0]!, 60)}`);
 						break;
 					}
 				}
