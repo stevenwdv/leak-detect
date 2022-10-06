@@ -964,7 +964,7 @@ export class FieldsCollector extends BaseCollector {
 			this.#log?.log(...context, error);
 		} else {
 			this.#log?.logLevel(level, ...context, error);
-			this.#errors.push({error, context, level});
+			this.#errors.push({time: Date.now(), error, context, level});
 		}
 	}
 
@@ -1246,6 +1246,7 @@ export class ScreenshotEvent extends FieldsCollectorEvent {
 //endregion
 
 interface ErrorInfo {
+	time: number;
 	error: unknown;
 	/** messages / objects with more info */
 	context: unknown[];
