@@ -285,8 +285,8 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			writeln('\n═══ ⚠️ Fields collector errors: ═══\n');
 			for (const error of fieldsData.errors)
 				writeln(`\t${error.level === 'error' ? '❌️' : '⚠️'} ${
-					  typeof error.context[0] === 'string' ? `${error.context[0]} ` : ''
-				}${String(error.error)}`);
+					  error.context.map(ctx => typeof ctx === 'string' ? ctx : JSON.stringify(ctx)).join(' ')
+				}${error.error instanceof Error && error.error.stack || String(error.error)}`);
 			writeln();
 		}
 	}

@@ -725,8 +725,8 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 }
 
 async function saveJson(file: fs.PathLike | fsp.FileHandle, output: OutputFile) {
-	await fsp.writeFile(file, JSON.stringify(output, (_key, value) =>
-		  value instanceof Error ? String(value) : value as unknown, '\t'));
+	await fsp.writeFile(file, JSON.stringify(output, (_key, value: unknown) =>
+		  value instanceof Error ? value.stack ?? String(value) : value, '\t'));
 }
 
 class ErrorCaptureLogger extends Logger {
