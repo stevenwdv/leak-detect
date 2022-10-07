@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import readline from 'node:readline/promises';
 import consumers from 'node:stream/consumers';
 
 import async, {ErrorCallback, IterableCollection} from 'async';
@@ -239,12 +240,18 @@ async function main() {
 				    type: 'boolean',
 				    default: true,
 			    })
-				.option('output', {
-					alias: 'out',
-					description: 'output file (--url) or directory (--urls-file)',
-					type: 'string',
-					normalize: true,
-				}))
+			    .option('output', {
+				    alias: 'out',
+				    description: 'output file (--url) or directory (--urls-file)',
+				    type: 'string',
+				    normalize: true,
+			    })
+			    .option('ignore-crawl-state', {
+				    description: 'do not skip already crawled URLs in batch mode according to .crawl-state file',
+				    type: 'boolean',
+				    default: false,
+			    }),
+		  )
 		  .demandCommand()
 		  .strict()
 		  .parseSync();
@@ -306,9 +313,68 @@ async function main() {
 		if (!args.output) throw new Error('--output must be specified with --urls-file');
 		const outputDir = args.output;
 
-		const urlsStr = await fsp.readFile(args.urlsFile, 'utf8');
-		const urls    = [...urlsStr.matchAll(/^\s*(.*\S)\s*$/mg)].map(m => m[1]!)
-			  .filter(l => !l.startsWith('#')).map(u => new URL(u));
+		let crawlStateWriter: fs.WriteStream;
+		let urls: URL[];
+		{
+			let urlStrs;
+			{
+				const urlsStr = await fsp.readFile(args.urlsFile, 'utf8');
+				urlStrs       = [...urlsStr.matchAll(/^\s*(.*\S)\s*$/mg)].map(m => m[1]!)
+					  .filter(l => !l.startsWith('#'));
+			}
+
+			const crawlStateFile = await fsp.open(path.join(args.output, '.crawl-state'), 'as+');
+
+			const urlStates = new Map<string, 'started' | 'finished'>();
+			{
+				const crawlStateRead = crawlStateFile.createReadStream({autoClose: false});
+				const lines          = readline.createInterface({
+					input: crawlStateRead,
+					terminal: false,
+				});
+				for await (let line of lines) {
+					line = line.trim();
+					if (!line || line.startsWith('#')) continue;
+					const item = JSON.parse(line) as CrawlStateLine;
+					switch (item.type) {
+						case 'start':
+							urlStates.set(item.url, 'started');
+							break;
+						case 'end':
+							urlStates.set(item.url, 'finished');
+							break;
+					}
+				}
+				lines.close();
+			}
+
+			let startedCount = 0, finishedCount = 0;
+			const newUrls    = urlStrs.filter(u => {
+				const state = urlStates.get(u);
+				switch (state) {
+					case 'started':
+						++startedCount;
+						break;
+					case 'finished':
+						++finishedCount;
+						break;
+				}
+				return state !== 'finished';
+			});
+			if (!args.ignoreCrawlState) {
+				urlStrs = newUrls;
+				if (finishedCount) console.log(`⏭️ skipping ${finishedCount} already fully crawled URLs`);
+			} else {
+				if (finishedCount) console.log(`🔁️ re-crawling ${finishedCount} already fully crawled URLs`);
+			}
+			if (startedCount) console.log(`🔁️ restarting ${startedCount} previously interrupted crawls`);
+
+			urls = urlStrs.map(u => new URL(u));
+
+			crawlStateWriter = crawlStateFile.createWriteStream({highWaterMark: 0} as unknown as fsp.CreateWriteStreamOptions);
+			crawlStateWriter.setMaxListeners(Infinity);
+		}
+
 		console.log(`🕸 crawling ${urls.length} URLs (max ${args.parallelism} in parallel)`);
 
 		await fsp.mkdir(outputDir, {recursive: true});
@@ -334,14 +400,38 @@ async function main() {
 			devtools: args.devtools,
 		}) : undefined;
 
+		async function writeCrawlState(line: CrawlStateLine): Promise<void> {
+			async function waitForDrain(writer: fs.WriteStream): Promise<void> {
+				if (writer.writableNeedDrain)
+					await new Promise(resolve => writer.once('drain', resolve));
+			}
+
+			await waitForDrain(crawlStateWriter);
+			crawlStateWriter.write(`${JSON.stringify(line)}\n`);
+			await waitForDrain(crawlStateWriter);
+		}
+
+		await writeCrawlState({
+			type: 'batch-start',
+			time: Date.now(),
+		});
+
 		let urlsFinished = 0;
 		await eachLimit(urls, args.parallelism, async url => {
 			urlsInProgress.push({url: url.href, startTime: Date.now()});
+			let error: unknown | undefined;
 			try {
-				const fileBase     = path.join(outputDir, truncateLine(`${Date.now()} ${sanitizeFilename(
+				const fileBaseName = truncateLine(`${Date.now()} ${sanitizeFilename(
 					  url.hostname + (url.pathname !== '/' ? ` ${url.pathname.substring(1)}` : ''),
 					  {replacement: '_'},
-				)}`, 50));
+				)}`, 50);
+				const fileBase     = path.join(outputDir, fileBaseName);
+				await writeCrawlState({
+					type: 'start',
+					time: Date.now(),
+					url: url.href,
+					fileBaseName,
+				});
 				let crawlStart: number | undefined;
 				const fileLogger   = new FileLogger(`${fileBase}.log`,
 					  args.logTimestamps
@@ -379,6 +469,7 @@ async function main() {
 							progress.log(`❌️ ${url.href}: failed to create summary: ${String(err)}`);
 						}
 				} catch (err) {
+					error = err;
 					logger.error(err);
 					progress.log(`❌️ ${url.href}: ${String(err)}`);
 				} finally {
@@ -386,11 +477,18 @@ async function main() {
 					await fileLogger.finalize();
 				}
 			} catch (err) {
+				error = err;
 				progress.log(`❌️ Unexpected error: ${url.href}: ${String(err)}`);
 			} finally {
 				urlsInProgress.splice(urlsInProgress.findIndex(e => e.url === url.href), 1);
 				progress.update(++urlsFinished / urls.length, {
 					msg: ` ✓ ${truncateLine(url.href, 60)}`,
+				});
+				await writeCrawlState({
+					type: 'end',
+					time: Date.now(),
+					url: url.href,
+					...error !== undefined ? {error: error instanceof Error ? error.stack ?? String(error) : error} : {},
 				});
 			}
 		});
@@ -399,6 +497,11 @@ async function main() {
 		if (!args.headed || args.headedAutoclose)
 			await browser?.close();
 		progress.terminate();
+
+		await writeCrawlState({
+			type: 'batch-end',
+			time: Date.now(),
+		});
 
 		console.log(`Batch crawl took ${(Date.now() - batchCrawlStart) / 1e3}s`);
 		console.info('💾 data & logs saved to', outputDir);
@@ -698,14 +801,14 @@ async function getRequestLeaks(
 	const requests     = crawlResult.data.requests?.slice();
 	return (await parallelLimit(Object.entries(searchers).map(([prop, searcher]) => async () =>
 		  (await findRequestLeaks(searcher,
-			    requests ?? [],
-			    crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? [],
-			    decodeLayers,
-			    undefined,
-			    onProgress && ((completed, total) => {
-				    completedMap[prop as keyof typeof searchers] = completed;
-				    onProgress(sum(Object.values(completedMap)), (halfTotal ??= total) * 2);
-			    })))
+				requests ?? [],
+				crawlResult.data.fields?.visitedTargets.map(t => t.url) ?? [],
+				decodeLayers,
+				undefined,
+				onProgress && ((completed, total) => {
+					completedMap[prop as keyof typeof searchers] = completed;
+					onProgress(sum(Object.values(completedMap)), (halfTotal ??= total) * 2);
+				})))
 				.map(entry => ({
 					...entry,
 					type: prop as keyof typeof searchers,
@@ -759,6 +862,21 @@ void (async () => {
 		mainExited = true;
 	}
 })();
+
+type CrawlStateLine = {
+	type: 'batch-start' | 'batch-end',
+	time: number,
+} | {
+	type: 'start';
+	time: number,
+	url: string;
+	fileBaseName: string;
+} | {
+	type: 'end';
+	time: number,
+	url: string;
+	error?: unknown;
+};
 
 export type FieldsCollectorDataEx = FieldsCollectorData & {
 	visitedTargets: (VisitedTarget & Partial<ThirdPartyInfo>)[]
