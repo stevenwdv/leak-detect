@@ -59,6 +59,8 @@ export const robustPierceQueryHandler: CustomQueryHandler = {
 			while (iter.nextNode()) {
 				const child = iter.currentNode as Element;
 				if (matches.call(child, selector)) yield child;
+				const nodeShadow = shadowRoot.call(child);
+				if (nodeShadow) yield* examineChildren(nodeShadow);
 			}
 		}
 
@@ -73,7 +75,6 @@ export const robustPierceQueryHandler: CustomQueryHandler = {
 		const shadowRoot = Object.getOwnPropertyDescriptor(elementProto, 'shadowRoot')!.get! as (this: Element) => ShadowRoot | null,
 		      matches    = Object.getOwnPropertyDescriptor(elementProto, 'matches')!.value as (
 			        this: Element, selectors: string) => boolean;
-
 		/* eslint-enable @typescript-eslint/unbound-method */
 
 		function* examineChildren(node: Node): Generator<Element, void, void> {
@@ -88,6 +89,8 @@ export const robustPierceQueryHandler: CustomQueryHandler = {
 			while (iter.nextNode()) {
 				const child = iter.currentNode as Element;
 				if (matches.call(child, selector)) yield child;
+				const nodeShadow = shadowRoot.call(child);
+				if (nodeShadow) yield* examineChildren(nodeShadow);
 			}
 		}
 
