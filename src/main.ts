@@ -317,11 +317,11 @@ async function main() {
 		let crawlStateWriter: fs.WriteStream;
 		let urls: URL[];
 		{
-			let urlStrs;
 			{
 				const urlsStr = await fsp.readFile(args.urlsFile, 'utf8');
-				urlStrs       = [...urlsStr.matchAll(/^\s*(.*\S)\s*$/mg)].map(m => m[1]!)
-					  .filter(l => !l.startsWith('#'));
+				urls          = [...urlsStr.matchAll(/^\s*(.*\S)\s*$/mg)].map(m => m[1]!)
+					  .filter(l => !l.startsWith('#'))
+					  .map(s => new URL(s));
 			}
 
 			const crawlStatePath = path.join(args.output, '.crawl-state');
@@ -358,8 +358,8 @@ async function main() {
 			}
 
 			let startedCount = 0, finishedCount = 0;
-			const newUrls    = urlStrs.filter(u => {
-				const state = urlStates.get(u);
+			const newUrls    = urls.filter(u => {
+				const state = urlStates.get(u.href);
 				switch (state) {
 					case 'started':
 						++startedCount;
@@ -371,14 +371,12 @@ async function main() {
 				return state !== 'finished';
 			});
 			if (!args.ignoreCrawlState) {
-				urlStrs = newUrls;
+				urls = newUrls;
 				if (finishedCount) console.log(`⏭️ skipping ${finishedCount} already fully crawled URLs`);
 			} else {
 				if (finishedCount) console.log(`🔁️ re-crawling ${finishedCount} already fully crawled URLs`);
 			}
 			if (startedCount) console.log(`🔁️ restarting ${startedCount} previously interrupted crawls`);
-
-			urls = urlStrs.map(u => new URL(u));
 
 			crawlStateWriter = crawlStateFile.createWriteStream({highWaterMark: 0} as unknown as fsp.CreateWriteStreamOptions);
 			crawlStateWriter.setMaxListeners(Infinity);
