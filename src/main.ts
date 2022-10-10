@@ -11,6 +11,7 @@ import chalk from 'chalk';
 import {RequestType} from '@gorhill/ubo-core';
 import yaml from 'js-yaml';
 import jsonschema from 'jsonschema';
+import {lock} from 'proper-lockfile';
 import type {Browser} from 'puppeteer';
 import {sum} from 'rambda';
 import sanitizeFilename from 'sanitize-filename';
@@ -323,7 +324,15 @@ async function main() {
 					  .filter(l => !l.startsWith('#'));
 			}
 
-			const crawlStateFile = await fsp.open(path.join(args.output, '.crawl-state'), 'as+');
+			const crawlStatePath = path.join(args.output, '.crawl-state');
+			try {
+				await lock(crawlStatePath);
+			} catch (err) {
+				throw new Error(
+					  'failed to lock .crawl-state.lock; is another crawl process already running in this folder?',
+					  {cause: err});
+			}
+			const crawlStateFile = await fsp.open(crawlStatePath, 'as+');
 
 			const urlStates = new Map<string, 'started' | 'finished'>();
 			{
@@ -863,7 +872,7 @@ void (async () => {
 	}
 })();
 
-type CrawlStateLine = {
+export type CrawlStateLine = {
 	type: 'batch-start' | 'batch-end',
 	time: number,
 } | {
