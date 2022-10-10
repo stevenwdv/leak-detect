@@ -313,6 +313,7 @@ async function main() {
 	if (args.urlsFile) {
 		if (!args.output) throw new Error('--output must be specified with --urls-file');
 		const outputDir = args.output;
+		await fsp.mkdir(outputDir, {recursive: true});
 
 		let crawlStateWriter: fs.WriteStream;
 		let urls: URL[];
@@ -324,7 +325,8 @@ async function main() {
 					  .map(s => new URL(s));
 			}
 
-			const crawlStatePath = path.join(args.output, '.crawl-state');
+			const crawlStatePath = path.join(outputDir, '.crawl-state');
+			const crawlStateFile = await fsp.open(crawlStatePath, 'as+');
 			try {
 				await lock(crawlStatePath);
 			} catch (err) {
@@ -332,9 +334,8 @@ async function main() {
 					  'failed to lock .crawl-state.lock; is another crawl process already running in this folder?',
 					  {cause: err});
 			}
-			const crawlStateFile = await fsp.open(crawlStatePath, 'as+');
 
-			const urlStates = new Map<string, 'started' | 'finished'>();
+			const urlStates  = new Map<string, 'started' | 'finished'>();
 			{
 				const crawlStateRead = crawlStateFile.createReadStream({autoClose: false});
 				const lines          = readline.createInterface({
@@ -379,12 +380,10 @@ async function main() {
 			if (startedCount) console.log(`🔁️ restarting ${startedCount} previously interrupted crawls`);
 
 			crawlStateWriter = crawlStateFile.createWriteStream({highWaterMark: 0} as unknown as fsp.CreateWriteStreamOptions);
-			crawlStateWriter.setMaxListeners(Infinity);
+			crawlStateWriter.setMaxListeners(args.parallelism * 2);
 		}
 
 		console.log(`🕸 crawling ${urls.length} URLs (max ${args.parallelism} in parallel)`);
-
-		await fsp.mkdir(outputDir, {recursive: true});
 
 		progress.init(' :bar :current/:total:msg │ ETA: :etas', urls.length);
 		progress.update(0, {msg: ''});
