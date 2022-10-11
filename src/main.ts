@@ -251,8 +251,10 @@ async function main() {
 				    description: 'do not skip already crawled URLs in batch mode according to .crawl-state file',
 				    type: 'boolean',
 				    default: false,
-			    }),
-		  )
+			    }).option('retry-with-error', {
+				    description: 'repeat batch crawls previously finished with an error matching the RegEx',
+				    type: 'string',
+			    }))
 		  .demandCommand()
 		  .strict()
 		  .parseSync();
@@ -335,7 +337,9 @@ async function main() {
 					  {cause: err});
 			}
 
-			const urlStates = new Map<string, { state: 'started', tries: number } | { state: 'finished' }>();
+			const urlStates = new Map<string,
+				  | { state: 'started', tries: number }
+				  | { state: 'finished', error: string | undefined }>();
 			{
 				const crawlStateRead = crawlStateFile.createReadStream({autoClose: false});
 				const lines          = readline.createInterface({
@@ -356,31 +360,53 @@ async function main() {
 							break;
 						}
 						case 'end':
-							urlStates.set(item.url, {state: 'finished'});
+							urlStates.set(item.url, {
+								state: 'finished',
+								error: item.error !== undefined
+									  ? typeof item.error === 'string'
+											? item.error
+											: JSON.stringify(item.error)
+									  : undefined,
+							});
 							break;
 					}
 				}
 				lines.close();
 			}
 
-			const startedUrls: { url: URL, tries: number }[] = [];
-			let finishedCount                                = 0;
+			const startedUrls: { url: URL, tries: number }[]           = [],
+			      urlsWithMatchingError: { url: URL, error: string }[] = [];
+			let finishedCount                                          = 0;
 
-			const newUrls = urls.filter(url => {
+			const errorRegex = args.retryWithError !== undefined
+				  ? new RegExp(args.retryWithError, 'u')
+				  : undefined;
+
+			urls = urls.filter(url => {
 				const state = urlStates.get(url.href);
 				switch (state?.state) {
 					case 'started':
 						startedUrls.push({url, tries: state.tries});
 						break;
 					case 'finished':
-						++finishedCount;
+						if (state.error !== undefined && errorRegex?.test(state.error) === true)
+							urlsWithMatchingError.push({url, error: state.error});
+						else {
+							++finishedCount;
+							if (!args.ignoreCrawlState)
+								return false;
+						}
 						break;
 				}
-				return state?.state !== 'finished';
+				return true;
 			});
 			if (!args.ignoreCrawlState) {
-				urls = newUrls;
 				if (finishedCount) console.log(`⏭️ skipping ${finishedCount} already fully crawled URLs`);
+				if (urlsWithMatchingError.length) {
+					console.log(`🔁️ re-crawling ${urlsWithMatchingError.length} URLs with errors:`);
+					console.debug(urlsWithMatchingError.map(({url, error}) =>
+						  `\t${url.href}\n\t\t${error.match(/.*/)![0]!}`).join('\n'));
+				}
 			} else {
 				if (finishedCount) console.log(`🔁️ re-crawling ${finishedCount} already fully crawled URLs`);
 			}
