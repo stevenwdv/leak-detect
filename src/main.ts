@@ -326,7 +326,7 @@ async function main() {
 			}
 
 			const crawlStatePath = path.join(outputDir, '.crawl-state');
-			const crawlStateFile = await fsp.open(crawlStatePath, 'as+');
+			const crawlStateFile = await fsp.open(crawlStatePath, 'a+');
 			try {
 				await lock(crawlStatePath);
 			} catch (err) {
@@ -335,7 +335,7 @@ async function main() {
 					  {cause: err});
 			}
 
-			const urlStates  = new Map<string, 'started' | 'finished'>();
+			const urlStates = new Map<string, { state: 'started', tries: number } | { state: 'finished' }>();
 			{
 				const crawlStateRead = crawlStateFile.createReadStream({autoClose: false});
 				const lines          = readline.createInterface({
@@ -347,29 +347,36 @@ async function main() {
 					if (!line || line.startsWith('#')) continue;
 					const item = JSON.parse(line) as CrawlStateLine;
 					switch (item.type) {
-						case 'start':
-							urlStates.set(item.url, 'started');
+						case 'start': {
+							const prev = urlStates.get(item.url);
+							urlStates.set(item.url, {
+								state: 'started',
+								tries: prev?.state === 'started' && ++prev.tries || 1,
+							});
 							break;
+						}
 						case 'end':
-							urlStates.set(item.url, 'finished');
+							urlStates.set(item.url, {state: 'finished'});
 							break;
 					}
 				}
 				lines.close();
 			}
 
-			let startedCount = 0, finishedCount = 0;
-			const newUrls    = urls.filter(u => {
-				const state = urlStates.get(u.href);
-				switch (state) {
+			const startedUrls: { url: URL, tries: number }[] = [];
+			let finishedCount                                = 0;
+
+			const newUrls = urls.filter(url => {
+				const state = urlStates.get(url.href);
+				switch (state?.state) {
 					case 'started':
-						++startedCount;
+						startedUrls.push({url, tries: state.tries});
 						break;
 					case 'finished':
 						++finishedCount;
 						break;
 				}
-				return state !== 'finished';
+				return state?.state !== 'finished';
 			});
 			if (!args.ignoreCrawlState) {
 				urls = newUrls;
@@ -377,7 +384,11 @@ async function main() {
 			} else {
 				if (finishedCount) console.log(`🔁️ re-crawling ${finishedCount} already fully crawled URLs`);
 			}
-			if (startedCount) console.log(`🔁️ restarting ${startedCount} previously interrupted crawls`);
+			if (startedUrls.length) {
+				console.log(`🔁️ restarting ${startedUrls.length} previously interrupted crawls:`);
+				console.debug(startedUrls.map(({url, tries}) =>
+					  `\t[${tries}× interrupted] ${url.href}`).join('\n'));
+			}
 
 			crawlStateWriter = crawlStateFile.createWriteStream({highWaterMark: 0} as unknown as fsp.CreateWriteStreamOptions);
 			crawlStateWriter.setMaxListeners(args.parallelism * 2);
