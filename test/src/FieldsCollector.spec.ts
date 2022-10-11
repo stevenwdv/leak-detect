@@ -43,8 +43,7 @@ void (async () => {
 				    .once('error', reject);
 		  });
 
-	//TODO set to true when puppeteer/puppeteer#8691 and puppeteer/puppeteer#8838 are fixed
-	const singleBrowser = false;
+	const singleBrowser = true;
 	// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 	const browser       = singleBrowser ? await puppeteer.launch({
 		headless: !headed,

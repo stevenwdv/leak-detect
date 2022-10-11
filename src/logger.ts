@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import util from 'node:util';
+import util, {promisify} from 'node:util';
 
 import chalk, {Chalk} from 'chalk';
 import {ValueOf} from 'ts-essentials';
@@ -96,8 +96,7 @@ export class FileLogger extends Logger {
 		const err = this.checkError();
 		// eslint-disable-next-line @typescript-eslint/no-throw-literal
 		if (err !== undefined) throw err;
-		await new Promise<void>((resolve, reject) =>
-			  this.#file.close(err => err ? reject(err) : resolve()));
+		await promisify(this.#file.close.bind(this.#file))();
 	}
 }
 

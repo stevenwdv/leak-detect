@@ -165,7 +165,7 @@ async function main() {
 			    .option('single-browser', {
 				    description: 'perform crawls with --urls-file using a single browser (still multiple contexts)',
 				    type: 'boolean',
-				    default: false,  //TODO set to true when puppeteer/puppeteer#8691 and puppeteer/puppeteer#8838 are fixed
+				    default: false,  //TODO set to true when puppeteer/puppeteer#8838 is fixed
 			    })
 			    .option('headed', {
 				    description: 'open a browser window',
