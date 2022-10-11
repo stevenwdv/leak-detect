@@ -251,9 +251,15 @@ async function main() {
 				    description: 'do not skip already crawled URLs in batch mode according to .crawl-state file',
 				    type: 'boolean',
 				    default: false,
-			    }).option('retry-with-error', {
+			    })
+			    .option('retry-with-error', {
 				    description: 'repeat batch crawls previously finished with an error matching the RegEx',
 				    type: 'string',
+			    })
+			    .option('only-print-batch-urls', {
+				    description: 'print URLs which would be crawled with --urls-file and exit',
+				    type: 'boolean',
+				    default: false,
 			    }))
 		  .demandCommand()
 		  .strict()
@@ -414,6 +420,12 @@ async function main() {
 				console.log(`🔁️ restarting ${startedUrls.length} previously interrupted crawls:`);
 				console.debug(startedUrls.map(({url, tries}) =>
 					  `\t[${tries}× interrupted] ${url.href}`).join('\n'));
+			}
+
+			if (args.onlyPrintBatchUrls) {
+				console.info(`🕸 would crawl ${urls.length} URLs:`);
+				console.debug(`====\n${urls.map(url => `${url.href}`).join('\n')}`);
+				return;
 			}
 
 			crawlStateWriter = crawlStateFile.createWriteStream({highWaterMark: 0} as unknown as fsp.CreateWriteStreamOptions);
