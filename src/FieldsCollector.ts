@@ -922,8 +922,8 @@ export class FieldsCollector extends BaseCollector {
 					callStack: event.callFrames.map(callFrame => ({
 						url: scriptUrls.get(callFrame.location.scriptId)!,
 						function: callFrame.functionName,
-						line: callFrame.location.lineNumber,
-						column: callFrame.location.columnNumber ?? 0,
+						line: callFrame.location.lineNumber + 1,
+						column: (callFrame.location.columnNumber ?? -1) + 1,
 					})),
 				})));
 			})().catch(err =>
