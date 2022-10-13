@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import chalk from 'chalk';
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
-import type {BrowserContext, ElementHandle, Frame, Page} from 'puppeteer';
+import type {BrowserContext, ElementHandle, Frame, Page, Protocol} from 'puppeteer';
 import {groupBy} from 'rambda';
 import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
@@ -50,10 +50,12 @@ import {
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
 import {
+	DOMPauseData,
 	exposeFunction,
 	getFrameStack,
 	isNavigationError,
 	robustPierceQueryHandler,
+	TypedCDPSession,
 	unwrapHandle,
 	waitForLoad,
 } from './puppeteerUtils';
@@ -63,9 +65,9 @@ import TimeoutError = puppeteer.TimeoutError;
 export class FieldsCollector extends BaseCollector {
 	static defaultOptions: FullFieldsCollectorOptions;
 	/** Page function to inject leak-detect-inject */
-	static #doInjectFun: (debug: boolean) => void;
+	static #injectFun: (debug: boolean) => void;
 	/** @return Newly injected? */
-	static #doInjectDomLeakDetectFun: (password: string) => boolean;
+	static #injectDomLeakDetectFun: (password: string) => boolean;
 
 	readonly options: FullFieldsCollectorOptions;
 	#log: Logger | undefined;
@@ -104,7 +106,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	static #loadInjectScripts() {
-		this.#doInjectFun ??= (() => {
+		this.#injectFun ??= (() => {
 			const bundle = require.resolve('leak-detect-inject/dist/bundle.js');
 			let bundleTime;
 			try {
@@ -138,7 +140,7 @@ export class FieldsCollector extends BaseCollector {
 			}`) as (debug: boolean) => void;
 		})();
 
-		this.#doInjectDomLeakDetectFun ??= function doInjectDomLeakDetect(password: string) {
+		this.#injectDomLeakDetectFun ??= function doInjectDomLeakDetect(password: string) {
 			// noinspection JSNonStrictModeUsed
 			'use strict';
 			if (window[PageVars.DOM_OBSERVED] === true) return false;
@@ -274,7 +276,7 @@ export class FieldsCollector extends BaseCollector {
 				await Promise.all(newPage.frames().map(frame => frame.evaluate(pageFunction, ...args)));
 			}
 
-			await evaluateOnAll(FieldsCollector.#doInjectFun, this.options.debug);
+			await evaluateOnAll(FieldsCollector.#injectFun, this.options.debug);
 
 			// May not catch all, as scripts may have already run
 			if (this.options.disableClosedShadowDom)
@@ -299,7 +301,7 @@ export class FieldsCollector extends BaseCollector {
 			if (this.options.immediatelyInjectDomLeakDetection) {
 				if (tryAdd(this.#injectedDomLeakCallback, newPage))
 					await exposeFunction(newPage, PageVars.DOM_LEAK_CALLBACK, this.#domLeakCallback.bind(this));
-				await evaluateOnAll(FieldsCollector.#doInjectDomLeakDetectFun, this.options.fill.password);
+				await evaluateOnAll(FieldsCollector.#injectDomLeakDetectFun, this.options.fill.password);
 			}
 		} catch (err) {
 			this.#reportError(err, ['failed to add target']);
@@ -847,7 +849,7 @@ export class FieldsCollector extends BaseCollector {
 									: this.options.fill.email, fillTimes);
 						break;
 					case 'password':
-						await this.#injectDomLeakDetection(field.handle.frame);
+						await this.#injectDomLeakDetection(field);
 						await fillPasswordField(field.handle, this.options.fill.password, fillTimes);
 						break;
 					default:
@@ -862,14 +864,72 @@ export class FieldsCollector extends BaseCollector {
 		}
 	}
 
-	async #injectDomLeakDetection(frame: Frame) {
+	async #injectDomLeakDetection(field: ElementInfo) {
+		const frame = field.handle.frame;
 		try {
 			const page = frame.page();
 			if (tryAdd(this.#injectedDomLeakCallback, page))
 				await exposeFunction(page, PageVars.DOM_LEAK_CALLBACK, this.#domLeakCallback.bind(this));
 
-			const newlyInjected = await frame.evaluate(FieldsCollector.#doInjectDomLeakDetectFun, this.options.fill.password);
+			const newlyInjected = await frame.evaluate(FieldsCollector.#injectDomLeakDetectFun, this.options.fill.password);
 			if (newlyInjected) this.#log?.debug('injected DOM password leak detection');
+
+			//XXX Uses internal functionality as our CDP will not recognize the RemoteObjectId from puppeteer's CDP
+			const puppeteerCdp = (frame.page() as unknown as import('puppeteer-core/lib/cjs/puppeteer/common/Page').CDPPage)._client();
+
+			const {node: {backendNodeId}} = await puppeteerCdp.send('DOM.describeNode', {
+				objectId: field.handle.remoteObject().objectId!,
+			});
+
+			const cdp                  = await frame.page().target().createCDPSession() as TypedCDPSession;
+			//XXX Workaround for https://crbug.com/1374241
+			const {object: {objectId}} = await cdp.send('DOM.resolveNode', {backendNodeId});
+			await cdp.send('DOM.getDocument', {depth: 0});
+			const {nodeId} = await cdp.send('DOM.requestNode', {objectId: objectId!});
+			await cdp.send('DOMDebugger.setDOMBreakpoint', {
+				type: 'attribute-modified',
+				nodeId,
+			});
+
+			const scriptUrls = new Map<Protocol.Runtime.ScriptId, string>();
+			cdp.on('Debugger.scriptParsed', ({scriptId, url}) =>
+				  scriptUrls.set(scriptId, url));
+
+			const attributesContainingPassword = new Set<string>();
+			cdp.on('Debugger.paused', event => void (async () => {
+				if (event.reason !== 'DOM') return;
+				const data = event.data as DOMPauseData;
+				if (data.type !== 'attribute-modified' || data.nodeId !== nodeId) return;
+
+				await cdp.send('Debugger.resume');
+
+				const leaks = filterUniqBy(await field.handle.evaluate((elem, password) =>
+								  [...elem.attributes]
+										.filter(({value}) => value.includes(password))
+										.map(({name}) => name),
+							this.options.fill.password),
+					  attributesContainingPassword, a => a);
+				if (!leaks.length) return;
+
+				this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes (stack captured): ${
+					  leaks.map(attr => `${selectorStr(field.attrs.selectorChain)} @${attr}`).join(', ')}`);
+				const time = Date.now();
+				this.#domLeaks.push(...leaks.map(attribute => ({
+					time,
+					selector: field.attrs.selectorChain,
+					attribute,
+					attrs: field.attrs,
+					callStack: event.callFrames.map(callFrame => ({
+						url: scriptUrls.get(callFrame.location.scriptId)!,
+						function: callFrame.functionName,
+						line: callFrame.location.lineNumber,
+						column: callFrame.location.columnNumber ?? 0,
+					})),
+				})));
+			})().catch(err =>
+				  this.#reportError(err, ['error handling debugger pause for DOM leak detection'])));
+
+			await cdp.send('Debugger.enable');
 		} catch (err) {
 			this.#reportError(err, ['failed to inject DOM password leak detection on', frame.url()]);
 		}
@@ -1080,6 +1140,7 @@ export interface FieldsCollectorOptions {
 	/**
 	 * Always immediately inject password to attribute leak detection,
 	 * instead of before filling a password field.
+	 * Will not capture stack traces.
 	 * Useful for manual form filling
 	 * @default false
 	 */
@@ -1181,6 +1242,14 @@ export interface DomPasswordLeak extends PagePasswordLeak {
 	time: number;
 	attrs?: ElementAttrs;
 	frameStack?: string[];
+	callStack?: StackFrame[];
+}
+
+export interface StackFrame {
+	url: string;
+	function: string;
+	line: number;
+	column: number;
 }
 
 export interface VisitedTarget {

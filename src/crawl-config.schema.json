@@ -1201,7 +1201,7 @@
         },
         "immediatelyInjectDomLeakDetection": {
             "default": false,
-            "description": "Always immediately inject password to attribute leak detection,\ninstead of before filling a password field.\nUseful for manual form filling",
+            "description": "Always immediately inject password to attribute leak detection,\ninstead of before filling a password field.\nWill not capture stack traces.\nUseful for manual form filling",
             "type": "boolean"
         },
         "interactChains": {

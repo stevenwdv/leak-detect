@@ -1,4 +1,13 @@
-import type {CustomQueryHandler, ElementHandle, Frame, JSHandle, Page} from 'puppeteer';
+import type {
+	CDPSession,
+	CustomQueryHandler,
+	ElementHandle,
+	Frame,
+	JSHandle,
+	Page,
+	Protocol,
+	ProtocolMapping,
+} from 'puppeteer';
 import {IsTuple, NonEmptyArray} from 'ts-essentials';
 import TypedArray = NodeJS.TypedArray;
 
@@ -170,3 +179,27 @@ export type UnwrappedHandleEx<T> = T extends string | boolean | number | null | 
 						: T extends object
 							  ? { [K in keyof T]: UnwrappedHandleEx<T[K]> } | JSHandle<T>
 							  : unknown;
+
+export type TypedCDPSession = CDPEventEmitter & Omit<CDPSession, keyof CDPEventEmitter>;
+
+interface CDPEventEmitter {
+	on<Event extends keyof ProtocolMapping.Events>(
+		  event: Event, handler: (...event: ProtocolMapping.Events[Event]) => void): this;
+
+	off<Event extends keyof ProtocolMapping.Events>(
+		  event: Event, handler: (...event: ProtocolMapping.Events[Event]) => void): this;
+
+	emit(event: keyof ProtocolMapping.Events, eventData?: unknown): boolean;
+
+	once<Event extends keyof ProtocolMapping.Events>(
+		  event: Event, handler: (...event: ProtocolMapping.Events[Event]) => void): this;
+
+	listenerCount(event: keyof ProtocolMapping.Events): number;
+
+	removeAllListeners(event?: keyof ProtocolMapping.Events): this;
+}
+
+export interface DOMPauseData {
+	nodeId: Protocol.DOM.NodeId,
+	type: Protocol.DOMDebugger.DOMBreakpointType,
+}

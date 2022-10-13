@@ -205,7 +205,7 @@ void (async () => {
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
 
-				t.equal(result.domLeaks.length, 1, 'should find 1 DOM leak');
+				t.strictNotSame(result.domLeaks, [], 'should find a DOM leak');
 				const leak = result.domLeaks[0];
 				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
 				t.ok(leak?.attrs, 'should have DOM leak element attrs set');
@@ -220,7 +220,7 @@ void (async () => {
 
 				t.ok(emailField?.submitted, 'should submit field');
 
-				t.equal(result.domLeaks.length, 1, 'should find 1 DOM leak');
+				t.strictNotSame(result.domLeaks.length, [], 'should find a DOM leak');
 				const leak = result.domLeaks[0];
 				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
 				t.ok(leak?.attrs, 'should have DOM leak element attrs set');
@@ -235,7 +235,7 @@ void (async () => {
 
 				t.ok(emailField?.submitted, 'should submit field');
 
-				t.equal(result.domLeaks.length, 1, 'should find 1 DOM leak');
+				t.strictNotSame(result.domLeaks, [], 'should find a DOM leak');
 				const leak = result.domLeaks[0];
 				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
 				t.ok(leak?.attrs, 'should have DOM leak element attrs set');

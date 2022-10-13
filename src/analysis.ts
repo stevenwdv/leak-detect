@@ -4,11 +4,12 @@ import * as tldts from 'tldts';
 import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher, {transformers} from 'value-searcher';
 
-import {formatDuration, getRelativeUrl, nonEmpty, notFalsy, truncateLine} from './utils';
+import {formatDuration, getRelativeUrl, nonEmpty, notFalsy, truncateLine, validUrl} from './utils';
 import {OutputFile, SavedCallEx, ThirdPartyInfo} from './main';
 import {getElemIdentifierStr, selectorStr, stackFrameFileRegex} from './pageUtils';
 import {
 	ClickLinkEvent,
+	DomPasswordLeak,
 	ErrorInfo,
 	FillEvent,
 	FullFieldsCollectorOptions,
@@ -149,9 +150,17 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 						writeln(`\t${time(event.time)} 📸 ${trigger} ${name ?? ''}`);
 						break;
 					}
-					case 'dom-leak':
-						writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to DOM`);
+					case 'dom-leak': {
+						const {leak} = event as typeof event & { leak: DomPasswordLeak };
+						const urlStr = leak.callStack?.[0]?.url;
+						const urlObj = urlStr ? validUrl(urlStr) : undefined;
+						writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to DOM${
+							  urlStr ? ` by script ${urlObj
+										  ? `${urlObj.host}/…/${urlObj.pathname.split('/').at(-1)!}`
+										  : urlStr}`
+									: ''}`);
 						break;
+					}
 					case 'request-leak': {
 						const {leak} = event as typeof event & { leak: typeof relevantRequestLeaks[0] };
 						const url    = leak.request?.url ?? leak.visitedTarget!.url;
@@ -182,9 +191,25 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		if (fieldsData.domLeaks.length) {
 			writeln('═══ ⚠️ 🔑 Password was written to the DOM: ═══\n');
 			for (const leak of fieldsData.domLeaks) {
-				writeln(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.selector)}"; frame stack (bottom→top):`);
-				for (const frame of leak.attrs?.frameStack ?? leak.frameStack!)
-					writeln(`\t${frame}`);
+				//TODO print top frame?
+				write(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.selector)}"`);
+				if (nonEmpty(leak.callStack)) {
+					writeln(' by:');
+
+					const displayFrames = [];
+					let prevFile: string | undefined;
+					for (const frame of reverse(leak.callStack)) {
+						const file = prevFile === frame.url ? '↓' : frame.url;
+						prevFile   = frame.url;
+						displayFrames.push(frame.function
+							  ? `${frame.function} (${file}:${frame.line}:${frame.column})`
+							  : `${file}:${frame.line}:${frame.column}`);
+					}
+					displayFrames.reverse();
+					for (const frame of displayFrames)
+						writeln(`\t${frame}`);
+				}
+				writeln();
 			}
 			writeln('If a script then extracts the DOM it might leak the password in a web request\n');
 		}
@@ -243,6 +268,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		if (fieldValueCalls.length) {
 			writeln('═══ ℹ️ 🔍 Field value reads: ═══\n');
 			for (const [call, times] of fieldValueCalls) {
+				//TODO print top frame?
 				write(`${times.map(time).join(' ')} access to ${
 					  call.value === fieldsCollectorOptions.fill.password ? '🔑 password' : '📧 email'
 				} value of ${call.type} field`);
