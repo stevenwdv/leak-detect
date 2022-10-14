@@ -18,6 +18,7 @@ export const breakpoints: import('tracker-radar-collector').breakpoints.Breakpoi
 					type: elem.type,
 					selectorChain: (window[PageVars.INJECTED] as typeof window[PageVars.INJECTED] | undefined)
 						  ?.formSelectorChain(elem),
+					bottomFrame: window.top !== window ? location.href : undefined,
 				}),
 			},
 		],
@@ -32,4 +33,5 @@ export interface LeakDetectorCaptureData {
 	value: string;
 	type: string;
 	selectorChain?: SelectorChain | undefined;
+	bottomFrame?: string | undefined;
 }

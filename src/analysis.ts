@@ -16,6 +16,7 @@ import {
 	NavigateEvent,
 	ReturnEvent,
 	ScreenshotEvent,
+	StackFrame,
 	SubmitEvent,
 } from './FieldsCollector';
 
@@ -46,10 +47,6 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	if (result.timeout) writeln('⏰ Encountered timeout while loading main page');
 	writeln(`Took ${formatDuration(result.testFinished - result.testStarted)}`);
 	writeln();
-
-	const thirdPartyInfoStr = ({thirdParty, tracker}: Partial<ThirdPartyInfo>): string =>
-		  `${thirdParty === true ? '🔺 third party ' : ''
-		  }${tracker === true ? '👁 tracker ' : ''}`;
 
 	const collectorData = result.data;
 
@@ -152,13 +149,9 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					}
 					case 'dom-leak': {
 						const {leak} = event as typeof event & { leak: DomPasswordLeak };
-						const urlStr = leak.callStack?.[0]?.url;
-						const urlObj = urlStr ? validUrl(urlStr) : undefined;
+						const topUrl = leak.stack?.[0]?.url;
 						writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to DOM${
-							  urlStr ? ` by script ${urlObj
-										  ? `${urlObj.host}/…/${urlObj.pathname.split('/').at(-1)!}`
-										  : urlStr}`
-									: ''}`);
+							  topUrl ? ` by script ${shortScriptUrl(topUrl)}` : ''}`);
 						break;
 					}
 					case 'request-leak': {
@@ -173,7 +166,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 						const topUrl = call.stack?.[0]?.match(stackFrameFileRegex)?.[0];
 						writeln(`\t\t${time(event.time)} 🔍 ${
 							  call.custom.value === fieldsCollectorOptions.fill.password ? '🔑 password' : '📧 email'
-						} value of field read by script${topUrl ? ` from ${tldts.getHostname(topUrl) ?? topUrl}` : ''}`);
+						} value of field read by script${topUrl ? ` ${shortScriptUrl(topUrl)}` : ''}`);
 						break;
 					}
 					case 'error': {
@@ -191,22 +184,12 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		if (fieldsData.domLeaks.length) {
 			writeln('═══ ⚠️ 🔑 Password was written to the DOM: ═══\n');
 			for (const leak of fieldsData.domLeaks) {
-				//TODO print top frame?
 				write(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.selector)}"`);
-				if (nonEmpty(leak.callStack)) {
+				const frameStack = leak.attrs?.frameStack ?? leak.frameStack!;
+				if (frameStack.length > 1) writeln(` on frame "${frameStack[0]}"`);
+				if (nonEmpty(leak.stack)) {
 					writeln(' by:');
-
-					const displayFrames = [];
-					let prevFile: string | undefined;
-					for (const frame of reverse(leak.callStack)) {
-						const file = prevFile === frame.url ? '↓' : frame.url;
-						prevFile   = frame.url;
-						displayFrames.push(frame.function
-							  ? `${frame.function} (${file}:${frame.line}:${frame.column})`
-							  : `${file}:${frame.line}:${frame.column}`);
-					}
-					displayFrames.reverse();
-					for (const frame of displayFrames)
+					for (const frame of collapseStack(leak.stack))
 						writeln(`\t${frame}`);
 				}
 				writeln();
@@ -228,18 +211,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					write(` of request to ${thirdPartyInfoStr(thirdPartyInfo)}"${leak.request.url}"`);
 					if (nonEmpty(leak.request.stack)) {
 						writeln(' by:');
-
-						const displayFrames = [];
-						let prevFile: string | undefined;
-						for (const frame of reverse(leak.request.stack)) {
-							const file = prevFile === frame.url ? '↓' : frame.url;
-							prevFile   = frame.url;
-							displayFrames.push(frame.function
-								  ? `${frame.function} (${file}:${frame.line}:${frame.column})`
-								  : `${file}:${frame.line}:${frame.column}`);
-						}
-						displayFrames.reverse();
-						for (const frame of displayFrames)
+						for (const frame of collapseStack(leak.request.stack))
 							writeln(`\t${frame}`);
 					}
 					writeln();
@@ -253,26 +225,23 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 
 	if (collectorData.apis) {
 		const fieldValueCalls = pipe(
-			  groupBy(({custom: {selectorChain, type, value}, stack}) =>
-					`${selectorChain ? selectorStr(selectorChain) : ''}\0${type}\0${value}\0${stack?.join('\n') ?? ''}`),
+			  groupBy(({custom: {selectorChain, bottomFrame, type, value}, stack}) =>
+					`${selectorChain ? selectorStr(selectorChain) : ''}\0${bottomFrame ?? ''}\0${type}\0${value}\0${stack?.join('\n') ?? ''}`),
 			  (Object.entries<SavedCallEx[]>),
-			  map(([, calls]) => {
-				  const {custom: {selectorChain, type, value}, stack, stackInfo} = calls[0]!;
-				  return [
-					  {selectorChain, type, value, stack, stackInfo},
-					  calls.map(({custom: {time}}) => time),
-				  ] as const;
-			  }),
+			  map(([, calls]) => ([
+				  calls[0]!,
+				  calls.map(({custom: {time}}) => time),
+			  ] as const)),
 		)(valueSniffs);
 
 		if (fieldValueCalls.length) {
 			writeln('═══ ℹ️ 🔍 Field value reads: ═══\n');
 			for (const [call, times] of fieldValueCalls) {
-				//TODO print top frame?
 				write(`${times.map(time).join(' ')} access to ${
-					  call.value === fieldsCollectorOptions.fill.password ? '🔑 password' : '📧 email'
-				} value of ${call.type} field`);
-				if (call.selectorChain) write(` "${selectorStr(call.selectorChain)}"`);
+					  call.custom.value === fieldsCollectorOptions.fill.password ? '🔑 password' : '📧 email'
+				} value of ${call.custom.type} field`);
+				if (call.custom.selectorChain) write(` "${selectorStr(call.custom.selectorChain)}"`);
+				if (call.custom.bottomFrame) write(` on frame "${call.custom.bottomFrame}"`);
 
 				if (nonEmpty(call.stack)) {
 					writeln(' by:');
@@ -318,6 +287,32 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	}
 
 	return strings.join('');
+}
+
+function thirdPartyInfoStr({thirdParty, tracker}: Partial<ThirdPartyInfo>): string {
+	return `${thirdParty === true ? '🔺 third party ' : ''}${tracker === true ? '👁 tracker ' : ''}`;
+}
+
+function shortScriptUrl(url: string): string {
+	const urlObj = validUrl(url);
+	return urlObj
+		  ? urlObj.pathname.lastIndexOf('/') > 0
+				? `${urlObj.host}/…/${urlObj.pathname.split('/').at(-1)!}`
+				: `${urlObj.host}${urlObj.pathname}`
+		  : url;
+}
+
+function collapseStack(stack: StackFrame[]): string[] {
+	const displayFrames              = [];
+	let prevFile: string | undefined = undefined;
+	for (const frame of reverse(stack)) {
+		const file = prevFile === frame.url ? '↓' : frame.url;
+		prevFile   = frame.url;
+		displayFrames.push(frame.function
+			  ? `${frame.function} (${file}:${frame.line}:${frame.column})`
+			  : `${file}:${frame.line}:${frame.column}`);
+	}
+	return displayFrames.reverse();
 }
 
 export async function findRequestLeaks(

@@ -11,7 +11,7 @@ import type {BrowserContext, ElementHandle, Frame, Page, Protocol} from 'puppete
 import {groupBy} from 'rambda';
 import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
-import {DeepRequired, UnreachableCaseError} from 'ts-essentials';
+import {DeepRequired, NonEmptyArray, UnreachableCaseError} from 'ts-essentials';
 
 import type {SelectorChain} from 'leak-detect-inject';
 import {
@@ -914,18 +914,18 @@ export class FieldsCollector extends BaseCollector {
 				this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes (stack captured): ${
 					  leaks.map(attr => `${selectorStr(field.attrs.selectorChain)} @${attr}`).join(', ')}`);
 				const time = Date.now();
-				this.#domLeaks.push(...leaks.map(attribute => ({
+				leaks.map(attribute => ({
 					time,
 					selector: field.attrs.selectorChain,
 					attribute,
 					attrs: field.attrs,
-					callStack: event.callFrames.map(callFrame => ({
+					stack: event.callFrames.map(callFrame => ({
 						url: scriptUrls.get(callFrame.location.scriptId)!,
 						function: callFrame.functionName,
 						line: callFrame.location.lineNumber + 1,
 						column: (callFrame.location.columnNumber ?? -1) + 1,
 					})),
-				})));
+				})).forEach(leak => this.#addDomLeak(leak));
 			})().catch(err =>
 				  this.#reportError(err, ['error handling debugger pause for DOM leak detection'])));
 
@@ -942,7 +942,7 @@ export class FieldsCollector extends BaseCollector {
 			this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes: ${
 				  leaks.map(l => `${selectorStr(l.selector)} @${l.attribute}`).join(', ')}`);
 			const time = Date.now();
-			this.#domLeaks.push(...await Promise.all(leaks.map(async leak => {
+			(await Promise.all(leaks.map(async leak => {
 				let attrs;
 				try {
 					const handle = (await getElementBySelectorChain(leak.selector, frame))?.elem;
@@ -954,12 +954,28 @@ export class FieldsCollector extends BaseCollector {
 				}
 				const fullLeak: DomPasswordLeak = {time, ...leak};
 				if (attrs) fullLeak.attrs = attrs;
-				else fullLeak.frameStack = getFrameStack(frame).map(f => f.url());
+				else fullLeak.frameStack = getFrameStack(frame).map(f => f.url()) as NonEmptyArray<string>;
 				return fullLeak;
-			})));
+			}))).forEach(leak => this.#addDomLeak(leak));
 		} catch (err) {
 			this.#reportError(err, ['error in DOM password leak callback']);
 		}
+	}
+
+	#addDomLeak(leak: DomPasswordLeak): boolean {
+		const maxTimeDifferenceMs = 50;
+		const frameStack          = (leak: DomPasswordLeak) => leak.attrs?.frameStack ?? leak.frameStack!;
+
+		const prev = this.#domLeaks.at(-1);
+		if (prev && Math.abs(leak.time - prev.time) < maxTimeDifferenceMs
+			  && frameStack(prev).join('\n') === frameStack(leak).join('\n')
+			  && selectorStr(prev.selector) === selectorStr(leak.selector))
+			if (leak.stack && !prev.stack)
+				this.#domLeaks.pop();
+			else if (prev.stack && !leak.stack)
+				return false;
+		this.#domLeaks.push(leak);
+		return true;
 	}
 
 	async #clickFacebookButton(frame: Frame) {
@@ -1241,8 +1257,8 @@ export interface PagePasswordLeak {
 export interface DomPasswordLeak extends PagePasswordLeak {
 	time: number;
 	attrs?: ElementAttrs;
-	frameStack?: string[];
-	callStack?: StackFrame[];
+	frameStack?: NonEmptyArray<string>;
+	stack?: StackFrame[];
 }
 
 export interface StackFrame {
