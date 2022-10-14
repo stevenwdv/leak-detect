@@ -180,6 +180,12 @@ export type UnwrappedHandleEx<T> = T extends string | boolean | number | null | 
 							  ? { [K in keyof T]: UnwrappedHandleEx<T[K]> } | JSHandle<T>
 							  : unknown;
 
+export function attributePairs(attributesResponse: Protocol.DOM.GetAttributesResponse): { name: string, value: string }[] {
+	const {attributes} = attributesResponse;
+	return Array(attributes.length / 2).fill(undefined)
+		  .map((_, i) => ({name: attributes[i * 2]!, value: attributes[i * 2 + 1]!}));
+}
+
 export type TypedCDPSession = CDPEventEmitter & Omit<CDPSession, keyof CDPEventEmitter>;
 
 interface CDPEventEmitter {

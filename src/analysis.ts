@@ -183,7 +183,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 
 		if (fieldsData.domLeaks.length) {
 			writeln('═══ ⚠️ 🔑 Password was written to the DOM: ═══\n');
-			for (const leak of fieldsData.domLeaks) {
+			for (const leak of fieldsData.domLeaks.sort((a, b) => a.time - b.time)) {
 				write(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.selector)}"`);
 				const frameStack = leak.attrs?.frameStack ?? leak.frameStack!;
 				if (frameStack.length > 1) writeln(` on frame "${frameStack[0]}"`);
@@ -194,7 +194,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 				}
 				writeln();
 			}
-			writeln('If a script then extracts the DOM it might leak the password in a web request\n');
+			writeln('\nIf a script then extracts the DOM it might leak the password in a web request\n');
 		}
 	} else writeln('❌️ No fields collector data, it probably crashed\n');
 

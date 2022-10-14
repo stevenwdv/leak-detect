@@ -50,6 +50,7 @@ import {
 } from './pageUtils';
 import {getLoginLinks} from './loginLinks';
 import {
+	attributePairs,
 	DOMPauseData,
 	exposeFunction,
 	getFrameStack,
@@ -153,8 +154,11 @@ export class FieldsCollector extends BaseCollector {
 							inspectRecursive(node, true);
 
 					const leakSelectors = mutations
-						  .filter(m => m.attributeName && m.target instanceof Element &&
-								m.target.getAttribute(m.attributeName)?.includes(password))
+						  .filter(m => {
+							  if (!m.attributeName || !(m.target instanceof Element)) return false;
+							  const val = m.target.getAttribute(m.attributeName);
+							  return val && (val.includes(password) || val.includes(JSON.stringify(password)));
+						  })
 						  .map(m => ({
 							  selector: window[PageVars.INJECTED].formSelectorChain(m.target as Element),
 							  attribute: m.attributeName!,
@@ -172,7 +176,8 @@ export class FieldsCollector extends BaseCollector {
 				if (node instanceof Element) {
 					if (checkExistingAttrs) {
 						const leakSelectors = [...node.attributes]
-							  .filter(attr => attr.value === password)
+							  .filter(attr => attr.value.includes(password)
+									|| attr.value.includes(JSON.stringify(password)))
 							  .map(attr => ({
 								  selector: window[PageVars.INJECTED].formSelectorChain(node),
 								  attribute: attr.name,
@@ -871,54 +876,60 @@ export class FieldsCollector extends BaseCollector {
 			if (tryAdd(this.#injectedDomLeakCallback, page))
 				await exposeFunction(page, PageVars.DOM_LEAK_CALLBACK, this.#domLeakCallback.bind(this));
 
-			const newlyInjected = await frame.evaluate(FieldsCollector.#injectDomLeakDetectFun, this.options.fill.password);
-			if (newlyInjected) this.#log?.debug('injected DOM password leak detection');
+			await frame.evaluate(FieldsCollector.#injectDomLeakDetectFun, this.options.fill.password);
 
-			//XXX Uses internal functionality as our CDP will not recognize the RemoteObjectId from puppeteer's CDP
-			const puppeteerCdp = (frame.page() as unknown as import('puppeteer-core/lib/cjs/puppeteer/common/Page').CDPPage)._client();
+			const cdp          = await frame.page().target().createCDPSession() as TypedCDPSession;
+			const observeNodes = new Map([
+				...await Promise.all((await unwrapHandle(
+					  await field.handle.evaluateHandle((field: HTMLInputElement | Element) =>
+							'form' in field && field.form ? [...field.form].filter(e => e !== field) : [])))
+					  .map(async handle =>
+							[await this.#getNodeId(handle, cdp), await getElementAttrs(handle)] as const)),
+				[await this.#getNodeId(field.handle, cdp), field.attrs],
+			]);
 
-			const {node: {backendNodeId}} = await puppeteerCdp.send('DOM.describeNode', {
-				objectId: field.handle.remoteObject().objectId!,
-			});
-
-			const cdp                  = await frame.page().target().createCDPSession() as TypedCDPSession;
-			//XXX Workaround for https://crbug.com/1374241
-			const {object: {objectId}} = await cdp.send('DOM.resolveNode', {backendNodeId});
-			await cdp.send('DOM.getDocument', {depth: 0});
-			const {nodeId} = await cdp.send('DOM.requestNode', {objectId: objectId!});
-			await cdp.send('DOMDebugger.setDOMBreakpoint', {
-				type: 'attribute-modified',
-				nodeId,
-			});
+			for (const [nodeId, attrs] of observeNodes)
+				try {
+					await cdp.send('DOMDebugger.setDOMBreakpoint', {
+						type: 'attribute-modified',
+						nodeId,
+					});
+				} catch (err) {
+					this.#reportError(err, ['failed to observe node for DOM leaks', attrs]);
+				}
 
 			const scriptUrls = new Map<Protocol.Runtime.ScriptId, string>();
 			cdp.on('Debugger.scriptParsed', ({scriptId, url}) =>
 				  scriptUrls.set(scriptId, url));
 
-			const attributesContainingPassword = new Set<string>();
+			const attributesContainingPassword = new Map<Protocol.DOM.NodeId, Set<string>>(
+				  [...observeNodes.keys()].map(nodeId => [nodeId, new Set()]),
+			);
 			cdp.on('Debugger.paused', event => void (async () => {
 				if (event.reason !== 'DOM') return;
 				const data = event.data as DOMPauseData;
-				if (data.type !== 'attribute-modified' || data.nodeId !== nodeId) return;
+				if (data.type !== 'attribute-modified') return;
+				const {nodeId} = data;
+				const attrs    = observeNodes.get(nodeId);
+				if (!attrs) return;
 
 				await cdp.send('Debugger.resume');
 
-				const leaks = filterUniqBy(await field.handle.evaluate((elem, password) =>
-								  [...elem.attributes]
-										.filter(({value}) => value.includes(password))
-										.map(({name}) => name),
-							this.options.fill.password),
-					  attributesContainingPassword, a => a);
+				const leaks = filterUniqBy(attributePairs(await cdp.send('DOM.getAttributes', {nodeId}))
+							.filter(({value}) => value.includes(this.options.fill.password)
+								  || value.includes(JSON.stringify(this.options.fill.password)))
+							.map(({name}) => name),
+					  attributesContainingPassword.get(nodeId)!, a => a);
 				if (!leaks.length) return;
 
 				this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes (stack captured): ${
-					  leaks.map(attr => `${selectorStr(field.attrs.selectorChain)} @${attr}`).join(', ')}`);
+					  leaks.map(attr => `${selectorStr(attrs.selectorChain)} @${attr}`).join(', ')}`);
 				const time = Date.now();
 				leaks.map(attribute => ({
 					time,
-					selector: field.attrs.selectorChain,
+					selector: attrs.selectorChain,
 					attribute,
-					attrs: field.attrs,
+					attrs: attrs,
 					stack: event.callFrames.map(callFrame => ({
 						url: scriptUrls.get(callFrame.location.scriptId)!,
 						function: callFrame.functionName,
@@ -930,9 +941,28 @@ export class FieldsCollector extends BaseCollector {
 				  this.#reportError(err, ['error handling debugger pause for DOM leak detection'])));
 
 			await cdp.send('Debugger.enable');
+
+			this.#log?.debug('injected DOM password leak detection');
 		} catch (err) {
 			this.#reportError(err, ['failed to inject DOM password leak detection on', frame.url()]);
 		}
+	}
+
+	async #getNodeId(elem: ElementHandle, cdp: TypedCDPSession): Promise<Protocol.DOM.NodeId> {
+		//XXX Uses internal functionality as our CDP will not recognize the RemoteObjectId from puppeteer's CDP
+		const puppeteerCdp = (elem.frame.page() as unknown as import('puppeteer-core/lib/cjs/puppeteer/common/Page').CDPPage)._client();
+
+		const {node: {backendNodeId}} = await puppeteerCdp.send('DOM.describeNode', {
+			objectId: elem.remoteObject().objectId!,
+		});
+
+		const {object: {objectId}} = await cdp.send('DOM.resolveNode', {backendNodeId});
+		let {nodeId}               = await cdp.send('DOM.requestNode', {objectId: objectId!});
+		//XXX Workaround for https://crbug.com/1374241
+		// Calling multiple times invalidates previous NodeIds
+		if (!nodeId) await cdp.send('DOM.getDocument', {depth: 0});
+		({nodeId} = await cdp.send('DOM.requestNode', {objectId: objectId!}));
+		return nodeId;
 	}
 
 	/** Called from the page when a DOM password leak is detected */
