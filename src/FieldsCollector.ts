@@ -938,7 +938,9 @@ export class FieldsCollector extends BaseCollector {
 					})),
 				})).forEach(leak => this.#addDomLeak(leak));
 			})().catch(err =>
-				  this.#reportError(err, ['error handling debugger pause for DOM leak detection'])));
+				  this.#reportError(err, ['error handling debugger pause for DOM leak detection'],
+						err instanceof Error && err.message.includes('Could not find node with given id')
+							  ? 'warn' : 'error')));
 
 			await cdp.send('Debugger.enable');
 
