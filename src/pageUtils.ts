@@ -32,11 +32,6 @@ export function getElemIdentifier(elem: ElementAttrs | ElementInfo): ElementIden
 	};
 }
 
-export interface ElementIdentifier {
-	frameStack: NonEmptyArray<string>;
-	selectorChain: SelectorChain;
-}
-
 export function selectorStr(selectorChain: SelectorChain): string {
 	return selectorChain.join('>>>').replaceAll(':nth-of-type', ':nth…');
 }
@@ -92,10 +87,13 @@ export async function getElementAttrs(handle: ElementHandle): Promise<ElementAtt
 	};
 }
 
-export interface ElementAttrs {
+export interface ElementIdentifier {
 	/** URLs starting with the bottom frame, going up */
 	frameStack: NonEmptyArray<string>;
+	selectorChain: SelectorChain;
+}
 
+export interface ElementAttrs extends ElementIdentifier {
 	id: string;
 	tagName: string;
 	class: string;
@@ -113,8 +111,6 @@ export interface ElementAttrs {
 	inView: boolean | null;
 	visible: boolean;
 	boundingBox: BoundingBox | null;
-
-	selectorChain: SelectorChain;
 
 	time: number;
 }

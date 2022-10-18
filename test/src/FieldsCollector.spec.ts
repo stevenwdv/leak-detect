@@ -208,7 +208,7 @@ void (async () => {
 				t.strictNotSame(result.domLeaks, [], 'should find a DOM leak');
 				const leak = result.domLeaks[0];
 				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
-				t.ok(leak?.attrs, 'should have DOM leak element attrs set');
+				t.ok('tagName' in (leak?.element ?? {}), 'should have DOM leak element attrs set');
 			}),
 			test('for an open shadow form', async (t, log) => {
 				const result = await runCrawler('login_form_shadow.html', t, log);
@@ -223,7 +223,7 @@ void (async () => {
 				t.strictNotSame(result.domLeaks.length, [], 'should find a DOM leak');
 				const leak = result.domLeaks[0];
 				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
-				t.ok(leak?.attrs, 'should have DOM leak element attrs set');
+				t.ok('tagName' in (leak?.element ?? {}), 'should have DOM leak element attrs set');
 			}),
 			test('for a closed shadow form', async (t, log) => {
 				const result = await runCrawler('login_form_shadow_closed.html', t, log);
@@ -238,7 +238,7 @@ void (async () => {
 				t.strictNotSame(result.domLeaks, [], 'should find a DOM leak');
 				const leak = result.domLeaks[0];
 				t.equal(leak?.attribute, 'value', 'should have DOM leak attr "value"');
-				t.ok(leak?.attrs, 'should have DOM leak element attrs set');
+				t.ok('tagName' in (leak?.element ?? {}), 'should have DOM leak element attrs set');
 			}),
 
 			test('for email input with type=text', async (t, log) => {

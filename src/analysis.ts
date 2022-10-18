@@ -184,9 +184,8 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		if (fieldsData.domLeaks.length) {
 			writeln('═══ ⚠️ 🔑 Password was written to the DOM: ═══\n');
 			for (const leak of fieldsData.domLeaks.sort((a, b) => a.time - b.time)) {
-				write(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.selector)}"`);
-				const frameStack = leak.attrs?.frameStack ?? leak.frameStack!;
-				if (frameStack.length > 1) writeln(` on frame "${frameStack[0]}"`);
+				write(`${time(leak.time)} to attribute "${leak.attribute}" on element "${selectorStr(leak.element.selectorChain)}"`);
+				if (leak.element.frameStack.length > 1) writeln(` on frame "${leak.element.frameStack[0]}"`);
 				if (nonEmpty(leak.stack)) {
 					writeln(' by:');
 					for (const frame of collapseStack(leak.stack))

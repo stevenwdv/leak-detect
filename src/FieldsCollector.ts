@@ -160,7 +160,7 @@ export class FieldsCollector extends BaseCollector {
 							  return val && (val.includes(password) || val.includes(JSON.stringify(password)));
 						  })
 						  .map(m => ({
-							  selector: window[PageVars.INJECTED].formSelectorChain(m.target as Element),
+							  selectorChain: window[PageVars.INJECTED].formSelectorChain(m.target as Element),
 							  attribute: m.attributeName!,
 						  }));
 					if (leakSelectors.length)
@@ -179,7 +179,7 @@ export class FieldsCollector extends BaseCollector {
 							  .filter(attr => attr.value.includes(password)
 									|| attr.value.includes(JSON.stringify(password)))
 							  .map(attr => ({
-								  selector: window[PageVars.INJECTED].formSelectorChain(node),
+								  selectorChain: window[PageVars.INJECTED].formSelectorChain(node),
 								  attribute: attr.name,
 							  }));
 						if (leakSelectors.length)
@@ -925,11 +925,10 @@ export class FieldsCollector extends BaseCollector {
 				this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes (stack captured): ${
 					  leaks.map(attr => `${selectorStr(attrs.selectorChain)} @${attr}`).join(', ')}`);
 				const time = Date.now();
-				leaks.map(attribute => ({
+				leaks.map((attribute): DomPasswordLeak => ({
 					time,
-					selector: attrs.selectorChain,
 					attribute,
-					attrs: attrs,
+					element: attrs,
 					stack: event.callFrames.map(callFrame => ({
 						url: scriptUrls.get(callFrame.location.scriptId)!,
 						function: callFrame.functionName,
@@ -970,24 +969,28 @@ export class FieldsCollector extends BaseCollector {
 	/** Called from the page when a DOM password leak is detected */
 	async #domLeakCallback(frameId: string, leaks: PagePasswordLeak[]) {
 		try {
+			const time  = Date.now();
 			const frame = this.#frameIdMap.get(frameId)!;
 			this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes: ${
-				  leaks.map(l => `${selectorStr(l.selector)} @${l.attribute}`).join(', ')}`);
-			const time = Date.now();
-			(await Promise.all(leaks.map(async leak => {
+				  leaks.map(l => `${selectorStr(l.selectorChain)} @${l.attribute}`).join(', ')}`);
+			(await Promise.all(leaks.map(async (leak): Promise<DomPasswordLeak> => {
 				let attrs;
 				try {
-					const handle = (await getElementBySelectorChain(leak.selector, frame))?.elem;
+					const handle = (await getElementBySelectorChain(leak.selectorChain, frame))?.elem;
 					if (handle) attrs = await getElementAttrs(handle);
 				} catch (err) {
 					this.#reportError(err, [
-							  'failed to get attributes for DOM password leak element', selectorStr(leak.selector)],
+							  'failed to get attributes for DOM password leak element', selectorStr(leak.selectorChain)],
 						  'warn');
 				}
-				const fullLeak: DomPasswordLeak = {time, ...leak};
-				if (attrs) fullLeak.attrs = attrs;
-				else fullLeak.frameStack = getFrameStack(frame).map(f => f.url()) as NonEmptyArray<string>;
-				return fullLeak;
+				return {
+					time,
+					attribute: leak.attribute,
+					element: attrs ?? {
+						frameStack: getFrameStack(frame).map(f => f.url()) as NonEmptyArray<string>,
+						selectorChain: leak.selectorChain,
+					},
+				};
 			}))).forEach(leak => this.#addDomLeak(leak));
 		} catch (err) {
 			this.#reportError(err, ['error in DOM password leak callback']);
@@ -995,13 +998,12 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	#addDomLeak(leak: DomPasswordLeak): boolean {
-		const maxTimeDifferenceMs = 50;
-		const frameStack          = (leak: DomPasswordLeak) => leak.attrs?.frameStack ?? leak.frameStack!;
+		const maxTimeDifferenceMs = 100;
 
 		const prev = this.#domLeaks.at(-1);
 		if (prev && Math.abs(leak.time - prev.time) < maxTimeDifferenceMs
-			  && frameStack(prev).join('\n') === frameStack(leak).join('\n')
-			  && selectorStr(prev.selector) === selectorStr(leak.selector))
+			  && prev.element.frameStack.join('\n') === leak.element.frameStack.join('\n')
+			  && selectorStr(prev.element.selectorChain) === selectorStr(leak.element.selectorChain))
 			if (leak.stack && !prev.stack)
 				this.#domLeaks.pop();
 			else if (prev.stack && !leak.stack)
@@ -1281,15 +1283,15 @@ FieldsCollector.defaultOptions = {
 
 /** Password leak as passed to the callback */
 export interface PagePasswordLeak {
-	selector: SelectorChain;
+	selectorChain: SelectorChain;
 	attribute: string;
 }
 
 /** Password leak as reported in the data */
-export interface DomPasswordLeak extends PagePasswordLeak {
+export interface DomPasswordLeak {
 	time: number;
-	attrs?: ElementAttrs;
-	frameStack?: NonEmptyArray<string>;
+	attribute: string;
+	element: ElementIdentifier | ElementAttrs;
 	stack?: StackFrame[];
 }
 
