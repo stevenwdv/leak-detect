@@ -655,6 +655,7 @@ export class FieldsCollector extends BaseCollector {
 						const {fields: frameFields, done: frameDone} = await this.#group(
 							  `🔳frame ${getRelativeUrl(new URL(frame.url()), new URL(logPageUrl))}`,
 							  () => this.#processFields(frame), frame !== page.mainFrame());
+						if (this.#maxFieldsReached()) break;
 						if (frameDone) {
 							completedFrames.add(frame.url());  // This frame is done
 							if (frame === incompleteFrames.at(-1)!)
@@ -689,8 +690,6 @@ export class FieldsCollector extends BaseCollector {
 	 *  Also includes previously processed fields in forms which have new fields.
 	 */
 	async #processFields(frame: Frame): Promise<{ fields: FieldElementAttrs[] | null, done: boolean }> {
-		if (this.#maxFieldsReached())
-			return {fields: null, done: true};
 		const frameFields = await this.#findFields(frame);
 		if (!frameFields) return {fields: null, done: true};
 
@@ -727,8 +726,7 @@ export class FieldsCollector extends BaseCollector {
 							// Otherwise, just the submitted field
 							fields: formSelector ? formFields.map(f => f.attrs) : [field.attrs],
 							// We are done if this was the last form or the last loose field
-							done: lastForm && this.#processedFields.has(getElemIdentifierStr(formFields.at(-1)!))
-								  || this.#maxFieldsReached(),
+							done: lastForm && this.#processedFields.has(getElemIdentifierStr(formFields.at(-1)!)),
 						};
 					} catch (err) {
 						this.#reportError(err, ['failed to process form', formSelector], 'warn');
