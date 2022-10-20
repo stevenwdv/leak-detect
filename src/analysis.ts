@@ -108,7 +108,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					case 'submit': {
 						const {field: fieldIdentifier} = event as FillEvent;
 						const field                    = fieldsMap.get(getElemIdentifierStr(fieldIdentifier))!;
-						writeln(`\t${time(event.time)} ✒️ ${event.type} ${field.fieldType} field ${
+						writeln(`\t${time(event.time)} ${event.type === 'submit' ? '⏎' : '✒️'} ${event.type} ${field.fieldType} field ${
 							  selectorStr(fieldIdentifier.selectorChain)}`);
 						break;
 					}
@@ -203,8 +203,8 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			writeln(`═══ ⚠️ 📤 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}: ═══\n`);
 			for (const leak of relevantRequestLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
-				write(`${time(reqTime)} ${leak.type}${
-					  leak.isHash ? ' hash' : ''} (${leak.encodings.join('→')}) sent in ${leak.part}`);
+				write(`${time(reqTime)} ${leak.type === 'password' ? '🔑' : '📧'}${leak.type}${
+					  leak.isHash ? ' hash' : ''} (${leak.encodings.join('→') || 'plain text'}) sent in ${leak.part}`);
 				const thirdPartyInfo = leak.request ?? leak.visitedTarget!;
 				if (leak.request) {
 					write(` of request to ${thirdPartyInfoStr(thirdPartyInfo)}"${leak.request.url}"`);
