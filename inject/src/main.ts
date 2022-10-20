@@ -39,7 +39,7 @@ function formSelectorFromRoot(elem: Element): string {
 	const id = elem.getAttribute('id');
 
 	if (!elem.parentNode) {
-		console.warn('elem is detached (or not an Element)', elem);
+		if (debug) console.warn('elem is detached (or not an Element)', elem);
 		// Best-effort info
 		return id ? `${elem.tagName}[id='${escapeAttrVal(id)}']` : `${elem.tagName}[detached]`;
 	}
