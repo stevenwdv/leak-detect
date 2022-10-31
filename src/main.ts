@@ -190,7 +190,7 @@ async function main() {
 			    .option('pause-on-value-read', {
 				    description: 'when headless with devtools open, pause in debugger when input field value is read',
 				    type: 'boolean',
-				    default: true,
+				    default: false,
 			    })
 			    .option('load-timeout', {
 				    description: 'timeout for loading the main page, in seconds',
