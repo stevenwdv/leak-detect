@@ -203,11 +203,11 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			writeln(`═══ ⚠️ 📤 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}: ═══\n`);
 			for (const leak of relevantRequestLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
-				write(`${time(reqTime)} ${leak.type === 'password' ? '🔑' : '📧'}${leak.type}${
+				write(`${time(reqTime)} ${leak.type === 'password' ? '🔑' : '📧'} ${leak.type}${
 					  leak.isHash ? ' hash' : ''} (${leak.encodings.join('→') || 'plain text'}) sent in ${leak.part}`);
 				const thirdPartyInfo = leak.request ?? leak.visitedTarget!;
 				if (leak.request) {
-					write(` of request to ${thirdPartyInfoStr(thirdPartyInfo)}"${leak.request.url}"`);
+					write(` of ${leak.request.type} request to ${thirdPartyInfoStr(thirdPartyInfo)}"${leak.request.url}"`);
 					if (nonEmpty(leak.request.stack)) {
 						writeln(' by:');
 						for (const frame of collapseStack(leak.request.stack))
@@ -215,7 +215,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					}
 					writeln();
 				} else {
-					writeln(` for navigation to ${thirdPartyInfoStr(thirdPartyInfo)}${leak.visitedTarget!.url}`);
+					writeln(` for loading ${leak.visitedTarget!.type} ${thirdPartyInfoStr(thirdPartyInfo)}${leak.visitedTarget!.url}`);
 				}
 			}
 			writeln();
