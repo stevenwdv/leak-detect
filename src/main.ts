@@ -51,7 +51,15 @@ import {
 import * as progress from './progress';
 import breakpoints, {LeakDetectorCaptureData} from './breakpoints';
 import configSchema from './crawl-config.schema.json';
-import {appendDomainToEmail, nonEmpty, populateDefaults, stripIndent, truncateLine, validUrl} from './utils';
+import {
+	appendDomainToEmail,
+	nonEmpty,
+	populateDefaults,
+	stripIndent,
+	truncateLine,
+	validUrl,
+	waitForDrain,
+} from './utils';
 import {findRequestLeaks, getSummary, RequestLeak} from './analysis';
 import {ThirdPartyClassifier, TrackerClassifier} from './domainInfo';
 import {WaitingCollector} from './WaitingCollector';
@@ -456,11 +464,6 @@ async function main() {
 		}) : undefined;
 
 		async function writeCrawlState(line: CrawlStateLine): Promise<void> {
-			async function waitForDrain(writer: fs.WriteStream): Promise<void> {
-				if (writer.writableNeedDrain)
-					await new Promise(resolve => writer.once('drain', resolve));
-			}
-
 			await waitForDrain(crawlStateWriter);
 			crawlStateWriter.write(`${JSON.stringify(line)}\n`);
 			await waitForDrain(crawlStateWriter);

@@ -305,11 +305,16 @@ function collapseStack(stack: StackFrame[]): string[] {
 	const displayFrames              = [];
 	let prevFile: string | undefined = undefined;
 	for (const frame of reverse(stack)) {
-		const file = prevFile === frame.url ? '↓' : frame.url;
-		prevFile   = frame.url;
-		displayFrames.push(frame.function
-			  ? `${frame.function} (${file}:${frame.line}:${frame.column})`
-			  : `${file}:${frame.line}:${frame.column}`);
+		const orig   = frame.sourceMapped;
+		const url    = orig?.url ?? frame.url ?? '?',
+		      func   = orig?.function ?? frame.function,
+		      line   = orig?.line ?? frame.line,
+		      column = orig?.column ?? frame.column;
+		const file   = prevFile === url ? '↓' : url;
+		prevFile     = url;
+		displayFrames.push(func
+			  ? `${func} (${file}:${line}${column !== null ? `:${column}` : ''})`
+			  : `${file}:${line}:${column !== null ? `:${column}` : ''}`);
 	}
 	return displayFrames.reverse();
 }

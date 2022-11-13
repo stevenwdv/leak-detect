@@ -1,3 +1,4 @@
+import {PassThrough, Readable, TransformOptions, Writable} from 'node:stream';
 import {setTimeout} from 'node:timers/promises';
 
 import {DeepPartial, NonEmptyArray} from 'ts-essentials';
@@ -98,9 +99,9 @@ export function getRelativeUrl(url: URL, base: URL): string {
 	return res;
 }
 
-export function validUrl(url: string): URL | null {
+export function validUrl(url: string, base?: string): URL | null {
 	try {
-		return new URL(url);
+		return new URL(url, base);
 	} catch {
 		return null;
 	}
@@ -142,7 +143,7 @@ export function setAll<K, V>(map: Map<K, V>, entries: Iterable<readonly [K, V]>)
 
 export async function waitWithTimeout<T>(timeoutMs: number, promise: PromiseLike<T>): Promise<T | undefined> {
 	return await Promise.race([
-		setTimeout(timeoutMs, undefined),
+		setTimeout(timeoutMs, undefined, {ref: false}),
 		promise,
 	]);
 }
@@ -206,4 +207,37 @@ export function populateDefaults<T>(obj: DeepPartial<T>, defaults: T): T {
 			else populateDefaults(objMap[key], defaultsMap[key]);
 	}
 	return obj as T;
+}
+
+export async function waitForDrain(writer: Writable): Promise<void> {
+	if (writer.writableNeedDrain)
+		await new Promise(resolve => writer.once('drain', resolve));
+}
+
+export function timeoutSignal(timeoutMs: number): AbortSignal {
+	const controller = new AbortController();
+	void setTimeout(timeoutMs, undefined, {ref: false}).then(() => controller.abort());
+	return controller.signal;
+}
+
+export function createProducerStream(
+	  producer: AsyncGenerator<{ chunk: unknown, encoding?: BufferEncoding | undefined }, void>,
+	  options?: TransformOptions,
+	  abort?: AbortSignal,
+): Readable {
+	const stream = new PassThrough(options);
+	void (async () => {
+		try {
+			for await (const {chunk, encoding} of producer) {
+				if (!stream.write(chunk, encoding))
+					await waitForDrain(stream);
+				abort?.throwIfAborted();
+			}
+			stream.end();
+		} catch (err) {
+			await producer.throw(err).catch(() => {/*ignore*/});
+			stream.destroy(err as Error);
+		}
+	})();
+	return stream;
 }

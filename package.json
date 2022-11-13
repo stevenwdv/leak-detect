@@ -35,6 +35,7 @@
 		"puppeteer": "^18.2.1",
 		"rambda": "^7.3.0",
 		"sanitize-filename": "^1.6.3",
+		"source-map": "^0.7.4",
 		"tldts": "^5.7.95",
 		"tracker-radar-collector": "github:stevenwdv/tracker-radar-collector#a4c30c26",
 		"value-searcher": "file:value-searcher",

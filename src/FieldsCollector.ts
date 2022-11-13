@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import inspector from 'node:inspector';
 import path from 'node:path';
+import consumers from 'node:stream/consumers';
 
 import chalk from 'chalk';
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
 import type {BrowserContext, ElementHandle, Frame, Page, Protocol} from 'puppeteer';
 import {groupBy} from 'rambda';
+import {RawSourceMap, SourceMapConsumer} from 'source-map';
 import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
 import {DeepRequired, NonEmptyArray, UnreachableCaseError} from 'ts-essentials';
@@ -27,6 +29,7 @@ import {
 	nonEmpty,
 	populateDefaults,
 	tryAdd,
+	validUrl,
 	waitWithTimeout,
 } from './utils';
 import {ColoredLogger, Logger, PlainLogger} from './logger';
@@ -51,6 +54,7 @@ import {
 import {getLoginLinks} from './loginLinks';
 import {
 	attributePairs,
+	createCDPReadStream,
 	DOMPauseData,
 	exposeFunction,
 	getFrameStack,
@@ -81,13 +85,14 @@ export class FieldsCollector extends BaseCollector {
 
 	/** Landing page */
 	#page!: Page;
-	#frameIdMap              = new Map<string /*ID*/, Frame>();
-	#frameIdReverseMap       = new Map<Frame, string /*ID*/>();
+	#frameIdMap                          = new Map<string /*ID*/, Frame>();
+	#frameIdReverseMap                   = new Map<Frame, string /*ID*/>();
+	#asyncPageTasks: PromiseLike<void>[] = [];
 	/** Pages that password leak callback has been injected into */
-	#injectedDomLeakCallback = new Set<Page>();
-	#startUrls               = new Map<Page, string>();
-	#postCleanListeners      = new Map<Page, () => MaybePromiseLike<void>>();
-	#dirtyPages              = new Set<Page>();
+	#injectedDomLeakCallback             = new Set<Page>();
+	#startUrls                           = new Map<Page, string>();
+	#postCleanListeners                  = new Map<Page, () => MaybePromiseLike<void>>();
+	#dirtyPages                          = new Set<Page>();
 
 	#events: FieldsCollectorEvent[]  = [];
 	/** All found fields */
@@ -164,7 +169,7 @@ export class FieldsCollector extends BaseCollector {
 							  attribute: m.attributeName!,
 						  }));
 					if (leakSelectors.length)
-						void window[PageVars.DOM_LEAK_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
+						window[PageVars.DOM_LEAK_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
 				} catch (err) {
 					window[PageVars.ERROR_CALLBACK](window[PageVars.FRAME_ID], String(err), err instanceof Error && err.stack || Error().stack!);
 				}
@@ -183,7 +188,7 @@ export class FieldsCollector extends BaseCollector {
 								  attribute: attr.name,
 							  }));
 						if (leakSelectors.length)
-							void window[PageVars.DOM_LEAK_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
+							window[PageVars.DOM_LEAK_CALLBACK]!(window[PageVars.FRAME_ID]!, leakSelectors);
 					}
 					if (node.shadowRoot) inspectRecursive(node.shadowRoot, checkExistingAttrs);
 				}
@@ -225,6 +230,7 @@ export class FieldsCollector extends BaseCollector {
 		this.#page = undefined!;  // Initialized in addTarget
 		this.#frameIdMap.clear();
 		this.#frameIdReverseMap.clear();
+		this.#asyncPageTasks.length = 0;
 		this.#injectedDomLeakCallback.clear();
 		this.#startUrls.clear();
 		this.#postCleanListeners.clear();
@@ -336,6 +342,7 @@ export class FieldsCollector extends BaseCollector {
 				const res = await this.#inspectLinkedPages();
 				if (res) links = res.links;
 			}
+			await this.#waitForPageTasks();
 		} catch (err) {
 			this.#reportError(err, ['failed to get all data']);
 		}
@@ -416,6 +423,7 @@ export class FieldsCollector extends BaseCollector {
 	async #inspectLinkedPages(): Promise<{ links: LinkElementAttrs[], fields: FieldElementAttrs[] } | null> {
 		if (this.#maxFieldsReached()) return {links: [], fields: []};
 		try {
+			await this.#waitForPageTasks();
 			await this.#cleanPage(this.#page);
 			let links = (await getLoginLinks(this.#page.mainFrame(), new Set(['exact', 'loose', 'coords'])))
 				  .map(info => info.attrs);
@@ -464,6 +472,7 @@ export class FieldsCollector extends BaseCollector {
 
 	/** Click detected link & wait for navigation */
 	async #followLink(link: ElementAttrs) {
+		await this.#waitForPageTasks();
 		this.#log?.log('🔗🖱 following link', selectorStr(link.selectorChain));
 		this.#events.push(new ClickLinkEvent(getElemIdentifier(link), 'auto'));
 		const page     = this.#page;
@@ -490,6 +499,13 @@ export class FieldsCollector extends BaseCollector {
 				else el.dispatchEvent(new MouseEvent('click', {view: window, bubbles: true, cancelable: true}));
 			});
 		}
+	}
+
+	async #waitForPageTasks() {
+		if (!this.#asyncPageTasks.length) return;
+		this.#log?.debug('waiting for async page tasks to complete');
+		await Promise.all(this.#asyncPageTasks);
+		this.#asyncPageTasks.length = 0;
 	}
 
 	#setDirty(page: Page) {
@@ -525,6 +541,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #goBack(frame: Frame, url: string) {
+		await this.#waitForPageTasks();
 		const maxWaitTimeMs = Math.max(
 			  this.options.timeoutMs.reload,
 			  this.#dataParams.pageLoadDurationMs * 2);
@@ -820,6 +837,7 @@ export class FieldsCollector extends BaseCollector {
 			this.#log?.log(`skip submitting ${selectorStr(field.attrs.selectorChain)} because it was not filled`);
 			return;
 		}
+		await this.#waitForPageTasks();
 		this.#events.push(new SubmitEvent(getElemIdentifier(field)));
 		this.#log?.log('⏎ submitting field', selectorStr(field.attrs.selectorChain));
 		this.#setDirty(field.handle.frame.page());
@@ -896,14 +914,27 @@ export class FieldsCollector extends BaseCollector {
 					this.#reportError(err, ['failed to observe node for DOM leaks', attrs]);
 				}
 
-			const scriptUrls = new Map<Protocol.Runtime.ScriptId, string>();
-			cdp.on('Debugger.scriptParsed', ({scriptId, url}) =>
-				  scriptUrls.set(scriptId, url));
+			const sourceMaps = new Map<string, Promise<SourceMapConsumer | null>>();
+			page.on('close', () =>
+				  void Promise.all([...sourceMaps.values()].map(async map => (await map)?.destroy()))
+						.catch(err => this.options.debug && this.#reportError(err, ['failed to close source maps'], 'warn')));
+			const scriptUrls = new Map<Protocol.Runtime.ScriptId, {
+				url: string | null,
+				sourceMapUrl: URL | null,
+				frameId: string | null,
+			}>();
+			cdp.on('Debugger.scriptParsed', ({scriptId, url, sourceMapURL, executionContextAuxData}) =>
+				  scriptUrls.set(scriptId, {
+					  url: url || null,
+					  sourceMapUrl: sourceMapURL ? validUrl(sourceMapURL, url || undefined) : null,
+					  frameId: typeof executionContextAuxData === 'object' && 'frameId' in executionContextAuxData
+							? (executionContextAuxData as { frameId: string }).frameId : null,
+				  }));
 
 			const attributesContainingPassword = new Map<Protocol.DOM.NodeId, Set<string>>(
 				  [...observeNodes.keys()].map(nodeId => [nodeId, new Set()]),
 			);
-			cdp.on('Debugger.paused', event => void (async () => {
+			cdp.on('Debugger.paused', event => this.#asyncPageTasks.push((async () => {
 				if (event.reason !== 'DOM') return;
 				const data = event.data as DOMPauseData;
 				if (data.type !== 'attribute-modified') return;
@@ -923,21 +954,79 @@ export class FieldsCollector extends BaseCollector {
 				this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes (stack captured): ${
 					  leaks.map(attr => `${selectorStr(attrs.selectorChain)} @${attr}`).join(', ')}`);
 				const time = Date.now();
-				leaks.map((attribute): DomPasswordLeak => ({
-					time,
-					attribute,
-					element: attrs,
-					stack: event.callFrames.map(callFrame => ({
-						url: scriptUrls.get(callFrame.location.scriptId)!,
-						function: callFrame.functionName,
-						line: callFrame.location.lineNumber + 1,
-						column: (callFrame.location.columnNumber ?? -1) + 1,
-					})),
-				})).forEach(leak => this.#addDomLeak(leak));
+
+				await Promise.all(leaks.map(async (attribute) => {
+					const stack: StackFrame[] = [];
+					const leak                = {
+						time,
+						attribute,
+						element: attrs,
+						stack,
+					};
+					const addSourceMapInfo    = Promise.all(event.callFrames.map(async (callFrame) => {
+						const {url, sourceMapUrl, frameId} = scriptUrls.get(callFrame.location.scriptId)!;
+						const frame: StackFrame            = {
+							url,
+							function: callFrame.functionName || null,
+							line: callFrame.location.lineNumber + 1,
+							column: callFrame.location.columnNumber !== undefined
+								  ? callFrame.location.columnNumber + 1 : null,
+						};
+						stack.push(frame);
+
+						if (sourceMapUrl && this.options.useSourceMaps) {
+							let sourceMap = sourceMaps.get(sourceMapUrl.href);
+							if (!sourceMap) {
+								sourceMaps.set(sourceMapUrl.href, sourceMap = (async () => {
+									try {
+										let rawSourceMap: RawSourceMap;
+										if (sourceMapUrl.protocol === 'data:') {
+											rawSourceMap = await (await fetch(sourceMapUrl)).json() as RawSourceMap;
+										} else {
+											const {resource} =
+												        await cdp.send('Network.loadNetworkResource', {
+													        url: sourceMapUrl.href,
+													        ...(frameId && {frameId}),
+													        options: {includeCredentials: true, disableCache: false},
+												        });
+											if (!resource.success) return null;
+
+											rawSourceMap = await consumers.json(
+												  createCDPReadStream(cdp, resource.stream!,
+														10_000 /*TODO? make configurable*/)) as RawSourceMap;
+										}
+
+										return await new SourceMapConsumer(rawSourceMap,
+											  sourceMapUrl.protocol !== 'data:' ? sourceMapUrl.href : url ?? undefined);
+									} catch (err) {
+										this.#reportError(err, ['failed to read source map'], 'warn');
+										return null;
+									}
+								})());
+							}
+
+							const sourceMapResolved = await sourceMap;
+							if (sourceMapResolved) {
+								const orig         = sourceMapResolved.originalPositionFor({
+									line: frame.line,
+									column: frame.column !== null ? frame.column - 1 : 0,
+								});
+								frame.sourceMapped = {
+									url: orig.source,
+									function: orig.name,
+									line: orig.line,
+									column: orig.column !== null ? orig.column + 1 : null,
+								};
+							}
+						}
+					}));
+					this.#addDomLeak(leak);
+					await addSourceMapInfo;
+				}));
 			})().catch(err =>
 				  this.#reportError(err, ['error handling debugger pause for DOM leak detection'],
 						err instanceof Error && err.message.includes('Could not find node with given id')
-							  ? 'warn' : 'error')));
+							  ? 'warn' : 'error'))));
 
 			await cdp.send('Debugger.enable');
 
@@ -957,7 +1046,7 @@ export class FieldsCollector extends BaseCollector {
 
 		const {object: {objectId}} = await cdp.send('DOM.resolveNode', {backendNodeId});
 		let {nodeId}               = await cdp.send('DOM.requestNode', {objectId: objectId!});
-		//XXX Workaround for https://crbug.com/1374241
+		// DOM.getDocument needs to be called once before NodeIds are available, see https://crbug.com/1374241
 		// Calling multiple times invalidates previous NodeIds
 		if (!nodeId) await cdp.send('DOM.getDocument', {depth: 0});
 		({nodeId} = await cdp.send('DOM.requestNode', {objectId: objectId!}));
@@ -965,34 +1054,36 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	/** Called from the page when a DOM password leak is detected */
-	async #domLeakCallback(frameId: string, leaks: PagePasswordLeak[]) {
-		try {
-			const time  = Date.now();
-			const frame = this.#frameIdMap.get(frameId)!;
-			this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes: ${
-				  leaks.map(l => `${selectorStr(l.selectorChain)} @${l.attribute}`).join(', ')}`);
-			(await Promise.all(leaks.map(async (leak): Promise<DomPasswordLeak> => {
-				let attrs;
-				try {
-					const handle = (await getElementBySelectorChain(leak.selectorChain, frame))?.elem;
-					if (handle) attrs = await getElementAttrs(handle);
-				} catch (err) {
-					this.#reportError(err, [
-							  'failed to get attributes for DOM password leak element', selectorStr(leak.selectorChain)],
-						  'warn');
-				}
-				return {
-					time,
-					attribute: leak.attribute,
-					element: attrs ?? {
-						frameStack: getFrameStack(frame).map(f => f.url()) as NonEmptyArray<string>,
-						selectorChain: leak.selectorChain,
-					},
-				};
-			}))).forEach(leak => this.#addDomLeak(leak));
-		} catch (err) {
-			this.#reportError(err, ['error in DOM password leak callback']);
-		}
+	#domLeakCallback(frameId: string, leaks: PagePasswordLeak[]) {
+		this.#asyncPageTasks.push((async () => {
+			try {
+				const time  = Date.now();
+				const frame = this.#frameIdMap.get(frameId)!;
+				this.#log?.info(`🔓💧 password leaked on ${frame.url()} to attributes: ${
+					  leaks.map(l => `${selectorStr(l.selectorChain)} @${l.attribute}`).join(', ')}`);
+				(await Promise.all(leaks.map(async (leak): Promise<DomPasswordLeak> => {
+					let attrs;
+					try {
+						const handle = (await getElementBySelectorChain(leak.selectorChain, frame))?.elem;
+						if (handle) attrs = await getElementAttrs(handle);
+					} catch (err) {
+						this.#reportError(err, [
+								  'failed to get attributes for DOM password leak element', selectorStr(leak.selectorChain)],
+							  'warn');
+					}
+					return {
+						time,
+						attribute: leak.attribute,
+						element: attrs ?? {
+							frameStack: getFrameStack(frame).map(f => f.url()) as NonEmptyArray<string>,
+							selectorChain: leak.selectorChain,
+						},
+					};
+				}))).forEach(leak => this.#addDomLeak(leak));
+			} catch (err) {
+				this.#reportError(err, ['error in DOM password leak callback']);
+			}
+		})());
 	}
 
 	#addDomLeak(leak: DomPasswordLeak): boolean {
@@ -1219,6 +1310,9 @@ export interface FieldsCollectorOptions {
 		 */
 		target: string | ((img: Buffer, trigger: ScreenshotTrigger) => MaybePromiseLike<void>);
 	} | null;
+	/** Try to use source maps for DOM leak stack traces
+	 * @default true */
+	useSourceMaps?: boolean,
 	/** Turn on some debugging assertions.
 	 * Default false unless an inspector is activated */
 	debug?: boolean;
@@ -1274,6 +1368,7 @@ FieldsCollector.defaultOptions = {
 	disableClosedShadowDom: true,
 	interactChains: [],
 	screenshot: null,
+	useSourceMaps: true,
 	debug: !!inspector.url(),
 };
 
@@ -1294,10 +1389,20 @@ export interface DomPasswordLeak {
 }
 
 export interface StackFrame {
-	url: string;
-	function: string;
+	/** Script URL. May be null for internal browser code */
+	url: string | null;
+	function: string | null;
 	line: number;
-	column: number;
+	/** 1-based */
+	column: number | null;
+
+	sourceMapped?: {
+		url: string | null;
+		function: string | null;
+		line: number | null;
+		/** 1-based */
+		column: number | null;
+	};
 }
 
 export interface VisitedTarget {
@@ -1398,6 +1503,6 @@ declare global {
 		[PageVars.ERROR_CALLBACK]: (frameId: string | undefined, message: string, stack: string) => void;
 		[PageVars.INJECTED]: typeof import('leak-detect-inject');
 		[PageVars.DOM_OBSERVED]?: boolean;
-		[PageVars.DOM_LEAK_CALLBACK]?: (frameId: string, leaks: PagePasswordLeak[]) => Promise<void>;
+		[PageVars.DOM_LEAK_CALLBACK]?: (frameId: string, leaks: PagePasswordLeak[]) => void;
 	}
 }

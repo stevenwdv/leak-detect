@@ -10,6 +10,7 @@ import type {
 } from 'puppeteer';
 import {IsTuple, NonEmptyArray} from 'ts-essentials';
 import TypedArray = NodeJS.TypedArray;
+import {createProducerStream, timeoutSignal} from './utils';
 
 export function isNavigationError(err: unknown): boolean {
 	return err instanceof Error
@@ -184,6 +185,31 @@ export function attributePairs(attributesResponse: Protocol.DOM.GetAttributesRes
 	const {attributes} = attributesResponse;
 	return Array(attributes.length / 2).fill(undefined)
 		  .map((_, i) => ({name: attributes[i * 2]!, value: attributes[i * 2 + 1]!}));
+}
+
+export function createCDPReadStream(
+	  cdp: CDPSession | TypedCDPSession, handle: Protocol.IO.StreamHandle, timeoutMs?: number) {
+	async function* readStream() {
+		try {
+			let base64Encoded, data, eof;
+			do {
+				({
+					base64Encoded,
+					data,
+					eof,
+				} = await cdp.send('IO.read', {handle}));
+				yield {
+					chunk: data,
+					encoding: base64Encoded === true ? 'base64' as const : undefined,
+				};
+			} while (!eof);
+		} finally {
+			await cdp.send('IO.close', {handle});
+		}
+	}
+
+	return createProducerStream(readStream(), undefined,
+		  timeoutMs !== undefined ? timeoutSignal(timeoutMs) : undefined);
 }
 
 export type TypedCDPSession = CDPEventEmitter & Omit<CDPSession, keyof CDPEventEmitter>;

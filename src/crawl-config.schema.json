@@ -1368,6 +1368,11 @@
                 }
             },
             "type": "object"
+        },
+        "useSourceMaps": {
+            "default": true,
+            "description": "Try to use source maps for DOM leak stack traces",
+            "type": "boolean"
         }
     },
     "type": "object"
