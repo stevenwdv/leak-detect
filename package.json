@@ -17,7 +17,8 @@
 		"leak-detect": "./src/main.ts"
 	},
 	"workspaces": [
-		"inject"
+		"./inject/",
+		"./value-searcher/"
 	],
 	"engines": {
 		"node": ">=17.5"
