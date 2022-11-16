@@ -4,13 +4,11 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import inspector from 'node:inspector';
 import path from 'node:path';
-import consumers from 'node:stream/consumers';
 
 import chalk from 'chalk';
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
 import type {BrowserContext, ElementHandle, Frame, Page, Protocol} from 'puppeteer';
 import {groupBy} from 'rambda';
-import {RawSourceMap, SourceMapConsumer} from 'source-map';
 import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
 import {DeepRequired, NonEmptyArray, UnreachableCaseError} from 'ts-essentials';
@@ -29,7 +27,6 @@ import {
 	nonEmpty,
 	populateDefaults,
 	tryAdd,
-	validUrl,
 	waitWithTimeout,
 } from './utils';
 import {ColoredLogger, Logger, PlainLogger} from './logger';
@@ -54,12 +51,12 @@ import {
 import {getLoginLinks} from './loginLinks';
 import {
 	attributePairs,
-	createCDPReadStream,
 	DOMPauseData,
 	exposeFunction,
 	getFrameStack,
 	isNavigationError,
 	robustPierceQueryHandler,
+	StackTracer,
 	TypedCDPSession,
 	unwrapHandle,
 	waitForLoad,
@@ -914,22 +911,12 @@ export class FieldsCollector extends BaseCollector {
 					this.#reportError(err, ['failed to observe node for DOM leaks', attrs]);
 				}
 
-			const sourceMaps = new Map<string, Promise<SourceMapConsumer | null>>();
-			page.on('close', () =>
-				  void Promise.all([...sourceMaps.values()].map(async map => (await map)?.destroy()))
-						.catch(err => this.options.debug && this.#reportError(err, ['failed to close source maps'], 'warn')));
-			const scriptUrls = new Map<Protocol.Runtime.ScriptId, {
-				url: string | null,
-				sourceMapUrl: URL | null,
-				frameId: string | null,
-			}>();
-			cdp.on('Debugger.scriptParsed', ({scriptId, url, sourceMapURL, executionContextAuxData}) =>
-				  scriptUrls.set(scriptId, {
-					  url: url || null,
-					  sourceMapUrl: sourceMapURL ? validUrl(sourceMapURL, url || undefined) : null,
-					  frameId: typeof executionContextAuxData === 'object' && 'frameId' in executionContextAuxData
-							? (executionContextAuxData as { frameId: string }).frameId : null,
-				  }));
+			const stackTracer = new StackTracer(cdp);
+			stackTracer.onSourceMapLoaded = (sourceMapUrl, scriptUrl) =>
+				  this.#log?.debug('loaded source map', scriptUrl ? `for ${scriptUrl}` : sourceMapUrl.href);
+
+			page.on('close', () => void stackTracer.close()
+				  .catch(err => this.options.debug && this.#reportError(err, ['failed to close source maps'], 'warn')));
 
 			const attributesContainingPassword = new Map<Protocol.DOM.NodeId, Set<string>>(
 				  [...observeNodes.keys()].map(nodeId => [nodeId, new Set()]),
@@ -956,79 +943,25 @@ export class FieldsCollector extends BaseCollector {
 				const time = Date.now();
 
 				await Promise.all(leaks.map(async (attribute) => {
-					const stack: StackFrame[] = [];
-					const leak                = {
+					const leak: DomPasswordLeak = {
 						time,
 						attribute,
 						element: attrs,
-						stack,
 					};
-					const addSourceMapInfo    = Promise.all(event.callFrames.map(async (callFrame) => {
-						const {url, sourceMapUrl, frameId} = scriptUrls.get(callFrame.location.scriptId)!;
-						const frame: StackFrame            = {
-							url,
-							function: callFrame.functionName || null,
-							line: callFrame.location.lineNumber + 1,
-							column: callFrame.location.columnNumber !== undefined
-								  ? callFrame.location.columnNumber + 1 : null,
-						};
-						stack.push(frame);
-
-						if (sourceMapUrl && this.options.useSourceMaps) {
-							let sourceMap = sourceMaps.get(sourceMapUrl.href);
-							if (!sourceMap) {
-								sourceMaps.set(sourceMapUrl.href, sourceMap = (async () => {
-									try {
-										let rawSourceMap: RawSourceMap;
-										if (sourceMapUrl.protocol === 'data:') {
-											rawSourceMap = await (await fetch(sourceMapUrl)).json() as RawSourceMap;
-										} else {
-											const {resource} =
-												        await cdp.send('Network.loadNetworkResource', {
-													        url: sourceMapUrl.href,
-													        ...(frameId && {frameId}),
-													        options: {includeCredentials: true, disableCache: false},
-												        });
-											if (!resource.success) return null;
-
-											rawSourceMap = await consumers.json(
-												  createCDPReadStream(cdp, resource.stream!,
-														10_000 /*TODO? make configurable*/)) as RawSourceMap;
-										}
-
-										return await new SourceMapConsumer(rawSourceMap,
-											  sourceMapUrl.protocol !== 'data:' ? sourceMapUrl.href : url ?? undefined);
-									} catch (err) {
-										this.#reportError(err, ['failed to read source map'], 'warn');
-										return null;
-									}
-								})());
-							}
-
-							const sourceMapResolved = await sourceMap;
-							if (sourceMapResolved) {
-								const orig         = sourceMapResolved.originalPositionFor({
-									line: frame.line,
-									column: frame.column !== null ? frame.column - 1 : 0,
-								});
-								frame.sourceMapped = {
-									url: orig.source,
-									function: orig.name,
-									line: orig.line,
-									column: orig.column !== null ? orig.column + 1 : null,
-								};
-							}
-						}
-					}));
-					this.#addDomLeak(leak);
-					await addSourceMapInfo;
+					leak.stack                  = await stackTracer.getStack(event.callFrames, this.options.useSourceMaps,
+						  (err, aggressive) => !aggressive &&
+								this.#log?.debug('failed to read source map', err),
+						  plainStack => {
+							  leak.stack = plainStack;
+							  this.#addDomLeak(leak);
+						  });
 				}));
 			})().catch(err =>
 				  this.#reportError(err, ['error handling debugger pause for DOM leak detection'],
 						err instanceof Error && err.message.includes('Could not find node with given id')
 							  ? 'warn' : 'error'))));
 
-			await cdp.send('Debugger.enable');
+			await stackTracer.enable();
 
 			this.#log?.debug('injected DOM password leak detection');
 		} catch (err) {
@@ -1310,9 +1243,9 @@ export interface FieldsCollectorOptions {
 		 */
 		target: string | ((img: Buffer, trigger: ScreenshotTrigger) => MaybePromiseLike<void>);
 	} | null;
-	/** Try to use source maps for DOM leak stack traces
-	 * @default true */
-	useSourceMaps?: boolean,
+	/** Try to use source maps for DOM leak stack traces, specify "aggressive" to try adding .map after .js URL
+	 * @default "aggressive" */
+	useSourceMaps?: boolean | 'aggressive',
 	/** Turn on some debugging assertions.
 	 * Default false unless an inspector is activated */
 	debug?: boolean;

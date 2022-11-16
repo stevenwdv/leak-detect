@@ -47,7 +47,7 @@ export function truncateLine(str: string, maxLength: number): string {
  */
 export function stripIndent(strings: TemplateStringsArray, ...placeholders: unknown[]) {
 	const stringsNoIndent = strings.map(s => s.replaceAll(/([\r\n])[^\S\r\n]+/g, '$1'));
-	stringsNoIndent[0] = stringsNoIndent[0]!.replace(/^[^\S\r\n]+/, '');
+	stringsNoIndent[0]    = stringsNoIndent[0]!.replace(/^[^\S\r\n]+/, '');
 	return stringsNoIndent.reduce((acc, s, i) => acc + String(placeholders[i - 1]!) + s);
 }
 
@@ -141,11 +141,13 @@ export function setAll<K, V>(map: Map<K, V>, entries: Iterable<readonly [K, V]>)
 	for (const [key, val] of entries) map.set(key, val);
 }
 
-export async function waitWithTimeout<T>(timeoutMs: number, promise: PromiseLike<T>): Promise<T | undefined> {
-	return await Promise.race([
-		setTimeout(timeoutMs, undefined, {ref: false}),
-		promise,
-	]);
+export async function waitWithTimeout<T>(
+	  timeoutMs: number | undefined, promise: PromiseLike<T>): Promise<T | undefined> {
+	return timeoutMs !== undefined
+		  ? await Promise.race([
+			  setTimeout(timeoutMs, undefined, {ref: false}),
+			  promise,
+		  ]) : promise;
 }
 
 export function raceWithCondition<T>(

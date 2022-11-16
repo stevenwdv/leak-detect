@@ -1,3 +1,5 @@
+import consumers from 'node:stream/consumers';
+
 import type {
 	CDPSession,
 	CustomQueryHandler,
@@ -8,9 +10,13 @@ import type {
 	Protocol,
 	ProtocolMapping,
 } from 'puppeteer';
+import {SourceMapConsumer} from 'source-map';
 import {IsTuple, NonEmptyArray} from 'ts-essentials';
+
+import {StackFrame} from './FieldsCollector';
+import {createProducerStream, timeoutSignal, validUrl, waitWithTimeout} from './utils';
+
 import TypedArray = NodeJS.TypedArray;
-import {createProducerStream, timeoutSignal} from './utils';
 
 export function isNavigationError(err: unknown): boolean {
 	return err instanceof Error
@@ -185,6 +191,154 @@ export function attributePairs(attributesResponse: Protocol.DOM.GetAttributesRes
 	const {attributes} = attributesResponse;
 	return Array(attributes.length / 2).fill(undefined)
 		  .map((_, i) => ({name: attributes[i * 2]!, value: attributes[i * 2 + 1]!}));
+}
+
+export class StackTracer {
+	readonly #cdp: TypedCDPSession;
+	readonly #sourceMaps = new Map<string, Promise<SourceMapConsumer | null>>();
+	readonly #scriptUrls = new Map<Protocol.Runtime.ScriptId, {
+		url: string | null,
+		sourceMapUrl: URL | null,
+		frameId: string | null,
+	}>();
+
+	public onSourceMapLoaded: ((sourceMapUrl: URL, scriptUrl: string | null) => void) | undefined;
+
+	constructor(cdp: CDPSession | TypedCDPSession) {
+		this.#cdp = cdp as TypedCDPSession;
+		this.#cdp.on('Debugger.scriptParsed', ({scriptId, url, sourceMapURL, executionContextAuxData}) =>
+			  this.#scriptUrls.set(scriptId, {
+				  url: url || null,
+				  sourceMapUrl: sourceMapURL ? validUrl(sourceMapURL, url || undefined) : null,
+				  frameId: typeof executionContextAuxData === 'object' && 'frameId' in executionContextAuxData
+						? (executionContextAuxData as { frameId: string }).frameId : null,
+			  }));
+	}
+
+	async enable() {
+		await this.#cdp.send('Debugger.enable');
+	}
+
+	getPlainStack(frames: Protocol.Debugger.CallFrame[]) {
+		return frames.map((callFrame): StackFrame => ({
+			url: this.#scriptUrls.get(callFrame.location.scriptId)!.url,
+			function: callFrame.functionName || null,
+			line: callFrame.location.lineNumber + 1,
+			column: callFrame.location.columnNumber !== undefined
+				  ? callFrame.location.columnNumber + 1 : null,
+		}));
+	}
+
+	async getStack(
+		  frames: Protocol.Debugger.CallFrame[],
+		  useSourceMaps: boolean | 'aggressive',
+		  onError?: (error: unknown, aggressive: boolean) => void,
+		  onPlainStack?: (stack: StackFrame[]) => void,
+	) {
+		const stack = this.getPlainStack(frames);
+		onPlainStack?.(stack);
+		if (useSourceMaps === false) return stack;
+
+		return await Promise.all(stack.map(async (frame, i) => {
+			const script     = this.#scriptUrls.get(frames[i]!.location.scriptId)!;
+			let sourceMapUrl = script.sourceMapUrl;
+			if (!sourceMapUrl && script.url && useSourceMaps === 'aggressive') {
+				const urlObj = validUrl(script.url);
+				if (urlObj && /\.jsm?$/.test(urlObj.pathname))
+					urlObj.pathname += '.map';
+				sourceMapUrl = urlObj;
+			}
+			if (!sourceMapUrl) return frame;
+
+			try {
+				const sourceMap = await this.#getSourceMap(sourceMapUrl, script.url, script.frameId,
+					  5e3, 10e3 /*TODO? make configurable*/);
+				if (!sourceMap) return frame;
+
+				const orig         = sourceMap.originalPositionFor({
+					line: frame.line,
+					column: frame.column !== null ? frame.column - 1 : 0,
+				});
+				frame.sourceMapped = {
+					url: orig.source,
+					function: orig.name,
+					line: orig.line,
+					column: orig.column !== null ? orig.column + 1 : null,
+				};
+			} catch (err) {
+				onError?.(err, !script.sourceMapUrl);
+			}
+			return frame;
+		}));
+	}
+
+	async close() {
+		await Promise.all([...this.#sourceMaps.values()].map(async map => (await map)?.destroy()));
+	}
+
+	async #getSourceMap(sourceMapUrl: URL, scriptUrl: string | null, frameId: string | null,
+		  requestTimeoutMs?: number, downloadTimeoutMs?: number,
+	) {
+		let sourceMap = this.#sourceMaps.get(sourceMapUrl.href);
+		if (sourceMap) return await sourceMap;
+
+		sourceMap = (async () => {
+			let rawSourceMap: string;
+			if (sourceMapUrl.protocol === 'data:') {
+				rawSourceMap = await (await fetch(sourceMapUrl)).text();
+			} else {
+				const resource = await loadNetworkResource(this.#cdp, {
+					url: sourceMapUrl.href,
+					...(frameId && {frameId}),
+					options: {
+						includeCredentials: true,
+						disableCache: false,
+					},
+				}, requestTimeoutMs);
+				if (!resource || !resource.success)
+					throw new Error(`got ${resource
+						  ? resource.netErrorName ?? resource.httpStatusCode!
+						  : 'timeout'} while trying to load source map ${sourceMapUrl.href}`);
+
+				rawSourceMap = await consumers.text(
+					  createCDPReadStream(this.#cdp, resource.stream!, downloadTimeoutMs));
+			}
+
+			try {
+				const sourceMap = await new SourceMapConsumer(rawSourceMap,
+					  sourceMapUrl.protocol !== 'data:' ? sourceMapUrl.href : scriptUrl ?? undefined);
+				this.onSourceMapLoaded?.(sourceMapUrl, scriptUrl);
+				return sourceMap;
+			} catch (err) {
+				throw new Error(`failed to parse source map ${sourceMapUrl.href}`, {cause: err});
+			}
+		})();
+
+		this.#sourceMaps.set(sourceMapUrl.href, sourceMap.catch(() => null));
+		return await sourceMap;
+	}
+}
+
+export async function loadNetworkResource(
+	  cdp: CDPSession | TypedCDPSession,
+	  request: Protocol.Network.LoadNetworkResourceRequest,
+	  timeoutMs?: number,
+): Promise<Protocol.Network.LoadNetworkResourcePageResult | undefined> {
+	let timeout    = false;
+	const resource = await waitWithTimeout(timeoutMs, (async () => {
+		const {resource} = await cdp.send('Network.loadNetworkResource', request);
+		// ESLint false positive
+		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+		if (timeout && resource.stream)
+			cdp.send('IO.close', {handle: resource.stream})
+				  .catch(() => {/*ignore*/});
+		return resource;
+	})());
+	if (!resource) {
+		timeout = true;
+		return undefined;
+	}
+	return resource;
 }
 
 export function createCDPReadStream(
