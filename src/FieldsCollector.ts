@@ -30,7 +30,7 @@ import {
 	waitWithTimeout,
 } from './utils';
 import {ColoredLogger, Logger, PlainLogger} from './logger';
-import {fillEmailField, fillPasswordField, submitField} from './formInteraction';
+import {fillEmailField, fillPasswordField, submitField, blurRefocus} from './formInteraction';
 import {
 	closeExtraPages,
 	ElementAttrs,
@@ -312,7 +312,8 @@ export class FieldsCollector extends BaseCollector {
 				await evaluateOnAll(FieldsCollector.#injectDomLeakDetectFun, this.options.fill.password);
 			}
 		} catch (err) {
-			this.#reportError(err, ['failed to add target']);
+			if (!isNavigationError(err))
+				this.#reportError(err, ['failed to add target']);
 		}
 	}
 
@@ -689,6 +690,9 @@ export class FieldsCollector extends BaseCollector {
 				allDone = true;  // All frames are done
 			}
 
+			if (pageFields.length && !this.options.fill.submit)
+				await blurRefocus(page.mainFrame());
+
 			if (this.#maxFieldsReached())
 				this.#log?.log('💯 reached maximum number of filled fields');
 			this.#log?.log(`${pageFields.length ? '🆕' : '🔚'} processed ${pageFields.length} new fields`);
@@ -847,6 +851,8 @@ export class FieldsCollector extends BaseCollector {
 			]);
 
 			await this.#screenshot((opened ?? field.handle.frame).page(), 'submitted');
+			await blurRefocus(opened ?? field.handle.frame);
+			await this.#sleep(this.options.sleepMs?.postFill);
 		} catch (err) {
 			this.#reportError(err, ['failed to submit field', field.attrs], 'warn');
 		}
@@ -875,7 +881,7 @@ export class FieldsCollector extends BaseCollector {
 						throw new UnreachableCaseError(field.attrs.fieldType);
 				}
 				field.attrs.filled = true;
-				this.#log?.debug('✒️ filled field', selectorStr(field.attrs.selectorChain));
+				this.#log?.log(`✒️ filled ${field.attrs.fieldType} field`, selectorStr(field.attrs.selectorChain));
 			} catch (err) {
 				this.#reportError(err, ['failed to fill field', field.attrs], 'warn');
 			}

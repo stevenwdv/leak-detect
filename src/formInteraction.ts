@@ -1,8 +1,43 @@
 import {setTimeout} from 'node:timers/promises';
 
-import type {ElementHandle} from 'puppeteer';
+import type {ElementHandle, Frame} from 'puppeteer';
 
 import {getRandomUpTo} from './utils';
+
+export async function blurRefocus(frame: Frame) {
+	function blur() {
+		Reflect.defineProperty(document, 'visibilityState', {value: 'hidden', configurable: true});
+		document.hasFocus = () => false;
+		dispatchEvent(new Event('blur', {
+			srcElement: window,
+			target: window,
+			currentTarget: window,
+			path: [window],
+		} as EventInit));
+	}
+
+	function focus() {
+		// @ts-expect-error restores original property
+		// noinspection JSConstantReassignment
+		delete document.visibilityState;
+		// @ts-expect-error restores original property
+		delete document.hasFocus;
+		dispatchEvent(new Event('focus', {
+			srcElement: window,
+			target: window,
+			currentTarget: window,
+			path: [window],
+		} as EventInit));
+	}
+
+	await frame.evaluate(blur);
+	if (frame.page().mainFrame() !== frame)
+		await frame.page().evaluate(blur);
+
+	if (frame.page().mainFrame() !== frame)
+		await frame.page().evaluate(focus);
+	await frame.evaluate(focus);
+}
 
 export async function focusElement(handle: ElementHandle, clickDwellTimeMs: number) {
 	const page = handle.frame.page();
