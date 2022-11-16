@@ -1370,9 +1370,13 @@
             "type": "object"
         },
         "useSourceMaps": {
-            "default": true,
-            "description": "Try to use source maps for DOM leak stack traces",
-            "type": "boolean"
+            "default": "aggressive",
+            "description": "Try to use source maps for DOM leak stack traces, specify \"aggressive\" to try adding .map after .js URL",
+            "enum": [
+                "aggressive",
+                false,
+                true
+            ]
         }
     },
     "type": "object"
