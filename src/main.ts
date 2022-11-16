@@ -714,6 +714,12 @@ async function crawl(
 					  if (collector) logger.logLevel(level, `collector ${collector.id()}:`, context, err);
 					  else logger.logLevel(level, context, err);
 				  },
+				  onHttpError(statusCode) {
+					  const doContinue = statusCode !== 404 && statusCode < 500;
+					  if (doContinue)
+						  logger.warn(`HTTP error ${statusCode} while loading ${url.href}`);
+					  return doContinue;
+				  },
 				  onStart,
 			  },
 		) as CrawlResult;
