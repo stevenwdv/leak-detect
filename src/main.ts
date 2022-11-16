@@ -26,6 +26,7 @@ import {
 } from 'tracker-radar-collector';
 import {BreakpointObject} from 'tracker-radar-collector/collectors/APICalls/breakpoints';
 import {CollectResult} from 'tracker-radar-collector/crawler';
+import injectNotABot from 'tracker-radar-collector/helpers/notABot';
 import {UnreachableCaseError} from 'ts-essentials';
 import ValueSearcher, {defaultTransformers, transformers} from 'value-searcher';
 import yargs from 'yargs';
@@ -704,6 +705,7 @@ async function crawl(
 				  devtools: args.devtools,
 				  collectors,
 				  collectorFlags,
+				  runInEveryFrame: injectNotABot,
 				  onError(err, context, collector) {
 					  if (args.errorExitCode ?? !batchMode)
 						  process.exitCode = 1;
