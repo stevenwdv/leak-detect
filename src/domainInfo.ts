@@ -155,7 +155,7 @@ export class TrackerClassifier {
 	}
 }
 
-export const enum FilterResult {
+enum FilterResult {
 	NO_MATCH = 0,
 	BLOCK    = 1,
 	ALLOW    = 2,

@@ -726,7 +726,7 @@ async function crawl(
 	if ((args.errorExitCode ?? !batchMode) && nonEmpty(crawlResult.data.fields?.errors))
 		process.exitCode = 1;
 
-	const output: OutputFile = {crawlResult, durationsMs: {}};
+	const output: OutputFile = {crawlResult, durationsMs: {}, hasDomainInfo: args.checkThirdParty};
 
 	if (args.checkThirdParty) {
 		const start = Date.now();
@@ -937,14 +937,14 @@ export type CrawlStateLine = {
 };
 
 export type FieldsCollectorDataEx = FieldsCollectorData & {
-	visitedTargets: (VisitedTarget & Partial<ThirdPartyInfo>)[]
+	visitedTargets: (VisitedTarget & Partial<DomainInfo>)[]
 };
 
-export type RequestDataEx = RequestCollector.RequestData & Partial<ThirdPartyInfo>;
+export type RequestDataEx = RequestCollector.RequestData & Partial<DomainInfo>;
 
 export type SavedCallEx = APICallCollector.SavedCall & {
 	custom: LeakDetectorCaptureData,
-	stackInfo?: (ThirdPartyInfo | null)[],
+	stackInfo?: (DomainInfo | null)[],
 };
 
 export type APICallReportEx = APICallCollector.APICallReport & {
@@ -963,13 +963,14 @@ export type CrawlResult = CollectResult & {
 export interface OutputFile {
 	crawlResult: CrawlResult;
 	requestLeaks?: RequestLeakEx[];
+	hasDomainInfo: boolean,
 	durationsMs: {
 		thirdPartyCheck?: number;
 		requestLeakCheck?: number;
 	};
 }
 
-export interface ThirdPartyInfo {
+export interface DomainInfo {
 	thirdParty: boolean;
 	tracker: boolean;
 }

@@ -5,7 +5,7 @@ import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher, {transformers} from 'value-searcher';
 
 import {formatDuration, getRelativeUrl, nonEmpty, notFalsy, truncateLine, validUrl} from './utils';
-import {OutputFile, SavedCallEx, ThirdPartyInfo} from './main';
+import {OutputFile, SavedCallEx, DomainInfo} from './main';
 import {getElemIdentifierStr, selectorStr, stackFrameFileRegex} from './pageUtils';
 import {
 	ClickLinkEvent,
@@ -50,7 +50,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 
 	const collectorData = result.data;
 
-	let hasDomainInfo, relevantRequestLeaks;
+	let relevantRequestLeaks;
 	{
 		const annotatedLeaks = (output.requestLeaks ?? [])
 			  .map(leak => {
@@ -62,8 +62,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 					  visitedTarget,
 				  };
 			  });
-		hasDomainInfo        = !!annotatedLeaks[0] && (annotatedLeaks[0].request ?? annotatedLeaks[0].visitedTarget!).thirdParty !== undefined;
-		relevantRequestLeaks = hasDomainInfo ? annotatedLeaks.filter(({request, visitedTarget}) => {
+		relevantRequestLeaks = output.hasDomainInfo ? annotatedLeaks.filter(({request, visitedTarget}) => {
 			const {thirdParty, tracker} = request ?? visitedTarget!;
 			return thirdParty! || tracker!;
 		}) : annotatedLeaks;
@@ -75,7 +74,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 			fieldsCollectorOptions.fill.email,
 			fieldsCollectorOptions.fill.password,
 		];
-		valueSniffs = pipe(
+		valueSniffs        = pipe(
 			  filter(({description}: SavedCallEx) => description === 'HTMLInputElement.prototype.value'),
 			  filter(({custom: {value}}) => searchValues.includes(value)),
 		)(collectorData.apis?.savedCalls ?? []);
@@ -200,10 +199,10 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	if (!collectorData.requests) writeln('⚠️ No request collector data found');
 	if (output.requestLeaks) {
 		if (relevantRequestLeaks.length) {
-			writeln(`═══ ⚠️ 📤 Values were sent in web requests${hasDomainInfo ? ' to third parties' : ''}: ═══\n`);
+			writeln(`═══ ⚠️ 📤 Values were sent in web requests${output.hasDomainInfo ? ' to third parties' : ''}: ═══\n`);
 			for (const leak of relevantRequestLeaks) {
 				const reqTime = leak.visitedTarget?.time ?? leak.request!.wallTime;
-				write(`${time(reqTime)} ${leak.type === 'password' ? '🔑' : '📧'} ${leak.type}${
+				write(`${time(reqTime)} ${leak.type === 'password' ? '🚨 🔑' : '📧'} ${leak.type}${
 					  leak.isHash ? ' hash' : ''} (${leak.encodings.join('→') || 'plain text'}) sent in ${leak.part}`);
 				const thirdPartyInfo = leak.request ?? leak.visitedTarget!;
 				if (leak.request) {
@@ -272,23 +271,51 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		writeln(`📑 ${fieldsData.fields.length} fields found`);
 		writeln(`✒️ ${fieldsData.events.filter(ev => ev instanceof FillEvent).length} fields filled`);
 		writeln(`⏎ ${fieldsData.events.filter(ev => ev instanceof SubmitEvent).length} fields submitted`);
-		writeln(`🔗 ${fieldsData.links?.length ?? 0} links found`);
-		writeln(`🖱 ${fieldsData.events.filter(ev => ev instanceof ClickLinkEvent).length} links clicked`);
-
-		if (fieldsData.errors.length) {
-			writeln('\n═══ ⚠️ Fields collector errors: ═══\n');
-			for (const error of fieldsData.errors)
-				writeln(`\t${error.level === 'error' ? '❌️' : '⚠️'} ${
-					  error.context.map(ctx => typeof ctx === 'string' ? ctx : JSON.stringify(ctx)).join(' ')
-				}${error.error instanceof Error && error.error.stack || String(error.error)}`);
-			writeln();
+		if (fieldsData.links) {
+			writeln(`🔗 ${fieldsData.links.length} links found`);
+			writeln(`🖱 ${fieldsData.events.filter(ev => ev instanceof ClickLinkEvent).length} links clicked`);
 		}
+	}
+
+	writeln('\n💧🔍 Leak/sniff statistics:\n');
+	const thirdPartySniffs = output.hasDomainInfo
+		  ? valueSniffs.filter(s => s.stackInfo?.[0]?.thirdParty === true || s.stackInfo?.[0]?.tracker)
+		  : valueSniffs;
+	const passwordLeaks = relevantRequestLeaks.filter(l => l.type === 'password'),
+	      emailLeaks = relevantRequestLeaks.filter(l => l.type === 'email');
+	const nrPasswordLeaks  = passwordLeaks.length,
+	      nrEmailLeaks     = emailLeaks.length,
+	      nrDomLeaks       = fieldsData?.domLeaks.length ?? 0,
+	      nrPasswordSniffs = thirdPartySniffs.filter(s => s.custom.value === fieldsCollectorOptions.fill.email).length,
+	      nrEmailSniffs    = thirdPartySniffs.filter(s => s.custom.value === fieldsCollectorOptions.fill.password).length;
+	const uniqueLeaks = (leaks: typeof passwordLeaks) => new Set(leaks.map(l => {
+		const url = (l.request ?? l.visitedTarget!).url;
+		return tldts.getDomain(url) ?? tldts.getHostname(url) ?? url;
+	}));
+	const passwordLeakDomains = uniqueLeaks(passwordLeaks),
+	      emailLeakDomains = uniqueLeaks(emailLeaks);
+
+	if (nrPasswordLeaks) writeln(`🚨💧 ${nrPasswordLeaks} 🔑 password leaks to ${[...passwordLeakDomains].join(', ')}`);
+	if (nrEmailLeaks) writeln(`⚠️💧 ${nrEmailLeaks} 📧 email leaks to ${[...emailLeakDomains].join(', ')}`);
+	if (nrDomLeaks) writeln(`⚠️💧 ${nrDomLeaks} 🔑 password to DOM attribute leaks`);
+	if (nrPasswordSniffs) writeln(`⚠️🔍 ${nrPasswordSniffs} 🔑 password value sniffs${output.hasDomainInfo ? ' by third parties / trackers' : ''}`);
+	if (nrEmailSniffs) writeln(`ℹ️🔍 ${nrEmailSniffs} 📧 email value sniffs${output.hasDomainInfo ? ' by third parties / trackers' : ''}`);
+	if (!(nrPasswordLeaks || nrEmailLeaks || nrDomLeaks || nrPasswordSniffs || nrEmailSniffs))
+		writeln('✔️ No leaks or sniffs to third parties / trackers detected\n');
+
+	if (nonEmpty(fieldsData?.errors)) {
+		writeln('\n═══ ⚠️ Fields collector errors: ═══\n');
+		for (const error of fieldsData!.errors)
+			writeln(`\t${error.level === 'error' ? '❌️' : '⚠️'} ${
+				  error.context.map(ctx => typeof ctx === 'string' ? ctx : JSON.stringify(ctx)).join(' ')
+			}${error.error instanceof Error && error.error.stack || String(error.error)}`);
+		writeln();
 	}
 
 	return strings.join('');
 }
 
-function thirdPartyInfoStr({thirdParty, tracker}: Partial<ThirdPartyInfo>): string {
+function thirdPartyInfoStr({thirdParty, tracker}: Partial<DomainInfo>): string {
 	return `${thirdParty === true ? '🔺 third party ' : ''}${tracker === true ? '👁 tracker ' : ''}`;
 }
 
@@ -313,8 +340,8 @@ function collapseStack(stack: StackFrame[]): string[] {
 		const file   = prevFile === url ? '↓' : url;
 		prevFile     = url;
 		displayFrames.push(func
-			  ? `${func} (${file}:${line}${column !== null ? `:${column}` : ''})`
-			  : `${file}:${line}:${column !== null ? `:${column}` : ''}`);
+			  ? `${func} (${file} :${line}${column !== null ? `:${column}` : ''})`
+			  : `${file} :${line}${column !== null ? `:${column}` : ''}`);
 	}
 	return displayFrames.reverse();
 }
@@ -350,7 +377,7 @@ export async function findRequestLeaks(
 					  return name === 'referer' || name.includes('cookie') || name.startsWith('x-');
 				  })
 				  .map(([name, value]) =>
-					    () => findValueIn(Buffer.from(value))
+						() => findValueIn(Buffer.from(value))
 							  .then(encoders => encoders && {
 								  requestIndex,
 								  part: 'header',
@@ -368,7 +395,7 @@ export async function findRequestLeaks(
 			  .map((url, visitedTargetIndex) => ({url, visitedTargetIndex}))
 			  .filter(({url}) => !requestUrls.has(url))
 			  .map(({url, visitedTargetIndex}) =>
-				    () => findValueIn(Buffer.from(url))
+					() => findValueIn(Buffer.from(url))
 						  .then(encoders => encoders && {
 							  visitedTargetIndex,
 							  part: 'url',
