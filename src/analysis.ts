@@ -5,7 +5,7 @@ import {RequestCollector} from 'tracker-radar-collector';
 import ValueSearcher, {transformers} from 'value-searcher';
 
 import {formatDuration, getRelativeUrl, nonEmpty, notFalsy, truncateLine, validUrl} from './utils';
-import {OutputFile, SavedCallEx, DomainInfo} from './main';
+import {DomainInfo, OutputFile, SavedCallEx} from './main';
 import {getElemIdentifierStr, selectorStr, stackFrameFileRegex} from './pageUtils';
 import {
 	ClickLinkEvent,
@@ -81,105 +81,105 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	}
 
 	const fieldsData = collectorData.fields;
-	if (fieldsData) {
-		const fieldsMap = new Map(fieldsData.fields
-			  .map(field => [getElemIdentifierStr(field), field]));
-		const linksMap  = new Map(fieldsData.links
-			  ?.map(link => [getElemIdentifierStr(link), link]));
+	const fieldsMap  = new Map(fieldsData?.fields
+		  .map(field => [getElemIdentifierStr(field), field]));
+	const linksMap   = new Map(fieldsData?.links
+		  ?.map(link => [getElemIdentifierStr(link), link]));
 
-		if (fieldsData.events.length) {
-			const allEvents = [
-				fieldsData.events,
-				fieldsData.errors.map(error => ({type: 'error', time: error.time, error})),
-				fieldsData.domLeaks.map(leak => ({type: 'dom-leak', time: leak.time, leak})),
-				relevantRequestLeaks.map(leak => ({
-					type: 'request-leak',
-					time: leak.visitedTarget?.time ?? leak.request!.wallTime,
-					leak,
-				})),
-				valueSniffs.map(call => ({type: 'value-sniff', time: call.custom.time, call})),
-			].flat().sort((a, b) => a.time - b.time);
+	const allEvents = [
+		fieldsData?.events ?? [],
+		fieldsData?.errors.map(error => ({type: 'error', time: error.time, error})) ?? [],
+		fieldsData?.domLeaks.map(leak => ({type: 'dom-leak', time: leak.time, leak})) ?? [],
+		relevantRequestLeaks.map(leak => ({
+			type: 'request-leak',
+			time: leak.visitedTarget?.time ?? leak.request!.wallTime,
+			leak,
+		})),
+		valueSniffs.map(call => ({type: 'value-sniff', time: call.custom.time, call})),
+	].flat().sort((a, b) => a.time - b.time);
 
-			writeln('═══ 🕰 Timeline (see below for more details): ═══\n');
-			for (const event of allEvents) {
-				switch (event.type) {
-					case 'fill':
-					case 'submit': {
-						const {field: fieldIdentifier} = event as FillEvent;
-						const field                    = fieldsMap.get(getElemIdentifierStr(fieldIdentifier))!;
-						writeln(`\t${time(event.time)} ${event.type === 'submit' ? '⏎' : '✒️'} ${event.type} ${field.fieldType} field ${
-							  selectorStr(fieldIdentifier.selectorChain)}`);
-						break;
-					}
-					case 'fb-button':
-						writeln(`\t${time(event.time)} click added button for Facebook tracking detection`);
-						break;
-					case 'return': {
-						const {toLanding} = event as ReturnEvent;
-						if (toLanding)
-							writeln(`${time(event.time)} 🔙 return to landing page`);
-						else writeln(`\t${time(event.time)} 🔙 reload page`);
-						break;
-					}
-					case 'link': {
-						const {link: linkIdentifier, linkType} = event as ClickLinkEvent;
-						const link                             = linksMap.get(getElemIdentifierStr(linkIdentifier));
-						if (linkType === 'auto')
-							writeln(`${time(event.time)} 🔗🖱 follow link "${
-								  truncateLine(link!.innerText, 60)
-							}" ${selectorStr(linkIdentifier.selectorChain)} (matched ${link!.linkMatchType})`);
-						else writeln(`${time(event.time)} 🖱 click element ${
-							  selectorStr(linkIdentifier.selectorChain)} (js-path-click interact chain)`);
-						break;
-					}
-					case 'navigate': {
-						const {url: urlStr, fullyLoaded} = event as NavigateEvent;
-						const url                        = new URL(urlStr);
-						url.search                       = url.hash = '';
-						writeln(`\t${time(event.time)} 🧭 navigated to ${
-							  getRelativeUrl(url, new URL(result.finalUrl)) || 'landing page'
-						}${!fullyLoaded ? ' (load timeout)' : ''}`);
-						break;
-					}
-					case 'screenshot': {
-						const {trigger, name} = event as ScreenshotEvent;
-						writeln(`\t${time(event.time)} 📸 ${trigger} ${name ?? ''}`);
-						break;
-					}
-					case 'dom-leak': {
-						const {leak} = event as typeof event & { leak: DomPasswordLeak };
-						const topUrl = leak.stack?.[0]?.url;
-						writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to DOM${
-							  topUrl ? ` by script ${shortScriptUrl(topUrl)}` : ''}`);
-						break;
-					}
-					case 'request-leak': {
-						const {leak} = event as typeof event & { leak: typeof relevantRequestLeaks[0] };
-						const url    = leak.request?.url ?? leak.visitedTarget!.url;
-						writeln(`\t\t${time(event.time)} ${leak.type === 'password' ? '🚨' : '⚠️'} 📤 ${
-							  leak.type === 'password' ? '🔑' : '📧'} ${leak.type} sent to ${tldts.getHostname(url) ?? url}`);
-						break;
-					}
-					case 'value-sniff': {
-						const {call} = event as typeof event & { call: SavedCallEx };
-						const topUrl = call.stack?.[0]?.match(stackFrameFileRegex)?.[0];
-						writeln(`\t\t${time(event.time)} 🔍 ${
-							  call.custom.value === fieldsCollectorOptions.fill.password ? '🔑 password' : '📧 email'
-						} value of field read by script${topUrl ? ` ${shortScriptUrl(topUrl)}` : ''}`);
-						break;
-					}
-					case 'error': {
-						const {error} = event as typeof event & { error: ErrorInfo };
-						writeln(`\t\t${time(event.time)} ${error.level === 'error' ? '❌️' : '⚠️'} ${
-							  typeof error.context[0] === 'string' ? `${error.context[0]} ` : ''
-						}${truncateLine(String(error.error).match(/.*/)![0]!, 60)}`);
-						break;
-					}
+	if (allEvents.length) {
+		writeln('═══ 🕰 Timeline (see below for more details): ═══\n');
+		for (const event of allEvents) {
+			switch (event.type) {
+				case 'fill':
+				case 'submit': {
+					const {field: fieldIdentifier} = event as FillEvent;
+					const field                    = fieldsMap.get(getElemIdentifierStr(fieldIdentifier))!;
+					writeln(`\t${time(event.time)} ${event.type === 'submit' ? '⏎' : '✒️'} ${event.type} ${field.fieldType} field ${
+						  selectorStr(fieldIdentifier.selectorChain)}`);
+					break;
+				}
+				case 'fb-button':
+					writeln(`\t${time(event.time)} click added button for Facebook tracking detection`);
+					break;
+				case 'return': {
+					const {toLanding} = event as ReturnEvent;
+					if (toLanding)
+						writeln(`${time(event.time)} 🔙 return to landing page`);
+					else writeln(`\t${time(event.time)} 🔙 reload page`);
+					break;
+				}
+				case 'link': {
+					const {link: linkIdentifier, linkType} = event as ClickLinkEvent;
+					const link                             = linksMap.get(getElemIdentifierStr(linkIdentifier));
+					if (linkType === 'auto')
+						writeln(`${time(event.time)} 🔗🖱 follow link "${
+							  truncateLine(link!.innerText, 60)
+						}" ${selectorStr(linkIdentifier.selectorChain)} (matched ${link!.linkMatchType})`);
+					else writeln(`${time(event.time)} 🖱 click element ${
+						  selectorStr(linkIdentifier.selectorChain)} (js-path-click interact chain)`);
+					break;
+				}
+				case 'navigate': {
+					const {url: urlStr, fullyLoaded} = event as NavigateEvent;
+					const url                        = new URL(urlStr);
+					url.search                       = url.hash = '';
+					writeln(`\t${time(event.time)} 🧭 navigated to ${
+						  getRelativeUrl(url, new URL(result.finalUrl)) || 'landing page'
+					}${!fullyLoaded ? ' (load timeout)' : ''}`);
+					break;
+				}
+				case 'screenshot': {
+					const {trigger, name} = event as ScreenshotEvent;
+					writeln(`\t${time(event.time)} 📸 ${trigger} ${name ?? ''}`);
+					break;
+				}
+				case 'dom-leak': {
+					const {leak} = event as typeof event & { leak: DomPasswordLeak };
+					const topUrl = leak.stack?.[0]?.url;
+					writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to DOM${
+						  topUrl ? ` by script ${shortScriptUrl(topUrl)}` : ''}`);
+					break;
+				}
+				case 'request-leak': {
+					const {leak} = event as typeof event & { leak: typeof relevantRequestLeaks[0] };
+					const url    = leak.request?.url ?? leak.visitedTarget!.url;
+					writeln(`\t\t${time(event.time)} ${leak.type === 'password' ? '🚨' : '⚠️'} 📤 ${
+						  leak.type === 'password' ? '🔑' : '📧'} ${leak.type} sent to ${tldts.getHostname(url) ?? url}`);
+					break;
+				}
+				case 'value-sniff': {
+					const {call} = event as typeof event & { call: SavedCallEx };
+					const topUrl = call.stack?.[0]?.match(stackFrameFileRegex)?.[0];
+					writeln(`\t\t${time(event.time)} 🔍 ${
+						  call.custom.value === fieldsCollectorOptions.fill.password ? '🔑 password' : '📧 email'
+					} value of field read by script${topUrl ? ` ${shortScriptUrl(topUrl)}` : ''}`);
+					break;
+				}
+				case 'error': {
+					const {error} = event as typeof event & { error: ErrorInfo };
+					writeln(`\t\t${time(event.time)} ${error.level === 'error' ? '❌️' : '⚠️'} ${
+						  typeof error.context[0] === 'string' ? `${error.context[0]} ` : ''
+					}${truncateLine(String(error.error).match(/.*/)![0]!, 60)}`);
+					break;
 				}
 			}
-			writeln();
 		}
+		writeln();
+	}
 
+	if (fieldsData) {
 		if (fieldsData.domLeaks.length) {
 			writeln('═══ ⚠️ 🔑 Password was written to the DOM: ═══\n');
 			for (const leak of fieldsData.domLeaks.sort((a, b) => a.time - b.time)) {
@@ -278,22 +278,22 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	}
 
 	writeln('\n💧🔍 Leak/sniff statistics:\n');
-	const thirdPartySniffs = output.hasDomainInfo
+	const thirdPartySniffs    = output.hasDomainInfo
 		  ? valueSniffs.filter(s => s.stackInfo?.[0]?.thirdParty === true || s.stackInfo?.[0]?.tracker)
 		  : valueSniffs;
-	const passwordLeaks = relevantRequestLeaks.filter(l => l.type === 'password'),
-	      emailLeaks = relevantRequestLeaks.filter(l => l.type === 'email');
-	const nrPasswordLeaks  = passwordLeaks.length,
-	      nrEmailLeaks     = emailLeaks.length,
-	      nrDomLeaks       = fieldsData?.domLeaks.length ?? 0,
-	      nrPasswordSniffs = thirdPartySniffs.filter(s => s.custom.value === fieldsCollectorOptions.fill.email).length,
-	      nrEmailSniffs    = thirdPartySniffs.filter(s => s.custom.value === fieldsCollectorOptions.fill.password).length;
-	const uniqueLeaks = (leaks: typeof passwordLeaks) => new Set(leaks.map(l => {
+	const passwordLeaks       = relevantRequestLeaks.filter(l => l.type === 'password'),
+	      emailLeaks          = relevantRequestLeaks.filter(l => l.type === 'email');
+	const nrPasswordLeaks     = passwordLeaks.length,
+	      nrEmailLeaks        = emailLeaks.length,
+	      nrDomLeaks          = fieldsData?.domLeaks.length ?? 0,
+	      nrPasswordSniffs    = thirdPartySniffs.filter(s => s.custom.value === fieldsCollectorOptions.fill.email).length,
+	      nrEmailSniffs       = thirdPartySniffs.filter(s => s.custom.value === fieldsCollectorOptions.fill.password).length;
+	const uniqueLeaks         = (leaks: typeof passwordLeaks) => new Set(leaks.map(l => {
 		const url = (l.request ?? l.visitedTarget!).url;
 		return tldts.getDomain(url) ?? tldts.getHostname(url) ?? url;
 	}));
 	const passwordLeakDomains = uniqueLeaks(passwordLeaks),
-	      emailLeakDomains = uniqueLeaks(emailLeaks);
+	      emailLeakDomains    = uniqueLeaks(emailLeaks);
 
 	if (nrPasswordLeaks) writeln(`🚨💧 ${nrPasswordLeaks} 🔑 password leaks to ${[...passwordLeakDomains].join(', ')}`);
 	if (nrEmailLeaks) writeln(`⚠️💧 ${nrEmailLeaks} 📧 email leaks to ${[...emailLeakDomains].join(', ')}`);
