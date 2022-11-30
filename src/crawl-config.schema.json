@@ -1191,6 +1191,11 @@
                     "description": "Password to fill in",
                     "type": "string"
                 },
+                "simulateShowPassword": {
+                    "default": false,
+                    "description": "Simulate 'show password' feature by changing password field type to text",
+                    "type": "boolean"
+                },
                 "submit": {
                     "default": true,
                     "description": "Try to submit forms?",

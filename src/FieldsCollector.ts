@@ -873,6 +873,10 @@ export class FieldsCollector extends BaseCollector {
 									: this.options.fill.email, fillTimes);
 						break;
 					case 'password':
+						if (this.options.fill.simulateShowPassword) {
+							this.#log?.debug('changing password field type to text');
+							await field.handle.evaluate(f => (f as HTMLInputElement).type = 'text');
+						}
 						await this.#injectDomLeakDetection(field);
 						await fillPasswordField(field.handle, this.options.fill.password, fillTimes);
 						break;
@@ -1205,6 +1209,9 @@ export interface FieldsCollectorOptions {
 		appendDomainToEmail?: boolean;
 		/** Password to fill in */
 		password?: string;
+		/** Simulate 'show password' feature by changing password field type to text
+		 * @default false */
+		simulateShowPassword?: boolean;
 		/** Try to submit forms?
 		 * @default true */
 		submit?: boolean;
@@ -1299,6 +1306,7 @@ FieldsCollector.defaultOptions = {
 		email: 'leak-detector@example.com',
 		appendDomainToEmail: false,
 		password: 'The--P@s5w0rd',
+		simulateShowPassword: false,
 		submit: true,
 		addFacebookButton: true,
 		maxFields: 10,
