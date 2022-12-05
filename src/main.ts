@@ -166,6 +166,11 @@ async function main() {
 				    type: 'boolean',
 				    default: true,
 			    })
+			    .option('only-save-leaks', {
+				    description: 'only save leaking requests',
+				    type: 'boolean',
+				    default: false,
+			    })
 			    .option('auto-consent', {
 				    description: 'try to automatically indicate consent in cookie dialog; one of optIn, optOut, noAction',
 				    type: 'string',
@@ -255,6 +260,10 @@ async function main() {
 				    description: 'output file (--url) or directory (--urls-file)',
 				    type: 'string',
 				    normalize: true,
+			    })
+			    .option('pretty-json', {
+				    description: 'pretty print JSON output',
+				    type: 'boolean',
 			    })
 			    .option('ignore-crawl-state', {
 				    description: 'do not skip already crawled URLs in batch mode according to .crawl-state file',
@@ -519,7 +528,7 @@ async function main() {
 					} else if (args.logSucceeded)
 						progress.log(`✔️ ${url.href}`);
 
-					await saveJson(`${fileBase}.json`, output);
+					await saveJson(`${fileBase}.json`, output, args.prettyJson ?? false);
 					if (args.summary)
 						try {
 							await fsp.writeFile(`${fileBase}.txt`, getSummary(output, options));
@@ -615,7 +624,7 @@ async function main() {
 		}
 
 		if (args.output) {
-			await saveJson(args.output, output);
+			await saveJson(args.output, output, args.prettyJson ?? true);
 			console.info('\n💾 output written to', args.output);
 		} else {
 			// eslint-disable-next-line no-debugger
@@ -637,6 +646,7 @@ async function crawl(
 	  args: {
 		  apiCalls: boolean,
 		  requests: boolean,
+		  onlySaveLeaks: boolean,
 		  autoConsent: string,
 		  headed: boolean,
 		  headedWait: boolean,
@@ -691,7 +701,7 @@ async function crawl(
 	}
 
 	const browserContext = await browser?.createIncognitoBrowserContext();
-	let crawlResult;
+	let crawlResult: CrawlResult;
 	try {
 		crawlResult = await crawler(
 			  url,
@@ -768,6 +778,10 @@ async function crawl(
 						  progress.update(completed / total);
 					  }) : undefined,
 				);
+				if (args.onlySaveLeaks && crawlResult.data.requests)
+					crawlResult.data.requests = output.requestLeaks.filter(l => l.requestIndex !== undefined)
+						  .map(l => l.requestIndex!).sort((a, b) => a - b)
+						  .map(i => crawlResult.data.requests![i]!);
 			} finally {
 				if (!batchMode) progress.terminate();
 			}
@@ -893,9 +907,9 @@ function plainToLogger(logger: Logger, ...args: unknown[]) {
 	logger.logLevel(level, ...args);
 }
 
-async function saveJson(file: fs.PathLike | fsp.FileHandle, output: OutputFile) {
+async function saveJson(file: fs.PathLike | fsp.FileHandle, output: OutputFile, pretty: boolean) {
 	await fsp.writeFile(file, JSON.stringify(output, (_key, value: unknown) =>
-		  value instanceof Error ? value.stack ?? String(value) : value, '\t'));
+		  value instanceof Error ? value.stack ?? String(value) : value, pretty ? '\t' : undefined));
 }
 
 class ErrorCaptureLogger extends Logger {
@@ -971,7 +985,7 @@ export type CrawlResult = CollectResult & {
 export interface OutputFile {
 	crawlResult: CrawlResult;
 	requestLeaks?: RequestLeakEx[];
-	hasDomainInfo: boolean,
+	hasDomainInfo: boolean;
 	durationsMs: {
 		thirdPartyCheck?: number;
 		requestLeakCheck?: number;
