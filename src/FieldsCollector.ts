@@ -721,8 +721,10 @@ export class FieldsCollector extends BaseCollector {
 		if (this.options.fill.submit) {
 			// Key '' means no form
 			const fieldsByForm     = groupBy(field => field.attrs.form ? selectorStr(field.attrs.form) : '', frameFields);
-			// Fields without form come last
-			const fieldsByFormList = Object.entries(fieldsByForm).sort(([formA]) => formA === '' ? 1 : 0);
+			// Fields without form come last, forms with password field come first
+			const fieldsByFormList = Object.entries(fieldsByForm)
+				  .sort(([formA]) => formA === '' ? 1 : 0)
+				  .sort(([, elemsA]) => elemsA.some(e => e.attrs.fieldType === 'password') ? 0 : 1);
 			for (const [lastForm, [formSelector, formFields]] of
 				  fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
 				const res = await this.#group(`📝form ${formSelector}`, async () => {
