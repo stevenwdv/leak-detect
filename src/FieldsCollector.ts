@@ -149,6 +149,13 @@ export class FieldsCollector extends BaseCollector {
 			if (window[PageVars.DOM_OBSERVED] === true) return false;
 			window[PageVars.DOM_OBSERVED] = true;
 
+			const passwordSearch = [
+				password,
+				encodeURIComponent(password),
+				encodeURIComponent(encodeURIComponent(password)),
+				JSON.stringify(password),
+			];
+
 			const observer = new MutationObserver(mutations => {
 				try {
 					for (const m of mutations)
@@ -159,7 +166,7 @@ export class FieldsCollector extends BaseCollector {
 						  .filter(m => {
 							  if (!m.attributeName || !(m.target instanceof Element)) return false;
 							  const val = m.target.getAttribute(m.attributeName);
-							  return val && (val.includes(password) || val.includes(JSON.stringify(password)));
+							  return val && passwordSearch.some(p => val.includes(p));
 						  })
 						  .map(m => ({
 							  selectorChain: window[PageVars.INJECTED].formSelectorChain(m.target as Element),
