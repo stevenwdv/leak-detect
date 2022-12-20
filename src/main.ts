@@ -270,6 +270,11 @@ async function main() {
 				    type: 'boolean',
 				    default: false,
 			    })
+			    .option('max-interrupts', {
+				    description: 'maximum amount of times a crawl of a URL may be retried after being interrupted, -1 to disable limit',
+				    type: 'number',
+				    default: -1,
+			    })
 			    .option('retry-with-error', {
 				    description: 'repeat batch crawls previously finished with an error matching the RegEx',
 				    type: 'string',
@@ -399,6 +404,7 @@ async function main() {
 			}
 
 			const startedUrls: { url: URL, tries: number }[]           = [],
+			      maxInterruptedUrls: { url: URL, tries: number }[]    = [],
 			      urlsWithMatchingError: { url: URL, error: string }[] = [];
 			let finishedCount                                          = 0;
 
@@ -410,7 +416,12 @@ async function main() {
 				const state = urlStates.get(url.href);
 				switch (state?.state) {
 					case 'started':
-						startedUrls.push({url, tries: state.tries});
+						if (args.maxInterrupts < 0 || state.tries <= args.maxInterrupts)
+							startedUrls.push({url, tries: state.tries});
+						else {
+							maxInterruptedUrls.push({url, tries: state.tries});
+							return false;
+						}
 						break;
 					case 'finished':
 						if (state.error !== undefined && errorRegex?.test(state.error) === true)
@@ -434,6 +445,11 @@ async function main() {
 			} else {
 				if (finishedCount) console.log(`🔁️ re-crawling ${finishedCount} already fully crawled URLs`);
 			}
+			if (maxInterruptedUrls.length) {
+				console.warn(`⚠️⏩️ skipping ${maxInterruptedUrls.length} crawls which have been interrupted too many times:`);
+				console.log(maxInterruptedUrls.map(({url, tries}) =>
+					  `\t[${tries}× interrupted] ${url.href}`).join('\n'));
+			}
 			if (startedUrls.length) {
 				console.log(`🔁️ restarting ${startedUrls.length} previously interrupted crawls:`);
 				console.debug(startedUrls.map(({url, tries}) =>
@@ -442,7 +458,7 @@ async function main() {
 
 			if (args.onlyPrintBatchUrls) {
 				console.info(`🕸 would crawl ${urls.length} URLs:`);
-				console.debug(`====\n${urls.map(url => `${url.href}`).join('\n')}`);
+				console.log(`====\n${urls.map(url => `${url.href}`).join('\n')}`);
 				return;
 			}
 
