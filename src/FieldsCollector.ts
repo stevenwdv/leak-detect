@@ -30,7 +30,7 @@ import {
 	waitWithTimeout,
 } from './utils';
 import {ColoredLogger, Logger, PlainLogger} from './logger';
-import {fillEmailField, fillPasswordField, submitField, blurRefocus} from './formInteraction';
+import {blurRefocus, fillEmailField, fillPasswordField, submitField} from './formInteraction';
 import {
 	closeExtraPages,
 	ElementAttrs,
@@ -723,8 +723,11 @@ export class FieldsCollector extends BaseCollector {
 			const fieldsByForm     = groupBy(field => field.attrs.form ? selectorStr(field.attrs.form) : '', frameFields);
 			// Fields without form come last, forms with password field come first
 			const fieldsByFormList = Object.entries(fieldsByForm)
-				  .sort(([formA]) => formA === '' ? 1 : 0)
-				  .sort(([, elemsA]) => elemsA.some(e => e.attrs.fieldType === 'password') ? 0 : 1);
+				  .sort(([formA]) => formA === '' ? 1 : -1)
+				  .sort(([, elemsA]) =>
+						elemsA.some(e => e.attrs.fieldType === 'password')
+							  ? elemsA.some(e => e.attrs.fieldType === 'password')
+									? 0 : -1 : 1);
 			for (const [lastForm, [formSelector, formFields]] of
 				  fieldsByFormList.map((e, i, l) => [i === l.length - 1, e] as const)) {
 				const res = await this.#group(`📝form ${formSelector}`, async () => {
@@ -989,7 +992,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	async #getNodeId(elem: ElementHandle, cdp: TypedCDPSession): Promise<Protocol.DOM.NodeId> {
-		//XXX Uses internal functionality as our CDP will not recognize the RemoteObjectId from puppeteer's CDP
+		//XXX Uses internal functionality as our CDP will not recognize the RemoteObjectId from puppeteer's CDP, see puppeteer/puppeteer#9284
 		const puppeteerCdp = (elem.frame.page() as unknown as import('puppeteer-core/lib/cjs/puppeteer/common/Page').CDPPage)._client();
 
 		const {node: {backendNodeId}} = await puppeteerCdp.send('DOM.describeNode', {
