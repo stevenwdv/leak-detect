@@ -107,7 +107,7 @@ process.on('beforeExit', () => {
 process.on('exit', () => progress.terminate());
 
 if (progress.isInteractive())
-	process.stderr.write('\x1b]0;☔️ leak detector\x1b\\');
+	process.stderr.write('\x1b]0;☔️ leak-detect\x1b\\');
 
 async function main() {
 	const args = yargs
@@ -690,7 +690,7 @@ async function crawl(
 
 	const fieldsCollector = new FieldsCollector(fieldsCollectorOptions, logger);
 	if (args.headedWait)
-		collectors.push(new WaitingCollector(
+		collectors.push(new WaitingCollector( //FIXME shouldn't the email have a possible prefix here?
 			  stripIndent`
 			      \x07⏸️ Open the form to crawl, or fill some forms yourself!
 				  Values that will be detected if leaked:

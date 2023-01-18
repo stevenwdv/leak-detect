@@ -1,4 +1,4 @@
-# leak-detect
+# ☔️ leak-detect
 
 Clone repository including submodules:
 

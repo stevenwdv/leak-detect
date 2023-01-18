@@ -295,7 +295,7 @@ export class StackTracer {
 						disableCache: false,
 					},
 				}, requestTimeoutMs);
-				if (!resource || !resource.success)
+				if (resource?.success !== true)
 					throw new Error(`got ${resource
 						  ? resource.netErrorName ?? resource.httpStatusCode!
 						  : 'timeout'} while trying to load source map ${sourceMapUrl.href}`);
@@ -364,6 +364,10 @@ export function createCDPReadStream(
 
 	return createProducerStream(readStream(), undefined,
 		  timeoutMs !== undefined ? timeoutSignal(timeoutMs) : undefined);
+}
+
+export function typedCDP(cdp: CDPSession) {
+	return cdp as unknown as TypedCDPSession;
 }
 
 export type TypedCDPSession = CDPEventEmitter & Omit<CDPSession, keyof CDPEventEmitter>;

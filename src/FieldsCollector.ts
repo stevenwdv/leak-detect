@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import chalk from 'chalk';
 import {createRunner, PuppeteerRunnerExtension, UserFlow} from '@puppeteer/replay';
-import type {BrowserContext, ElementHandle, Frame, Page, Protocol} from 'puppeteer';
+import type {BrowserContext, ElementHandle, Frame, InnerParams, Page, Protocol} from 'puppeteer';
 import {groupBy} from 'rambda';
 import * as tldts from 'tldts';
 import {BaseCollector, puppeteer, TargetCollector} from 'tracker-radar-collector';
@@ -57,11 +57,13 @@ import {
 	isNavigationError,
 	robustPierceQueryHandler,
 	StackTracer,
+	typedCDP,
 	TypedCDPSession,
 	unwrapHandle,
 	waitForLoad,
 } from './puppeteerUtils';
 import ErrnoException = NodeJS.ErrnoException;
+import Puppeteer = puppeteer.Puppeteer;
 import TimeoutError = puppeteer.TimeoutError;
 
 export class FieldsCollector extends BaseCollector {
@@ -222,8 +224,8 @@ export class FieldsCollector extends BaseCollector {
 	override id() { return 'fields' as const; }
 
 	override init({log, url, context}: BaseCollector.CollectorInitOptions) {
-		if (!puppeteer.customQueryHandlerNames().includes('robustpierce'))
-			puppeteer.registerCustomQueryHandler('robustpierce', robustPierceQueryHandler);
+		if (!Puppeteer.customQueryHandlerNames().includes('robustpierce'))
+			Puppeteer.registerCustomQueryHandler('robustpierce', robustPierceQueryHandler);
 
 		this.#log ??= new ColoredLogger(new PlainLogger(log));
 		this.#context    = context;
@@ -285,7 +287,8 @@ export class FieldsCollector extends BaseCollector {
 								this.#reportError(err, ['failed to add frame ID (framenavigated)'], 'warn');
 						}));
 
-			async function evaluateOnAll<Args extends unknown[]>(pageFunction: (...args: Args) => void, ...args: Args) {
+			async function evaluateOnAll<Args extends unknown[]>(
+				  pageFunction: (...args: Args | InnerParams<Args>) => void, ...args: Args) {
 				// Add on new & existing frames
 				await newPage.evaluateOnNewDocument(pageFunction, ...args);
 				await Promise.all(newPage.frames().map(frame => frame.evaluate(pageFunction, ...args)));
@@ -913,7 +916,7 @@ export class FieldsCollector extends BaseCollector {
 
 			await frame.evaluate(FieldsCollector.#injectDomLeakDetectFun, this.options.fill.password);
 
-			const cdp          = await frame.page().target().createCDPSession() as TypedCDPSession;
+			const cdp          = typedCDP(await frame.page().target().createCDPSession());
 			const observeNodes = new Map([
 				...await Promise.all((await unwrapHandle(
 					  await field.handle.evaluateHandle((field: HTMLInputElement | Element) =>

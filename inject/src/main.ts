@@ -121,7 +121,7 @@ export function formSelectorChain(elem: Element): SelectorChain {
 	}
 	if (debug) {
 		const res = getElementBySelectorChain(chain);
-		if (!res || !res.unique || res.elem !== elem)
+		if (res?.unique !== true || res.elem !== elem)
 			throw new Error(
 				  `formSelectorChain/getElementBySelectorChain did not work correctly for ${String(elem)} ${chain.join('>>>')}, ` +
 				  `got back ${res?.unique === false ? 'non-unique ' : ''}${String(res ? res.elem : res)}`);

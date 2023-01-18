@@ -17,7 +17,7 @@ export declare function formSelectorChain(elem: Element): SelectorChain;
  * @param reference Default: {@link document}
  */
 export declare function getElementBySelectorChain(selectorChain: SelectorChain, reference?: ParentNode): SelectorChainResult | null;
-export declare type SelectorChain = string[];
+export type SelectorChain = string[];
 export interface SelectorChainResult {
     elem: Element;
     /** Is this the only matching Element? */

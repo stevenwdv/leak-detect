@@ -6,6 +6,7 @@ import {AddressInfo} from 'node:net';
 import {createServer} from 'http-server';
 import t from 'tap';
 
+import {AssertedEventType, StepType} from '@puppeteer/replay';
 import {crawler, puppeteer, RequestCollector} from 'tracker-radar-collector';
 import {CrawlOptions} from 'tracker-radar-collector/crawler';
 import {CollectorData} from 'tracker-radar-collector/helpers/collectorsList';
@@ -416,7 +417,7 @@ void (async () => {
 							'title': 'Click 2 buttons',
 							'steps': [
 								{
-									'type': 'setViewport',
+									'type': StepType.SetViewport,
 									'width': 981,
 									'height': 753,
 									'deviceScaleFactor': 1,
@@ -425,18 +426,18 @@ void (async () => {
 									'isLandscape': false,
 								},
 								{
-									'type': 'navigate',
+									'type': StepType.Navigate,
 									'url': 'http://localhost:63342/leak-detection.iml/multiple_logins.html?_ijt=5qqm8danufcomaqgf1hnc70m70&_ij_reload=RELOAD_ON_SAVE',
 									'assertedEvents': [
 										{
-											'type': 'navigation',
+											'type': AssertedEventType.Navigation,
 											'url': 'http://localhost:63342/leak-detection.iml/multiple_logins.html?_ijt=5qqm8danufcomaqgf1hnc70m70&_ij_reload=RELOAD_ON_SAVE',
 											'title': 'Multiple login options',
 										},
 									],
 								},
 								{
-									'type': 'click',
+									'type': StepType.Click,
 									'target': 'main',
 									'selectors': [
 										['aria/Login'],
@@ -446,7 +447,7 @@ void (async () => {
 									'offsetX': 18.650001525878906,
 								},
 								{
-									'type': 'click',
+									'type': StepType.Click,
 									'target': 'main',
 									'selectors': [
 										['aria/Login via email'],
