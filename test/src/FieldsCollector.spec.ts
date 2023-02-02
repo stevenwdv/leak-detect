@@ -151,6 +151,7 @@ void (async () => {
 				t.ok(emailField?.submitted, 'should submit email field');
 
 				t.strictSame(result.links, [], 'should find no links');
+				t.strictNotSame(result.consoleLeaks, [], 'should find console leak');
 
 				t.equal(result.visitedTargets.length, 1, 'should log 1 target');
 				t.equal(result.visitedTargets[0]?.type, 'page', 'should log page target');
@@ -180,6 +181,7 @@ void (async () => {
 				t.equal(result.fields.length, 2, 'should find 2 fields');
 				t.ok(result.fields.find(field => field.fieldType === 'email'), 'should find email field');
 				t.ok(result.fields.find(field => field.fieldType === 'password'), 'should find password field');
+				t.strictNotSame(result.consoleLeaks, [], 'should find console leak');
 			}),
 			test('for a frame where the parent navigates', async (t, log) => {
 				const result = await runCrawler('login_form_frame_parent.html', t, log);

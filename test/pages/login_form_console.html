@@ -2,12 +2,10 @@
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
-	<title>Simple login form</title>
+	<title>Login form with console leak</title>
 </head>
 <body>
 Welcome!
-
-<p><i>Filler text to trigger overflow in frame</i></p>
 
 <h1>Login</h1>
 <form action="logged_in.html" id="form" onsubmit="console.warn('Console leak', this.password)">
