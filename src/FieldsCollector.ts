@@ -334,43 +334,71 @@ export class FieldsCollector extends BaseCollector {
 			const cdp = typedCDP(await newPage.target().createCDPSession());
 			cdp.on('Runtime.consoleAPICalled', ev => void (async () => {
 				try {
-					const res = await cdp.send('Runtime.callFunctionOn', {
-						executionContextId: ev.executionContextId,
-						functionDeclaration: ((...args: unknown[]) =>
-							  args.map(arg => {
-								  try {
-									  const str = JSON.stringify(arg);
-									  if (str !== '{}') return str;
-								  } catch {
-									  return JSON.stringify(Object.fromEntries(Object.getOwnPropertyNames(arg)
-										    .map(key => {
-												const val = (arg as Record<string, unknown>)[key];
-											    try {
-												    const str = JSON.stringify(val);
-												    if (str !== '{}') return [key, val];
-											    } catch {/*ignore*/}
-											    return [key, String(val)];
-										    })));
-								  }
-								  return String(arg);
-							  }).join(' ')).toString(),
-						arguments: ev.args,
-						silent: true,
-						returnByValue: true,
-					});
-					if (!res.exceptionDetails) {
-						const message = res.result.value as string;
-						if (encodedPasswords.some(p => message.includes(p))) {
-							this.#log?.info('🔓💧 Password leaked to console');
-							const leak: ConsoleLeak = {
-								time: ev.timestamp,
-								message,
-								type: ev.type,
-							};
-							if (ev.stackTrace)
-								leak.stack = FieldsCollector.#getFullStack(ev.stackTrace);
-							this.#consoleLeaks.push(leak);
-						}
+					function includesPassword(haystack: Protocol.Runtime.RemoteObject | Protocol.Runtime.ObjectPreview | string | undefined): boolean {
+						if (haystack === undefined) return false;
+						if (typeof haystack === 'string') return encodedPasswords.some(p => haystack.includes(p));
+						if ('value' in haystack && typeof haystack.value === 'string')
+							return includesPassword(haystack.value);
+						if ('preview' in haystack)
+							return includesPassword(haystack.preview);
+						if ('properties' in haystack && haystack.properties.some(({name, value}) =>
+							  includesPassword(name) || includesPassword(value)))
+							return true;
+						if ('entries' in haystack && haystack.entries.some(({key, value}) =>
+							  includesPassword(key) || includesPassword(value)))
+							return true;
+						return false;
+					}
+
+					let message: string | undefined = undefined;
+
+					if (ev.args.some(arg => includesPassword(arg))) {
+						message = ev.args.map(arg => ('value' in arg ? String(arg.value) : undefined)
+							  ?? (arg.preview?.properties && JSON.stringify(Object.fromEntries(
+									arg.preview.properties.map(({name, value}) => [name, value]))))
+							  ?? (arg.preview?.entries && JSON.stringify(Object.fromEntries(
+									arg.preview.entries.map(({key, value}, i) => [key ?? i, value]))))
+							  ?? arg.description ?? arg.type).join(' ');
+					} else {
+						const res = await cdp.send('Runtime.callFunctionOn', {
+							executionContextId: ev.executionContextId,
+							functionDeclaration: ((...args: unknown[]) =>
+								  args.map(arg => {
+									  try {
+										  const str = JSON.stringify(arg);
+										  if (str !== '{}') return str;
+									  } catch {
+										  return JSON.stringify(Object.fromEntries(Object.getOwnPropertyNames(arg)
+												.map(key => {
+													const val = (arg as Record<string, unknown>)[key];
+													try {
+														const str = JSON.stringify(val);
+														if (str !== '{}') return [key, val];
+													} catch {
+														/*ignore*/
+													}
+													return [key, String(val)];
+												})));
+									  }
+									  return String(arg);
+								  }).join(' ')).toString(),
+							arguments: ev.args,
+							silent: true,
+							returnByValue: true,
+						});
+						if (!res.exceptionDetails && includesPassword(res.result.value as string))
+							message = res.result.value as string;
+					}
+					if (message !== undefined) {
+						this.#log?.info('🔓💧 Password leaked to console');
+						const leak: ConsoleLeak = {
+							time: ev.timestamp,
+							message,
+							type: ev.type,
+						};
+						if (ev.stackTrace)
+							leak.stack = FieldsCollector.#getFullStack(ev.stackTrace);
+						this.#consoleLeaks.push(leak);
 					}
 				} catch (err) {
 					this.#reportError(err, ['error checking for console leaks']);
@@ -999,7 +1027,7 @@ export class FieldsCollector extends BaseCollector {
 					this.#reportError(err, ['failed to observe node for DOM leaks', attrs]);
 				}
 
-			const stackTracer = new StackTracer(cdp);
+			const stackTracer             = new StackTracer(cdp);
 			stackTracer.onSourceMapLoaded = (sourceMapUrl, scriptUrl) =>
 				  this.#log?.debug('loaded source map', scriptUrl ? `for ${scriptUrl}` : sourceMapUrl.href);
 

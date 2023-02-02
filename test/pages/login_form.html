@@ -10,7 +10,7 @@ Welcome!
 <p><i>Filler text to trigger overflow in frame</i></p>
 
 <h1>Login</h1>
-<form action="logged_in.html" id="form" onsubmit="console.warn('Console leak', this.password)">
+<form action="logged_in.html" id="form" onsubmit="console.warn('Console leak', {password: this.password.value, nonJson: 1n})">
 	<input name="email" placeholder="email" type="email"/>
 	<input name="password" placeholder="password (leaks to console)" type="password"/>
 	<input type="submit"/>
