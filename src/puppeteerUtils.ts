@@ -20,7 +20,7 @@ import TypedArray = NodeJS.TypedArray;
 
 export function isNavigationError(err: unknown): boolean {
 	return err instanceof Error
-		  && /^Protocol error\b.*\b(?:Session closed|Target closed)|^Execution context was destroyed\b|^Execution context is not available in detached frame\b/i
+		  && /^Protocol error\b.*\b(?:Session closed|Target closed|Cannot find context with specified id)|^Execution context was destroyed\b|^Execution context is not available in detached frame\b/i
 				.test(err.message);
 }
 

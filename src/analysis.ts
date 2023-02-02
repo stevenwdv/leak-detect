@@ -9,6 +9,7 @@ import {DomainInfo, OutputFile, SavedCallEx} from './main';
 import {getElemIdentifierStr, selectorStr, stackFrameFileRegex} from './pageUtils';
 import {
 	ClickLinkEvent,
+	ConsoleLeak,
 	DomPasswordLeak,
 	ErrorInfo,
 	FillEvent,
@@ -90,6 +91,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 		fieldsData?.events ?? [],
 		fieldsData?.errors.map(error => ({type: 'error', time: error.time, error})) ?? [],
 		fieldsData?.domLeaks.map(leak => ({type: 'dom-leak', time: leak.time, leak})) ?? [],
+		fieldsData?.consoleLeaks.map(leak => ({type: 'console-leak', time: leak.time, leak})) ?? [],
 		relevantRequestLeaks.map(leak => ({
 			type: 'request-leak',
 			time: leak.visitedTarget?.time ?? leak.request!.wallTime,
@@ -152,6 +154,13 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 						  topUrl ? ` by script ${shortScriptUrl(topUrl)}` : ''}`);
 					break;
 				}
+				case 'console-leak': {
+					const {leak} = event as typeof event & { leak: ConsoleLeak };
+					const topUrl = leak.stack?.[0]?.url;
+					writeln(`\t\t${time(event.time)} ⚠️ 🔑 password written to console${
+						  topUrl ? ` by script ${shortScriptUrl(topUrl)}` : ''}`);
+					break;
+				}
 				case 'request-leak': {
 					const {leak} = event as typeof event & { leak: typeof relevantRequestLeaks[0] };
 					const url    = leak.request?.url ?? leak.visitedTarget!.url;
@@ -180,6 +189,19 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	}
 
 	if (fieldsData) {
+		if (fieldsData.consoleLeaks.length) {
+			writeln('═══ ⚠️ 🔑 Password was written to console: ═══\n');
+			for (const leak of fieldsData.consoleLeaks.sort((a, b) => a.time - b.time)) {
+				write(`${time(leak.time)} using console.${leak.type}: "${truncateLine(leak.message, 50)}"`);
+				if (nonEmpty(leak.stack)) {
+					writeln(' by:');
+					for (const frame of collapseStack(leak.stack))
+						writeln(`\t${frame}`);
+				}
+				writeln();
+			}
+			writeln('\nIf a script then collects console messages it might leak the password in a web request\n');
+		}
 		if (fieldsData.domLeaks.length) {
 			writeln('═══ ⚠️ 🔑 Password was written to the DOM: ═══\n');
 			for (const leak of fieldsData.domLeaks.sort((a, b) => a.time - b.time)) {
@@ -286,6 +308,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	const nrPasswordLeaks     = passwordLeaks.length,
 	      nrEmailLeaks        = emailLeaks.length,
 	      nrDomLeaks          = fieldsData?.domLeaks.length ?? 0,
+	      nrConsoleLeaks      = fieldsData?.consoleLeaks.length ?? 0,
 	      nrPasswordSniffs    = thirdPartySniffs.filter(s => s.custom.value === fieldsCollectorOptions.fill.email).length,
 	      nrEmailSniffs       = thirdPartySniffs.filter(s => s.custom.value === fieldsCollectorOptions.fill.password).length;
 	const uniqueLeaks         = (leaks: typeof passwordLeaks) => new Set(leaks.map(l => {
@@ -298,6 +321,7 @@ export function getSummary(output: OutputFile, fieldsCollectorOptions: FullField
 	if (nrPasswordLeaks) writeln(`🚨💧 ${nrPasswordLeaks} 🔑 password leaks to ${[...passwordLeakDomains].join(', ')}`);
 	if (nrEmailLeaks) writeln(`⚠️💧 ${nrEmailLeaks} 📧 email leaks to ${[...emailLeakDomains].join(', ')}`);
 	if (nrDomLeaks) writeln(`⚠️💧 ${nrDomLeaks} 🔑 password to DOM attribute leaks`);
+	if (nrConsoleLeaks) writeln(`⚠️💧 ${nrConsoleLeaks} 🔑 password to console leaks`);
 	if (nrPasswordSniffs) writeln(`⚠️🔍 ${nrPasswordSniffs} 🔑 password value sniffs${output.hasDomainInfo ? ' by third parties / trackers' : ''}`);
 	if (nrEmailSniffs) writeln(`ℹ️🔍 ${nrEmailSniffs} 📧 email value sniffs${output.hasDomainInfo ? ' by third parties / trackers' : ''}`);
 	if (!(nrPasswordLeaks || nrEmailLeaks || nrDomLeaks || nrPasswordSniffs || nrEmailSniffs))

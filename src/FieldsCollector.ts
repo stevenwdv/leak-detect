@@ -71,7 +71,7 @@ export class FieldsCollector extends BaseCollector {
 	/** Page function to inject leak-detect-inject */
 	static #injectFun: (debug: boolean) => void;
 	/** @return Newly injected? */
-	static #injectDomLeakDetectFun: (password: string) => boolean;
+	static #injectDomLeakDetectFun: (password: string[]) => boolean;
 
 	readonly options: FullFieldsCollectorOptions;
 	#log: Logger | undefined;
@@ -99,6 +99,7 @@ export class FieldsCollector extends BaseCollector {
 	/** Selectors of fully processed fields */
 	#processedFields                 = new Set<string>();
 	#domLeaks: DomPasswordLeak[]     = [];
+	#consoleLeaks: ConsoleLeak[]     = [];
 	#visitedTargets: VisitedTarget[] = [];
 	#errors: ErrorInfo[]             = [];
 
@@ -145,18 +146,15 @@ export class FieldsCollector extends BaseCollector {
 			}`) as (debug: boolean) => void;
 		})();
 
-		this.#injectDomLeakDetectFun ??= function doInjectDomLeakDetect(password: string) {
+		this.#injectDomLeakDetectFun ??= function doInjectDomLeakDetect(encodedPasswords: string[]) {
 			// noinspection JSNonStrictModeUsed
 			'use strict';
 			if (window[PageVars.DOM_OBSERVED] === true) return false;
 			window[PageVars.DOM_OBSERVED] = true;
 
-			const passwordSearch = [
-				password,
-				encodeURIComponent(password),
-				encodeURIComponent(encodeURIComponent(password)),
-				JSON.stringify(password),
-			];
+			function includesPassword(haystack: string) {
+				return encodedPasswords.some(p => haystack.includes(p));
+			}
 
 			const observer = new MutationObserver(mutations => {
 				try {
@@ -168,7 +166,7 @@ export class FieldsCollector extends BaseCollector {
 						  .filter(m => {
 							  if (!m.attributeName || !(m.target instanceof Element)) return false;
 							  const val = m.target.getAttribute(m.attributeName);
-							  return val && passwordSearch.some(p => val.includes(p));
+							  return val && includesPassword(val);
 						  })
 						  .map(m => ({
 							  selectorChain: window[PageVars.INJECTED].formSelectorChain(m.target as Element),
@@ -187,8 +185,7 @@ export class FieldsCollector extends BaseCollector {
 				if (node instanceof Element) {
 					if (checkExistingAttrs) {
 						const leakSelectors = [...node.attributes]
-							  .filter(attr => attr.value.includes(password)
-									|| attr.value.includes(JSON.stringify(password)))
+							  .filter(attr => includesPassword(attr.value))
 							  .map(attr => ({
 								  selectorChain: window[PageVars.INJECTED].formSelectorChain(node),
 								  attribute: attr.name,
@@ -221,6 +218,21 @@ export class FieldsCollector extends BaseCollector {
 		};
 	}
 
+	static #getFullStack(stack: Protocol.Runtime.StackTrace): StackFrame[] {
+		const fullStack: StackFrame[]                         = [];
+		let curStack: Protocol.Runtime.StackTrace | undefined = stack;
+		while (curStack) {
+			fullStack.push(...curStack.callFrames.map(frame => ({
+				url: frame.url,
+				function: frame.functionName,
+				line: frame.lineNumber + 1,
+				column: frame.columnNumber + 1,
+			})));
+			curStack = curStack.parent;
+		}
+		return fullStack;
+	}
+
 	override id() { return 'fields' as const; }
 
 	override init({log, url, context}: BaseCollector.CollectorInitOptions) {
@@ -246,6 +258,7 @@ export class FieldsCollector extends BaseCollector {
 		this.#fields.clear();
 		this.#processedFields.clear();
 		this.#domLeaks.length       = 0;
+		this.#consoleLeaks.length   = 0;
 		this.#visitedTargets.length = 0;
 		this.#errors.length         = 0;
 	}
@@ -316,10 +329,59 @@ export class FieldsCollector extends BaseCollector {
 					}
 				});
 
+			const encodedPasswords = this.#encodedPasswords();
+
+			const cdp = typedCDP(await newPage.target().createCDPSession());
+			cdp.on('Runtime.consoleAPICalled', ev => void (async () => {
+				try {
+					const res = await cdp.send('Runtime.callFunctionOn', {
+						executionContextId: ev.executionContextId,
+						functionDeclaration: ((...args: unknown[]) =>
+							  args.map(arg => {
+								  try {
+									  const str = JSON.stringify(arg);
+									  if (str !== '{}') return str;
+								  } catch {
+									  return JSON.stringify(Object.fromEntries(Object.getOwnPropertyNames(arg)
+										    .map(key => {
+												const val = (arg as Record<string, unknown>)[key];
+											    try {
+												    const str = JSON.stringify(val);
+												    if (str !== '{}') return [key, val];
+											    } catch {/*ignore*/}
+											    return [key, String(val)];
+										    })));
+								  }
+								  return String(arg);
+							  }).join(' ')).toString(),
+						arguments: ev.args,
+						silent: true,
+						returnByValue: true,
+					});
+					if (!res.exceptionDetails) {
+						const message = res.result.value as string;
+						if (encodedPasswords.some(p => message.includes(p))) {
+							this.#log?.info('🔓💧 Password leaked to console');
+							const leak: ConsoleLeak = {
+								time: ev.timestamp,
+								message,
+								type: ev.type,
+							};
+							if (ev.stackTrace)
+								leak.stack = FieldsCollector.#getFullStack(ev.stackTrace);
+							this.#consoleLeaks.push(leak);
+						}
+					}
+				} catch (err) {
+					this.#reportError(err, ['error checking for console leaks']);
+				}
+			})());
+			await cdp.send('Runtime.enable');
+
 			if (this.options.immediatelyInjectDomLeakDetection) {
 				if (tryAdd(this.#injectedDomLeakCallback, newPage))
 					await exposeFunction(newPage, PageVars.DOM_LEAK_CALLBACK, this.#domLeakCallback.bind(this));
-				await evaluateOnAll(FieldsCollector.#injectDomLeakDetectFun, this.options.fill.password);
+				await evaluateOnAll(FieldsCollector.#injectDomLeakDetectFun, encodedPasswords);
 			}
 		} catch (err) {
 			if (!isNavigationError(err))
@@ -360,6 +422,7 @@ export class FieldsCollector extends BaseCollector {
 			fields: [...this.#fields.values()],
 			links,
 			domLeaks: this.#domLeaks,
+			consoleLeaks: this.#consoleLeaks,
 			events: this.#events,
 			errors: this.#errors,
 		};
@@ -914,7 +977,7 @@ export class FieldsCollector extends BaseCollector {
 			if (tryAdd(this.#injectedDomLeakCallback, page))
 				await exposeFunction(page, PageVars.DOM_LEAK_CALLBACK, this.#domLeakCallback.bind(this));
 
-			await frame.evaluate(FieldsCollector.#injectDomLeakDetectFun, this.options.fill.password);
+			await frame.evaluate(FieldsCollector.#injectDomLeakDetectFun, this.#encodedPasswords());
 
 			const cdp          = typedCDP(await frame.page().target().createCDPSession());
 			const observeNodes = new Map([
@@ -1108,6 +1171,16 @@ export class FieldsCollector extends BaseCollector {
 		return this.#processedFields.size >= this.options.fill.maxFields;
 	}
 
+	#encodedPasswords(): string[] {
+		const password = this.options.fill.password;
+		return [
+			password,
+			encodeURIComponent(password),
+			encodeURIComponent(encodeURIComponent(password)),
+			JSON.stringify(password),
+		];
+	}
+
 	/** Called from an asynchronous page script when an error occurs */
 	#errorCallback(frameId: string | undefined | null, message: string, stack: string) {
 		this.#reportError({message, stack, toString() {return message;}},
@@ -1116,7 +1189,7 @@ export class FieldsCollector extends BaseCollector {
 	}
 
 	#reportError(error: unknown, context: unknown[], level: 'warn' | 'error' = 'error') {
-		if (level === 'warn' && isNavigationError(error)) {
+		if (isNavigationError(error)) {
 			// Do not regard warnings due to navigation etc. as errors
 			this.#log?.log(...context, error);
 		} else {
@@ -1350,6 +1423,13 @@ export interface DomPasswordLeak {
 	stack?: StackFrame[];
 }
 
+export interface ConsoleLeak {
+	time: number;
+	type: Protocol.Runtime.ConsoleAPICalledEvent['type'];
+	message: string;
+	stack?: StackFrame[];
+}
+
 export interface StackFrame {
 	/** Script URL. May be null for internal browser code */
 	url: string | null;
@@ -1444,6 +1524,7 @@ export interface FieldsCollectorData {
 	/** `null` on fail */
 	links: LinkElementAttrs[] | null;
 	domLeaks: DomPasswordLeak[];
+	consoleLeaks: ConsoleLeak[];
 	events: FieldsCollectorEvent[];
 	errors: ErrorInfo[];
 }
